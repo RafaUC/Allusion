@@ -345,13 +345,55 @@ class FileStore {
     }
   }
 
+  @action.bound private async getAllowedFilesFromTaggingService(
+    files: string[],
+  ): Promise<Set<string> | undefined> {
+    const taggingServiceURL = this.rootStore.uiStore.taggingServiceURL + '/allowed-files/';
+    const response = await fetch(taggingServiceURL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ files: files }),
+    }).catch((error) => {
+      throw new Error(`Error while requesting allowed files: ${error}`);
+    });
+
+    if (response.ok) {
+      try {
+        const responseData = await response.json();
+        if (responseData.allowed && Array.isArray(responseData.allowed)) {
+          const allowed = new Set<string>();
+          responseData.allowed.forEach((path: unknown) => {
+            if (typeof path === 'string') {
+              allowed.add(path);
+            }
+          });
+          return allowed;
+        } else {
+          console.error('Allowed files response error: no "allowed" key found.');
+        }
+      } catch (error) {
+        console.error('Allowed files error: response must be JSON.', error);
+      }
+    } else {
+      let errorBody;
+      try {
+        errorBody = await response.clone().json();
+      } catch {
+        errorBody = await response.text();
+      }
+      console.error('Allowed files request failed:', response.status, errorBody);
+    }
+  }
+
   @action.bound async tagSelectedFilesUsingTaggingService(): Promise<void> {
     if (this.isTaggingWithService) {
       return;
     }
     this.isTaggingWithService = true;
     const taggingServiceURL = this.rootStore.uiStore.taggingServiceURL;
-    const files = Array.from(this.rootStore.uiStore.fileSelection);
+    let files = Array.from(this.rootStore.uiStore.fileSelection);
     const numFiles = files.length;
     const isMulti = numFiles > 1;
     let successCount = 0;
@@ -383,6 +425,13 @@ class FileStore {
     };
 
     showProgressToaster(0);
+
+    // Try to get the Allowed files, in case of the service API does some filtering to skip unnecessary requests
+    const allowedFiles = await this.getAllowedFilesFromTaggingService(
+      files.map((f) => f.absolutePath),
+    ).catch((e) => console.error(e));
+    files =
+      allowedFiles === undefined ? files : files.filter((f) => allowedFiles.has(f.absolutePath));
     // Process files with only N jobs in parallel and a progress + cancel callback
     const N = this.rootStore.uiStore.taggingServiceParallelRequests;
     await promiseAllLimit(
