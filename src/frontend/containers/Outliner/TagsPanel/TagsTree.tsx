@@ -17,7 +17,6 @@ import {
 } from 'widgets/tree';
 import { ROOT_TAG_ID } from '../../../../api/tag';
 import { TagRemoval } from '../../../components/RemovalAlert';
-import { TagMerge } from '../../../containers/Outliner/TagsPanel/TagMerge';
 import { useStore } from '../../../contexts/StoreContext';
 import { DnDTagType, useTagDnD } from '../../../contexts/TagDnDContext';
 import { ClientTagSearchCriteria } from '../../../entities/SearchCriteria';
@@ -33,7 +32,6 @@ import { TagItemContextMenu } from './ContextMenu';
 import SearchButton from './SearchButton';
 import { Action, Factory, Flag, State, reducer } from './state';
 import { ID } from 'src/api/id';
-import { TagsMoveTo } from './TagsMoveTo';
 
 export class TagsTreeItemRevealer extends TreeItemRevealer {
   public static readonly instance: TagsTreeItemRevealer = new TagsTreeItemRevealer();
@@ -564,8 +562,6 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
     expansion: {},
     editableNode: undefined,
     deletableNode: undefined,
-    mergableNode: undefined,
-    movableNode: undefined,
   });
   const dndData = useTagDnD();
   const vTreeRef = useRef<VirtualizedTreeHandle>(null);
@@ -858,14 +854,6 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
           object={state.deletableNode}
           onClose={() => dispatch(Factory.abortDeletion())}
         />
-      )}
-
-      {state.mergableNode && (
-        <TagMerge tag={state.mergableNode} onClose={() => dispatch(Factory.abortMerge())} />
-      )}
-
-      {state.movableNode && (
-        <TagsMoveTo tag={state.movableNode} onClose={() => dispatch(Factory.abortMove())} />
       )}
     </MultiSplitPane>
   );

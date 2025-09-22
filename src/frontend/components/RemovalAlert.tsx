@@ -75,7 +75,7 @@ export const TagRemoval = observer((props: IRemovalProps<ClientTag>) => {
       information="Deleting tags or collections will permanently remove them from Allusion."
       body={
         tagsToRemove.length > 0 && (
-          <div id="tag-remove-overview">
+          <div id="tag-remove-overview" className="tag-overview">
             <p>Selected Tags</p>
             {tagsToRemove}
           </div>

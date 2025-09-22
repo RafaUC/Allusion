@@ -11,10 +11,6 @@ export const enum Flag {
   ExpandNode,
   ConfirmDeletion,
   AbortDeletion,
-  ConfirmMerge,
-  AbortMerge,
-  ConfirmMove,
-  AbortMove,
 }
 
 export interface ActionData<D> {
@@ -25,11 +21,8 @@ export interface ActionData<D> {
 export type Action =
   | IAction<Flag.InsertNode, ActionData<{ parent: ID; node: ID }>>
   | IAction<Flag.EnableEditing | Flag.ToggleNode | Flag.ExpandNode, ActionData<ID>>
-  | IAction<Flag.ConfirmDeletion | Flag.ConfirmMerge | Flag.ConfirmMove, ActionData<ClientTag>>
-  | IAction<
-      Flag.DisableEditing | Flag.AbortDeletion | Flag.AbortMerge | Flag.AbortMove,
-      ActionData<undefined>
-    >
+  | IAction<Flag.ConfirmDeletion, ActionData<ClientTag>>
+  | IAction<Flag.DisableEditing | Flag.AbortDeletion, ActionData<undefined>>
   | IAction<
       Flag.Expansion,
       ActionData<IExpansionState | ((prevState: IExpansionState) => IExpansionState)>
@@ -71,30 +64,12 @@ export const Factory = {
     flag: Flag.AbortDeletion,
     data: { source: undefined, data: undefined },
   }),
-  confirmMerge: (data: ClientTag): Action => ({
-    flag: Flag.ConfirmMerge,
-    data: { source: undefined, data },
-  }),
-  abortMerge: (): Action => ({
-    flag: Flag.AbortMerge,
-    data: { source: undefined, data: undefined },
-  }),
-  confirmMove: (data: ClientTag): Action => ({
-    flag: Flag.ConfirmMove,
-    data: { source: undefined, data },
-  }),
-  abortMove: (): Action => ({
-    flag: Flag.AbortMove,
-    data: { source: undefined, data: undefined },
-  }),
 };
 
 export type State = {
   expansion: IExpansionState;
   editableNode: ID | undefined;
   deletableNode: ClientTag | undefined;
-  mergableNode: ClientTag | undefined;
-  movableNode: ClientTag | undefined;
 };
 
 export function reducer(state: State, action: Action): State {
@@ -147,20 +122,6 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         deletableNode: action.data.data,
-      };
-
-    case Flag.ConfirmMerge:
-    case Flag.AbortMerge:
-      return {
-        ...state,
-        mergableNode: action.data.data,
-      };
-
-    case Flag.ConfirmMove:
-    case Flag.AbortMove:
-      return {
-        ...state,
-        movableNode: action.data.data,
       };
 
     default:

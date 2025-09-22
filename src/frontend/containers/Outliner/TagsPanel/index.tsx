@@ -9,6 +9,9 @@ import { ClientTagSearchCriteria } from '../../../entities/SearchCriteria';
 import { useAction } from '../../../hooks/mobx';
 import { comboMatches, getKeyCombo, parseKeyCombo } from '../../../hotkeyParser';
 import TagsTree from './TagsTree';
+import { TagPropertiesEditor } from './TagPropertiesEditor';
+import { TagsMoveTo } from './TagsMoveTo';
+import { TagMerge } from './TagMerge';
 
 // Tooltip info
 const enum TooltipInfo {
@@ -86,7 +89,14 @@ const TagsPanel = (props: Partial<MultiSplitPaneProps>) => {
     }
   });
 
-  return <TagsTree onKeyDown={handleShortcuts} {...props} />;
+  return (
+    <>
+      <TagsTree onKeyDown={handleShortcuts} {...props} />
+      <TagPropertiesEditor />
+      <TagMerge />
+      <TagsMoveTo />
+    </>
+  );
 };
 
 export default TagsPanel;

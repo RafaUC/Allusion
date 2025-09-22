@@ -9,20 +9,21 @@ import { TagSelector } from 'src/frontend/components/TagSelector';
 import { Placement } from '@floating-ui/core';
 import { AppToaster } from 'src/frontend/components/Toaster';
 
-interface TagMoveToProps {
-  tag: ClientTag;
-  onClose: () => void;
-}
-
 const FALLBACK_PLACEMENTS: Placement[] = ['bottom'];
 
-export const TagsMoveTo = observer(({ tag, onClose }: TagMoveToProps) => {
+export const TagsMoveTo = observer(() => {
   const { uiStore } = useStore();
   const [selectedTag, setSelectedTag] = useState<ClientTag>();
 
-  const ctxTags = uiStore.getTagContextItems(tag.id);
+  const tag = uiStore.tagToMove;
+  const ctxTags = uiStore.getTagContextItems(tag?.id);
+  const isOpen = tag !== undefined;
   const isMulti = ctxTags.length > 1;
   const plur = isMulti ? 's' : '';
+
+  const onClose = () => {
+    uiStore.closeTagMovePanel();
+  };
 
   const handleMove = () => {
     let count = 0;
@@ -47,9 +48,13 @@ export const TagsMoveTo = observer(({ tag, onClose }: TagMoveToProps) => {
     onClose();
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <Dialog
-      open
+      open={isOpen}
       title={`Move Tag${plur} Into Another Tag`}
       icon={IconSet.TAG_GROUP}
       onCancel={onClose}
@@ -66,15 +71,17 @@ export const TagsMoveTo = observer(({ tag, onClose }: TagMoveToProps) => {
           <div id="tag-move-overview">
             <label className="dialog-label">Tag{plur} to move:</label>
             <br />
-            {ctxTags.map((tag) => (
-              <Tag key={tag.id} text={tag.name} color={tag.viewColor} isHeader={tag.isHeader} />
-            ))}
+            <div className="tag-overview">
+              {ctxTags.map((tag) => (
+                <Tag key={tag.id} text={tag.name} color={tag.viewColor} isHeader={tag.isHeader} />
+              ))}
+            </div>
           </div>
 
           <br />
 
           <label className="dialog-label" htmlFor="tag-move-picker">
-            Move to
+            Move To
           </label>
           <TagSelector
             fallbackPlacements={FALLBACK_PLACEMENTS}

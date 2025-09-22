@@ -140,8 +140,8 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         onClick={tag.toggleHidden}
       />
       <MenuItem
-        onClick={() => dispatch(Factory.confirmMerge(tag))}
-        text="Merge with"
+        onClick={() => uiStore.openTagMergePanel(tag)}
+        text="Merge With"
         icon={IconSet.TAG_GROUP}
         disabled={ctxTags.some((tag) => tag.subTags.length > 0)}
       />
@@ -186,7 +186,7 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         disabled={pos === tag.parent.subTags.length}
       />
       <MenuItem
-        onClick={() => dispatch(Factory.confirmMove(tag))}
+        onClick={() => uiStore.openTagMovePanel(tag)}
         text="Move To"
         icon={IconSet.TAG_GROUP}
       />

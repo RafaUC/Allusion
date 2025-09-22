@@ -228,8 +228,11 @@ class UiStore {
   @observable isMoveFilesToTrashOpen: boolean = false;
   /** Dialog to warn the user when he tries to open too many files externally */
   @observable isManyExternalFilesOpen: boolean = false;
-  /** the tag selected to edit in a Dialog */
+
+  /* Tags selected to use in a tag operation dialog panel */
   @observable tagToEdit: ClientTag | undefined = undefined;
+  @observable tagToMerge: ClientTag | undefined = undefined;
+  @observable tagToMove: ClientTag | undefined = undefined;
 
   // Usage preferences
   @observable isClearTagSelectorsOnSelectEnabled: boolean = false;
@@ -658,6 +661,22 @@ class UiStore {
     } else {
       this.closeTagPropertiesEditor();
     }
+  }
+
+  @action.bound openTagMergePanel(tag: ClientTag): void {
+    this.tagToMerge = tag;
+  }
+
+  @action.bound closeTagMergePanel(): void {
+    this.tagToMerge = undefined;
+  }
+
+  @action.bound openTagMovePanel(tag: ClientTag): void {
+    this.tagToMove = tag;
+  }
+
+  @action.bound closeTagMovePanel(): void {
+    this.tagToMove = undefined;
   }
 
   @action.bound closeManyExternalFiles(): void {
