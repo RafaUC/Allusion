@@ -1,8 +1,8 @@
 import { OrderDirection } from '../src/api/data-storage-search';
 import { FileDTO } from '../src/api/file';
 import { ROOT_TAG_ID, TagDTO } from '../src/api/tag';
-import Backend from '../src/backend/backend';
-import { dbInit } from '../src/backend/config';
+import Backend from '../src/backend/_deprecated/backend';
+import { dbInit } from '../src/backend/_deprecated/config';
 
 describe('Backend', () => {
   let TEST_DATABASE_ID_COUNTER = 0;

@@ -3,27 +3,12 @@ import { exportDB, importDB, peakImportFile } from 'dexie-export-import';
 import fse from 'fs-extra';
 import path from 'path';
 
-import { debounce } from '../../common/timeout';
-import { DataBackup } from '../api/data-backup';
+import { debounce } from '../../../common/timeout';
+import { DataBackup } from '../../api/data-backup';
 import { AUTO_BACKUP_TIMEOUT, NUM_AUTO_BACKUPS } from './config';
+import { getToday, getWeekStart } from 'common/core';
 
-/** Returns the date at 00:00 today */
-function getToday(): Date {
-  const today = new Date();
-  today.setHours(0);
-  today.setMinutes(0);
-  today.setSeconds(0, 0);
-  return today;
-}
-
-/** Returns the date at the start of the current week (Sunday at 00:00) */
-function getWeekStart(): Date {
-  const date = getToday();
-  const dayOfWeek = date.getDay();
-  date.setDate(date.getDate() - dayOfWeek);
-  return date;
-}
-
+/** @deprecated */
 export default class BackupScheduler implements DataBackup {
   #db: Dexie;
   #backupDirectory: string = '';

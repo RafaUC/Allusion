@@ -1,9 +1,9 @@
 import Dexie, { Transaction } from 'dexie';
 import fse from 'fs-extra';
 
-import { FileDTO } from '../api/file';
+import { FileDTO } from '../../api/file';
 import { TagDTO } from 'src/api/tag';
-import { ID } from '../api/id';
+import { ID } from '../../api/id';
 import { ExtraProperties, ExtraPropertyType } from 'src/api/extraProperty';
 import { LocationDTO, SubLocationDTO } from 'src/api/location';
 
@@ -273,6 +273,7 @@ type DBVersioningConfig = {
 };
 
 /**
+ * @deprecated
  * A function that should be called before using the database.
  * It initializes the object stores
  */

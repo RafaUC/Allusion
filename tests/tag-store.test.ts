@@ -1,5 +1,5 @@
-import Backend from '../src/backend/backend';
-import { dbInit } from '../src/backend/config';
+import Backend from '../src/backend/_deprecated/backend';
+import { dbInit } from '../src/backend/_deprecated/config';
 import TagStore from '../src/frontend/stores/TagStore';
 
 describe('TagStore', () => {

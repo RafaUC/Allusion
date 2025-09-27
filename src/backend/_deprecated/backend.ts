@@ -1,7 +1,7 @@
 import Dexie, { Collection, IndexableType, Table, WhereClause } from 'dexie';
 
-import { retainArray, shuffleArray } from '../../common/core';
-import { DataStorage } from '../api/data-storage';
+import { retainArray, shuffleArray } from '../../../common/core';
+import { DataStorage } from '../../api/data-storage';
 import {
   ArrayConditionDTO,
   BaseIndexSignature,
@@ -17,17 +17,18 @@ import {
   isExtraPropertyOperatorType,
   isNumberOperator,
   isStringOperator,
-} from '../api/data-storage-search';
-import { FileDTO } from '../api/file';
-import { FileSearchDTO } from '../api/file-search';
-import { ID } from '../api/id';
-import { LocationDTO } from '../api/location';
-import { ROOT_TAG_ID, TagDTO } from '../api/tag';
-import { ExtraPropertyDTO, ExtraPropertyType } from '../api/extraProperty';
+} from '../../api/data-storage-search';
+import { FileDTO } from '../../api/file';
+import { FileSearchDTO } from '../../api/file-search';
+import { ID } from '../../api/id';
+import { LocationDTO } from '../../api/location';
+import { ROOT_TAG_ID, TagDTO } from '../../api/tag';
+import { ExtraPropertyDTO, ExtraPropertyType } from '../../api/extraProperty';
 
 const USE_TIMING_PROXY = false;
 
 /**
+ * @deprecated
  * The backend of the application serves as an API, even though it runs on the same machine.
  * This helps code organization by enforcing a clear separation between backend/frontend logic.
  * Whenever we want to change things in the backend, this should have no consequences in the frontend.

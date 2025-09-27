@@ -16,7 +16,7 @@ import { IS_DEV } from 'common/process';
 import { promiseRetry } from 'common/timeout';
 import { IS_PREVIEW_WINDOW, WINDOW_STORAGE_KEY } from 'common/window';
 import { RendererMessenger } from 'src/ipc/renderer';
-import Backend from './backend/backend';
+import Backend from './backend/_deprecated/backend';
 import App from './frontend/App';
 import SplashScreen from './frontend/containers/SplashScreen';
 import StoreProvider from './frontend/contexts/StoreContext';
@@ -25,8 +25,8 @@ import PreviewApp from './frontend/Preview';
 import { FILE_STORAGE_KEY } from './frontend/stores/FileStore';
 import RootStore from './frontend/stores/RootStore';
 import { PREFERENCES_STORAGE_KEY } from './frontend/stores/UiStore';
-import BackupScheduler from './backend/backup-scheduler';
-import { DB_NAME, dbInit } from './backend/config';
+import BackupScheduler from './backend/_deprecated/backup-scheduler';
+import { DB_NAME, dbInit } from './backend/_deprecated/config';
 
 async function main(): Promise<void> {
   // Render our react components in the div with id 'app' in the html file

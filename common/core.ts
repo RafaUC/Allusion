@@ -70,3 +70,20 @@ export function normalizeBase(str: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 }
+
+/** Returns the date at 00:00 today */
+export function getToday(): Date {
+  const today = new Date();
+  today.setHours(0);
+  today.setMinutes(0);
+  today.setSeconds(0, 0);
+  return today;
+}
+
+/** Returns the date at the start of the current week (Sunday at 00:00) */
+export function getWeekStart(): Date {
+  const date = getToday();
+  const dayOfWeek = date.getDay();
+  date.setDate(date.getDate() - dayOfWeek);
+  return date;
+}
