@@ -24,13 +24,15 @@ import { IS_DEV, IS_MAC } from '../common/process';
 import { TagDTO, ROOT_TAG_ID } from './api/tag';
 import { MainMessenger } from './ipc/main';
 import { WindowSystemButtonPress } from './ipc/messages';
+import { DB_NAME } from './backend/config';
+import Backend from './backend/backend';
 
 // TODO: change this when running in portable mode, see portable-improvements branch
 const basePath = app.getPath('userData');
 
 const preferencesFilePath = path.join(basePath, 'preferences.json');
 const windowStateFilePath = path.join(basePath, 'windowState.json');
-const logFilePath = path.join(basePath, 'app.log');
+const databaseFilePath = path.join(basePath, 'databases', `${DB_NAME}.sqlite`);
 
 type PreferencesFile = {
   checkForUpdatesOnStartup?: boolean;
@@ -45,6 +47,7 @@ let mainWindow: BrowserWindow | null = null;
 let previewWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let clipServer: ClipServer | null = null;
+let backend: Backend | null = null;
 
 function initialize() {
   console.log('Initializing Allusion...');
@@ -75,6 +78,7 @@ function initialize() {
     }
   });
 
+  createBackend();
   createWindow();
   createPreviewWindow();
 
@@ -95,6 +99,10 @@ function initialize() {
   } catch (e) {
     console.error(e);
   }
+}
+
+async function createBackend(): Promise<void> {
+  backend = await Backend.init(databaseFilePath, () => {});
 }
 
 function createWindow() {

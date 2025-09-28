@@ -43,7 +43,8 @@ let mainConfig = {
     ],
   },
   externals: {
-    fsevents: "require('fsevents')"
+    fsevents: "require('fsevents')",
+    'better-sqlite3': 'commonjs better-sqlite3',
   }
 };
 
@@ -123,7 +124,8 @@ let rendererConfig = {
     }),
   ],
   externals: {
-    fsevents: "require('fsevents')"
+    fsevents: "require('fsevents')",
+    'better-sqlite3': 'commonjs better-sqlite3',
   }
 };
 
