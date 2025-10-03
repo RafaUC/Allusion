@@ -17,6 +17,7 @@ import {
 import { FileDTO } from '../../api/file';
 import { ID } from '../../api/id';
 import {
+  CriteriaValueType,
   IBaseSearchCriteria,
   IDateSearchCriteria,
   IExtraProperySearchCriteria,
@@ -65,16 +66,12 @@ export const ExtraPropertyOperatorLabels: Record<ExtraPropertyOperatorType, stri
 
 export abstract class ClientFileSearchCriteria implements IBaseSearchCriteria {
   @observable public key: keyof FileDTO;
-  @observable public valueType: 'number' | 'date' | 'string' | 'array' | 'indexSignature';
+  @observable public valueType: CriteriaValueType;
   @observable public operator: OperatorType;
 
   private disposers: Lambda[] = [];
 
-  constructor(
-    key: keyof FileDTO,
-    valueType: 'number' | 'date' | 'string' | 'array' | 'indexSignature',
-    operator: OperatorType,
-  ) {
+  constructor(key: keyof FileDTO, valueType: CriteriaValueType, operator: OperatorType) {
     this.key = key;
     this.valueType = valueType;
     this.operator = operator;

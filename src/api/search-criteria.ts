@@ -25,10 +25,12 @@ export type OperatorType =
   | StringOperatorType
   | BinaryOperatorType;
 
+export type CriteriaValueType = 'number' | 'date' | 'string' | 'array' | 'indexSignature';
+
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1
 export interface IBaseSearchCriteria {
   key: keyof FileDTO;
-  valueType: 'number' | 'date' | 'string' | 'array' | 'indexSignature';
+  valueType: CriteriaValueType;
   readonly operator: OperatorType;
 }
 

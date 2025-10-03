@@ -10,7 +10,7 @@ import {
 } from 'mobx';
 import Path from 'path';
 
-import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { FILE_TAGS_SORTING_TYPE, FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
 import ImageLoader from '../image/ImageLoader';
 import FileStore from '../stores/FileStore';
@@ -65,7 +65,7 @@ export class ClientFile {
   readonly dateAdded: Date;
   readonly dateCreated: Date;
   readonly dateModified: Date;
-  readonly OrigDateModified: Date;
+  readonly dateModifiedOS: Date;
   readonly dateLastIndexed: Date;
   readonly name: string;
   readonly extension: IMG_EXTENSIONS_TYPE;
@@ -73,6 +73,7 @@ export class ClientFile {
   readonly filename: string;
 
   @observable thumbnailPath: string = '';
+  @observable tagsSorting: FILE_TAGS_SORTING_TYPE;
 
   // Is undefined until existence check has been completed
   @observable isBroken?: boolean;
@@ -90,10 +91,11 @@ export class ClientFile {
     this.dateAdded = fileProps.dateAdded;
     this.dateCreated = fileProps.dateCreated;
     this.dateModified = fileProps.dateModified;
-    this.OrigDateModified = fileProps.OrigDateModified;
+    this.dateModifiedOS = fileProps.dateModifiedOS || new Date('2000-01-01T00:00:00Z');
     this.dateLastIndexed = fileProps.dateLastIndexed;
     this.name = fileProps.name;
     this.extension = fileProps.extension;
+    this.tagsSorting = fileProps.tagsSorting || 'hierarchy';
 
     const location = store.getLocation(this.locationId);
     this.absolutePath = Path.join(location.path, this.relativePath);
@@ -266,6 +268,7 @@ export class ClientFile {
       relativePath: this.relativePath,
       absolutePath: this.absolutePath,
       tags: Array.from(this.tags, (t) => t.id), // removes observable properties from observable array
+      tagsSorting: this.tagsSorting,
       extraPropertyIDs: extraPropertyIDs,
       extraProperties: extraProperties,
       size: this.size,
@@ -274,7 +277,7 @@ export class ClientFile {
       dateAdded: this.dateAdded,
       dateCreated: this.dateCreated,
       dateModified: this.dateModified,
-      OrigDateModified: this.OrigDateModified,
+      dateModifiedOS: this.dateModifiedOS,
       dateLastIndexed: this.dateLastIndexed,
       name: this.name,
       extension: this.extension,

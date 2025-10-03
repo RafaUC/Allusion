@@ -10,6 +10,7 @@ export type FileDTO = {
   relativePath: string;
   absolutePath: string;
   tags: ID[];
+  tagsSorting: FILE_TAGS_SORTING_TYPE;
   /** used only for index on dexie */
   extraPropertyIDs: ID[];
   extraProperties: ExtraProperties;
@@ -17,11 +18,11 @@ export type FileDTO = {
   dateAdded: Date;
   /** When the file was modified in Allusion, not related to OS modified date */
   dateModified: Date;
-  /** Original dateModified for checking when searching for overwritten files
+  /** Original OS dateModified for checking when searching for overwritten files
    * If the system's modified date is not the same, it means the file has been overwritten or another file with the same name
    * overwritten in place of the previous one, and the thumbnail and metadata needs to be updated.
    */
-  OrigDateModified: Date;
+  dateModifiedOS: Date;
   /**
    * When the file was last indexed in Allusion: concerning the metadata and thumbnail.
    * If the system's modified date of the file exceeds this date, those properties shoudld be re-initialized
@@ -67,3 +68,6 @@ export const IMG_EXTENSIONS = [
   'ogg',
 ] as const;
 export type IMG_EXTENSIONS_TYPE = (typeof IMG_EXTENSIONS)[number];
+
+export const FILE_TAGS_SORTING = ['insertion', 'hierarchy'] as const;
+export type FILE_TAGS_SORTING_TYPE = (typeof FILE_TAGS_SORTING)[number];

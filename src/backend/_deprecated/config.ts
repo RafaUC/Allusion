@@ -148,7 +148,7 @@ const dbConfig: DBVersioningConfig[] = [
       tx.table('files')
         .toCollection()
         .modify((file: FileDTO) => {
-          file.OrigDateModified = file.dateAdded;
+          file.dateModifiedOS = file.dateAdded;
           return file;
         });
     },

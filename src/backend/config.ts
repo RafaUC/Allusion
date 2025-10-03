@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { Kysely, Migrator, FileMigrationProvider, Migration, MigrationProvider } from 'kysely';
-import { Database } from './schemaTypes';
+import { AllusionDB_SQL } from './schemaTypes';
 
 export const DB_NAME = 'Allusion';
 
@@ -13,12 +13,12 @@ export const AUTO_BACKUP_TIMEOUT = 1000 * 60 * 10; // 10 minutes
 class InlineMigrationProvider implements MigrationProvider {
   async getMigrations(): Promise<Record<string, Migration>> {
     return {
-      '001_initial': await import('./migrations/000_initial'),
+      '000_initial': await import('./migrations/000_initial'),
     };
   }
 }
 
-export async function migrateToLatest(db: Kysely<Database>): Promise<void> {
+export async function migrateToLatest(db: Kysely<AllusionDB_SQL>): Promise<void> {
   const migrator = new Migrator({
     db,
     provider: new InlineMigrationProvider(),

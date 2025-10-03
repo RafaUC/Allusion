@@ -1,13 +1,13 @@
-import { Database } from './schemaTypes';
+import { AllusionDB_SQL } from './schemaTypes';
 import SQLite from 'better-sqlite3';
 import { Kysely, SqliteDialect, CamelCasePlugin } from 'kysely';
 import { migrateToLatest } from './config';
 
 export default class Backend {
-  #db: Kysely<Database>;
+  #db: Kysely<AllusionDB_SQL>;
   #notifyChange: () => void;
 
-  constructor(db: Kysely<Database>, notifyChange: () => void) {
+  constructor(db: Kysely<AllusionDB_SQL>, notifyChange: () => void) {
     this.#db = db;
 
     this.#notifyChange = notifyChange;
@@ -18,7 +18,7 @@ export default class Backend {
     const dialect = new SqliteDialect({
       database: new SQLite(dbPath),
     });
-    const db = new Kysely<Database>({
+    const db = new Kysely<AllusionDB_SQL>({
       dialect: dialect,
       plugins: [new CamelCasePlugin()],
     });
