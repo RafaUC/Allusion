@@ -308,6 +308,7 @@ export const ExternalAppMenuItems = observer(({ file }: { file: ClientFile }) =>
 
 export const FileTagMenuItems = observer(({ file, tag }: { file?: ClientFile; tag: ClientTag }) => {
   const { uiStore } = useStore();
+  const ctxTags = uiStore.getTagContextItems(tag.id);
   return (
     <>
       <MenuItem
@@ -322,8 +323,19 @@ export const FileTagMenuItems = observer(({ file, tag }: { file?: ClientFile; ta
         icon={IconSet.EDIT}
       />
       <MenuItem
+        onClick={() => uiStore.openTagMovePanel(tag)}
+        text="Move Tag To"
+        icon={IconSet.TAG_GROUP}
+      />
+      <MenuItem
+        onClick={() => uiStore.openTagMergePanel(tag)}
+        text="Merge Tag With"
+        icon={IconSet.TAG_GROUP}
+        disabled={ctxTags.some((tag) => tag.subTags.length > 0)}
+      />
+      <MenuItem
         onClick={() => file && file.removeTag(tag)}
-        text="Unassign Tag from File"
+        text="Unassign Tag From File"
         icon={IconSet.TAG_BLANCO}
       />
     </>
@@ -338,6 +350,7 @@ export const EditorTagSummaryItems = ({
   beforeSelect: () => void;
 }) => {
   const { uiStore } = useStore();
+  const ctxTags = uiStore.getTagContextItems(tag.id);
   return (
     <>
       <MenuItem
@@ -355,6 +368,17 @@ export const EditorTagSummaryItems = ({
         }}
         text="Edit Tag"
         icon={IconSet.EDIT}
+      />
+      <MenuItem
+        onClick={() => uiStore.openTagMovePanel(tag)}
+        text="Move To"
+        icon={IconSet.TAG_GROUP}
+      />
+      <MenuItem
+        onClick={() => uiStore.openTagMergePanel(tag)}
+        text="Merge With"
+        icon={IconSet.TAG_GROUP}
+        disabled={ctxTags.some((tag) => tag.subTags.length > 0)}
       />
     </>
   );

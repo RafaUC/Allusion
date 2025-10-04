@@ -3,12 +3,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button, IconSet, Tag } from 'widgets';
 import { Dialog } from 'widgets/popovers';
-import { ClientTag } from '../../entities/Tag';
+import { ClientTag } from '../../../entities/Tag';
 import { TagSelector } from 'src/frontend/components/TagSelector';
 import { Placement } from '@floating-ui/core';
 import { computed } from 'mobx';
 import { InfoButton } from 'widgets/notifications';
-import { ColorPickerMenu, TagVisibilityMenu } from './TagsPanel/ContextMenu';
+import { ColorPickerMenu, TagVisibilityMenu } from './ContextMenu';
 import { Menu, MenuCheckboxItem } from 'widgets/menus';
 import { useStore } from 'src/frontend/contexts/StoreContext';
 

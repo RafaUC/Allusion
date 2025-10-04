@@ -1,36 +1,36 @@
 import { observer } from 'mobx-react-lite';
 import React, { useEffect, useState } from 'react';
 
-import { Button, Checkbox, IconSet, Tag } from 'widgets';
+import { Button, IconSet, Tag } from 'widgets';
 import { Dialog } from 'widgets/popovers';
 import { useStore } from '../../../contexts/StoreContext';
 import { ClientTag } from '../../../entities/Tag';
 import { Placement } from '@floating-ui/core';
 import { TagSelector } from 'src/frontend/components/TagSelector';
-import { Menu, MenuCheckboxItem } from 'widgets/menus';
-
-interface TagMergeProps {
-  tag: ClientTag;
-  onClose: () => void;
-}
+import { MenuCheckboxItem } from 'widgets/menus';
 
 const ADD_AS_ALIAS_ID = 'merge-add-as-alias';
 const FALLBACK_PLACEMENTS: Placement[] = ['bottom'];
 
 /** this component is only shown when all tags in the context do not have child-tags */
-export const TagMerge = observer(({ tag, onClose }: TagMergeProps) => {
+export const TagMerge = observer(() => {
   const { tagStore, uiStore } = useStore();
+  const [selectedTag, setSelectedTag] = useState<ClientTag>();
   const [addAsAliasEnabled, setAddAsAlias] = useState(
     localStorage.getItem(ADD_AS_ALIAS_ID) == 'true',
   );
 
+  const tag = uiStore.tagToMerge;
+  const isOpen = tag !== undefined;
+  const ctxTags = uiStore.getTagContextItems(tag?.id);
+
+  const onClose = () => {
+    uiStore.closeTagMergePanel();
+  };
+
   useEffect(() => {
     localStorage.setItem(ADD_AS_ALIAS_ID, JSON.stringify(addAsAliasEnabled));
   }, [addAsAliasEnabled]);
-
-  const ctxTags = uiStore.getTagContextItems(tag.id);
-
-  const [selectedTag, setSelectedTag] = useState<ClientTag>();
 
   const mergingWithSelf = ctxTags.some((t) => t.id === selectedTag?.id);
 
@@ -45,9 +45,13 @@ export const TagMerge = observer(({ tag, onClose }: TagMergeProps) => {
 
   const plur = ctxTags.length === 1 ? '' : 's';
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <Dialog
-      open
+      open={isOpen}
       title={`Merge Tag${plur} With`}
       icon={IconSet.TAG_GROUP}
       onCancel={onClose}
@@ -61,9 +65,11 @@ export const TagMerge = observer(({ tag, onClose }: TagMergeProps) => {
           <div id="tag-merge-overview">
             <label className="dialog-label">Tag{plur} to merge:</label>
             <br />
-            {ctxTags.map((tag) => (
-              <Tag key={tag.id} text={tag.name} color={tag.viewColor} isHeader={tag.isHeader} />
-            ))}
+            <div className="tag-overview">
+              {ctxTags.map((tag) => (
+                <Tag key={tag.id} text={tag.name} color={tag.viewColor} isHeader={tag.isHeader} />
+              ))}
+            </div>
           </div>
 
           <br />
@@ -75,7 +81,7 @@ export const TagMerge = observer(({ tag, onClose }: TagMergeProps) => {
           <br />
 
           <label className="dialog-label" htmlFor="tag-merge-picker">
-            Merge with
+            Merge With
           </label>
           <TagSelector
             fallbackPlacements={FALLBACK_PLACEMENTS}
