@@ -17,6 +17,7 @@ import { promiseRetry } from 'common/timeout';
 import { IS_PREVIEW_WINDOW, WINDOW_STORAGE_KEY } from 'common/window';
 import { RendererMessenger } from 'src/ipc/renderer';
 import Backend from './backend/_deprecated/backend';
+import BackendTest from './backend/backend';
 import App from './frontend/App';
 import SplashScreen from './frontend/containers/SplashScreen';
 import StoreProvider from './frontend/contexts/StoreContext';
@@ -27,6 +28,7 @@ import RootStore from './frontend/stores/RootStore';
 import { PREFERENCES_STORAGE_KEY } from './frontend/stores/UiStore';
 import BackupScheduler from './backend/_deprecated/backup-scheduler';
 import { DB_NAME, dbInit } from './backend/_deprecated/config';
+import path from 'path';
 
 async function main(): Promise<void> {
   // Render our react components in the div with id 'app' in the html file
@@ -52,6 +54,11 @@ async function main(): Promise<void> {
 async function runMainApp(db: Dexie, root: Root): Promise<void> {
   const defaultBackupDirectory = await RendererMessenger.getDefaultBackupDirectory();
   const backup = new BackupScheduler(db, defaultBackupDirectory);
+
+  const basePath = await RendererMessenger.getPath('userData');
+  const databaseTestFilePath = path.join(basePath, 'databases', `${DB_NAME}.sqlite`);
+  const testbackend = BackendTest.init(databaseTestFilePath, () => {});
+
   const [backend] = await Promise.all([
     Backend.init(db, () => backup.schedule()),
     fse.ensureDir(defaultBackupDirectory),

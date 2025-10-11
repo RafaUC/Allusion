@@ -14,6 +14,7 @@ class InlineMigrationProvider implements MigrationProvider {
   async getMigrations(): Promise<Record<string, Migration>> {
     return {
       '000_initial': await import('./migrations/000_initial'),
+      '001_migrateJSON': await import('./migrations/001_migrateJSON'),
     };
   }
 }

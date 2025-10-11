@@ -12,7 +12,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('tags')
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
-    .addColumn('parent_id', 'text')
+    .addColumn('parent_id', 'text', (col) => col.notNull())
     .addColumn('idx', 'integer', (col) => col.notNull())
     .addColumn('name', 'text', (col) => col.notNull())
     .addColumn('date_added', 'timestamp', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
@@ -43,28 +43,28 @@ export async function up(db: Kysely<any>): Promise<void> {
 
   //// LOCATIONS ////
   await db.schema
-    .createTable('location_node')
+    .createTable('location_nodes')
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
     .addColumn('parent_id', 'text')
     .addColumn('path', 'text', (col) => col.notNull())
-    .addForeignKeyConstraint('fk_location_node_parent', ['parent_id'], 'location_node', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_location_node_parent', ['parent_id'], 'location_nodes', ['id'], (cb) => cb.onDelete('cascade'))
     .addUniqueConstraint('uq_location_node_parent_path', ['parent_id', 'path'])
     .execute();
 
   await db.schema
-    .createTable('location')
+    .createTable('locations')
     .addColumn('node_id', 'text', (col) => col.primaryKey().notNull())
     .addColumn('date_added', 'timestamp', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
     .addColumn('idx', 'integer', (col) => col.notNull())
     .addColumn('is_watching_files', 'boolean', (col) => col.notNull().defaultTo(0))
-    .addForeignKeyConstraint('fk_location_node', ['node_id'], 'location_node', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_location_node', ['node_id'], 'location_nodes', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
 
   await db.schema
-    .createTable('sub_location')
+    .createTable('sub_locations')
     .addColumn('node_id', 'text', (col) => col.primaryKey().notNull())
     .addColumn('is_excluded', 'boolean', (col) => col.notNull().defaultTo(0))
-    .addForeignKeyConstraint('fk_sub_location_node', ['node_id'], 'location_node', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_sub_location_node', ['node_id'], 'location_nodes', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
 
   await db.schema
@@ -72,7 +72,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('node_id', 'text', (col) => col.notNull())
     .addColumn('tag_id', 'text', (col) => col.notNull())
     .addPrimaryKeyConstraint('pk_location_tags', ['node_id', 'tag_id'])
-    .addForeignKeyConstraint('fk_location_tags_node', ['node_id'], 'location_node', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_location_tags_node', ['node_id'], 'location_nodes', ['id'], (cb) => cb.onDelete('cascade'))
     .addForeignKeyConstraint('fk_location_tags_tag', ['tag_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
 
@@ -95,7 +95,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('width', 'integer')
     .addColumn('height', 'integer')
     .addColumn('date_created', 'timestamp')
-    .addForeignKeyConstraint('fk_files_location', ['location_id'], 'location', ['node_id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_files_location', ['location_id'], 'locations', ['node_id'], (cb) => cb.onDelete('cascade'))
     .addUniqueConstraint('uq_location_node_parent_path', ['location_id', 'relative_path'])
     .addUniqueConstraint('uq_absolute_path', ['relative_path'])
     .execute();
@@ -118,8 +118,8 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addForeignKeyConstraint('fk_file_tags_file', ['file_id'], 'files', ['id'], (cb) => cb.onDelete('cascade'))
     .addForeignKeyConstraint('fk_file_tags_tag', ['tag_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
-  await db.schema.createIndex('idx_file_tags_tag').on('file_tags').column('tag_id').execute();
-  await db.schema.createIndex('idx_file_tags_file').on('file_tags').column('file_id').execute();
+  //await db.schema.createIndex('idx_file_tags_tag').on('file_tags').column('tag_id').execute();
+  //await db.schema.createIndex('idx_file_tags_file').on('file_tags').column('file_id').execute();
 
   //// EXTRA PROPERTIES ////
   await db.schema
@@ -179,7 +179,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .execute();
 
   await db.schema
-    .createTable('search_criterias')
+    .createTable('search_criteria')
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
     .addColumn('saved_search_id', 'text', (col) => col.notNull())
     .addColumn('idx', 'integer', (col) => col.notNull())
@@ -188,7 +188,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('value_type', 'text', (col) => col.notNull())
     .addColumn('operator', 'text', (col) => col.notNull())
     .addColumn('json_value', 'text', (col) => col.notNull())
-    .addForeignKeyConstraint('fk_search_criterias_saved_search', ['saved_search_id'], 'saved_searches', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_search_criteria_saved_search', ['saved_search_id'], 'saved_searches', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
 }
 
@@ -219,7 +219,7 @@ export async function down(db: Kysely<any>): Promise<void> {
   await db.schema.dropIndex('idx_files_extension').execute();
   await db.schema.dropIndex('idx_files_name').execute();
 
-  await db.schema.dropTable('search_criterias').execute();
+  await db.schema.dropTable('search_criteria').execute();
   await db.schema.dropTable('saved_searches').execute();
   await db.schema.dropTable('ep_values_timestamp').execute();
   await db.schema.dropTable('ep_values_number').execute();
@@ -228,9 +228,9 @@ export async function down(db: Kysely<any>): Promise<void> {
   await db.schema.dropTable('file_tags').execute();
   await db.schema.dropTable('files').execute();
   await db.schema.dropTable('location_tags').execute();
-  await db.schema.dropTable('sub_location').execute();
-  await db.schema.dropTable('location').execute();
-  await db.schema.dropTable('location_node').execute();
+  await db.schema.dropTable('sub_locations').execute();
+  await db.schema.dropTable('locations').execute();
+  await db.schema.dropTable('location_nodes').execute();
   await db.schema.dropTable('tag_aliases').execute();
   await db.schema.dropTable('tag_implications').execute();
   await db.schema.dropTable('tags').execute();

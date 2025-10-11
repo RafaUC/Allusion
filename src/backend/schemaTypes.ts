@@ -16,13 +16,20 @@ import { ID } from '../api/id';
 import { CriteriaValueType, OperatorType } from 'src/api/search-criteria';
 import { FILE_TAGS_SORTING_TYPE, FileDTO } from 'src/api/file';
 
+export type BooleanAsNumber = number;
+export const serializeBoolean = (value: boolean): number => (value ? 1 : 0);
+export const deserializeBoolean = (value: number): boolean => value === 1;
+export type DateAsNumber = number;
+export const serializeDate = (value: Date): number => value.getTime();
+export const deserializeDate = (value: number): Date => new Date(value);
+
 export type AllusionDB_SQL = {
   tags: Tags;
   tagImplications: TagImplications;
   tagAliases: TagAliases;
-  locationNode: LocationNode;
-  location: Location;
-  subLocation: SubLocation;
+  locationNodes: LocationNodes;
+  locations: Locations;
+  subLocations: SubLocations;
   locationTags: LocationTags;
   files: Files;
   fileTags: FileTags;
@@ -31,7 +38,7 @@ export type AllusionDB_SQL = {
   epValuesNumber: EpValuesNumber;
   epValuesTimestamp: EpValuesTimestamp;
   savedSearches: SavedSearches;
-  searchCriterias: SearchCriterias;
+  searchCriteria: SearchCriteria;
 };
 
 ///// TAGS /////
@@ -41,11 +48,11 @@ export type Tags = {
   parentId: ID; //fk
   idx: number;
   name: string;
-  dateAdded: ColumnType<Date, Date, never>;
+  dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
   color: string;
-  isHidden: boolean;
-  isVisibleInherited: boolean;
-  isHeader: boolean;
+  isHidden: BooleanAsNumber;
+  isVisibleInherited: BooleanAsNumber;
+  isHeader: BooleanAsNumber;
   description: string;
 };
 
@@ -61,22 +68,22 @@ export type TagAliases = {
 
 /// LOCATIONS ///
 
-export type LocationNode = {
+export type LocationNodes = {
   id: ColumnType<ID, ID, never>; //pk
   parentId: ID; //fk
   path: string;
 };
 
-export type Location = {
+export type Locations = {
   nodeId: ID; //pk fk
-  dateAdded: ColumnType<Date, Date, never>;
+  dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
   idx: number;
-  isWatchingFiles: boolean;
+  isWatchingFiles: BooleanAsNumber;
 };
 
-export type SubLocation = {
+export type SubLocations = {
   nodeId: ID; //pk fk
-  isExcluded: boolean;
+  isExcluded: BooleanAsNumber;
 };
 
 export type LocationTags = {
@@ -93,16 +100,16 @@ export type Files = {
   relativePath: string;
   absolutePath: string;
   tagSorting: FILE_TAGS_SORTING_TYPE;
-  dateAdded: ColumnType<Date, Date, never>;
-  dateModified: Date;
-  DateModifiedOS: Date;
-  dateLastIndexed: Date;
+  dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
+  dateModified: DateAsNumber;
+  dateModifiedOS: DateAsNumber;
+  dateLastIndexed: DateAsNumber;
   name: string;
   extension: string;
   size: number;
   width: number;
   height: number;
-  dateCreated: Date;
+  dateCreated: DateAsNumber;
 };
 
 export type FileTags = {
@@ -116,7 +123,7 @@ export type ExtraProperties = {
   id: ColumnType<ID, ID, never>; //pk
   type: string;
   name: string;
-  dateAdded: ColumnType<Date, Date, never>;
+  dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
 };
 
 type EpValues<T> = {
@@ -127,7 +134,7 @@ type EpValues<T> = {
 
 export type EpValuesText = EpValues<string>;
 export type EpValuesNumber = EpValues<number>;
-export type EpValuesTimestamp = EpValues<Date>;
+export type EpValuesTimestamp = EpValues<DateAsNumber>;
 
 /// SAVED SEARCHES ///
 
@@ -137,7 +144,7 @@ export type SavedSearches = {
   idx: number;
 };
 
-export type SearchCriterias = {
+export type SearchCriteria = {
   id: ColumnType<ID, ID, never>; //pk
   savedSearchId: ID; //fk
   idx: number;

@@ -32,7 +32,6 @@ const basePath = app.getPath('userData');
 
 const preferencesFilePath = path.join(basePath, 'preferences.json');
 const windowStateFilePath = path.join(basePath, 'windowState.json');
-const databaseFilePath = path.join(basePath, 'databases', `${DB_NAME}.sqlite`);
 
 type PreferencesFile = {
   checkForUpdatesOnStartup?: boolean;
@@ -47,7 +46,6 @@ let mainWindow: BrowserWindow | null = null;
 let previewWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let clipServer: ClipServer | null = null;
-let backend: Backend | null = null;
 
 function initialize() {
   console.log('Initializing Allusion...');
@@ -78,7 +76,6 @@ function initialize() {
     }
   });
 
-  createBackend();
   createWindow();
   createPreviewWindow();
 
@@ -99,10 +96,6 @@ function initialize() {
   } catch (e) {
     console.error(e);
   }
-}
-
-async function createBackend(): Promise<void> {
-  backend = await Backend.init(databaseFilePath, () => {});
 }
 
 function createWindow() {
