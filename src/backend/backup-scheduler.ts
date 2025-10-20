@@ -2,12 +2,11 @@ import { promises as fs } from 'fs';
 import { Insertable, InsertObject, Kysely, sql } from 'kysely';
 import { generateId, ID } from 'src/api/id';
 import { ROOT_TAG_ID } from 'src/api/tag';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   AllusionDB_SQL,
-  EpValuesNumber,
-  EpValuesText,
-  EpValuesTimestamp,
   ExtraProperties,
+  EpValues,
   Files,
   FileTags,
   LocationNodes,
@@ -22,6 +21,7 @@ import {
   TagAliases,
 } from './schemaTypes';
 import { ExtraPropertyType } from 'src/api/extraProperty';
+import { computeBatchSize, getSqliteMaxVariables } from './backend';
 
 const fallbackIds = {
   tag: 'fallback_tag',
@@ -46,27 +46,51 @@ export async function restoreFromOldJsonFormat(
     json.data.data.map((table: any) => [table.tableName, table.rows]),
   );
 
-  const saveEntries = async <
-    TableName extends keyof AllusionDB_SQL, // nombre de tabla (clave)
-  >(
+  const MAX_VARS = await getSqliteMaxVariables(db);
+  console.log(`MAX_VARS: ${MAX_VARS}`);
+
+  const saveEntries = async <TableName extends keyof AllusionDB_SQL>(
     entityName: TableName,
     entries: InsertObject<AllusionDB_SQL, TableName>[],
   ) => {
     let errors = 0;
-    console.log(`Importing ${entries.length} ${entityName} from old format.`);
+    const batchSize = computeBatchSize(MAX_VARS, entries.find(Boolean));
+    const MAX_RETRIES = 5;
+    const BASE_DELAY_MS = 100;
+    console.log(
+      `Importing ${entries.length} ${entityName} from old format. (Batch size: ${batchSize})`,
+    );
     await db.transaction().execute(async (trx) => {
-      const batchSize = 2000;
       for (let i = 0; i < entries.length; i += batchSize) {
-        try {
-          const batch = entries.slice(i, i + batchSize);
-          await trx
-            .insertInto(entityName)
-            .values(batch)
-            .onConflict((oc) => oc.doNothing())
-            .execute();
-        } catch (err) {
-          console.warn(`Insert ${entityName} error`, err);
-          errors += batchSize;
+        const batch = entries.slice(i, i + batchSize);
+
+        let attempt = 0;
+        while (true) {
+          try {
+            await trx
+              .insertInto(entityName)
+              .values(batch)
+              .onConflict((oc) => oc.doNothing())
+              .execute();
+            // If success breack the while
+            break;
+          } catch (err: any) {
+            if (err.code === 'SQLITE_BUSY' && attempt < MAX_RETRIES) {
+              const wait = BASE_DELAY_MS * Math.pow(2, attempt);
+              console.warn(
+                `SQLITE_BUSY on ${entityName} (batch ${
+                  i / batchSize + 1
+                }). Retrying in ${wait} ms... (attempt ${attempt + 1}/${MAX_RETRIES})`,
+              );
+              attempt++;
+              await delay(wait);
+              continue; // retry
+            }
+
+            console.warn(`❌ Error al insertar ${entityName}`, err);
+            errors += batchSize;
+            break; // stop retry loop for this batch
+          }
         }
       }
     });
@@ -121,7 +145,7 @@ export async function restoreFromOldJsonFormat(
     .values({
       id: fallbackIds.extraProperty,
       name: 'Fallback Property',
-      type: 'text',
+      type: ExtraPropertyType.text,
       dateAdded: serializeDate(new Date()),
     })
     .onConflict((oc) => oc.doNothing())
@@ -156,16 +180,11 @@ export async function restoreFromOldJsonFormat(
   await saveEntries('extraProperties', extraProperties);
 
   // Import files
-  const { files, fileTags, epValText, epValNumber, epValTime } = normalizeFiles(
-    tables.files ?? [],
-    extraProperties,
-  );
+  const { files, fileTags, epVal } = normalizeFiles(tables.files ?? [], extraProperties);
 
   await saveEntries('files', files);
   await saveEntries('fileTags', fileTags);
-  await saveEntries('epValuesText', epValText);
-  await saveEntries('epValuesNumber', epValNumber);
-  await saveEntries('epValuesTimestamp', epValTime);
+  await saveEntries('epValues', epVal);
 
   // Import seved searches
   const { savedSearches, searchCriteria } = normalizeSavedSearches(tables.searches ?? []);
@@ -190,11 +209,6 @@ export async function restoreFromOldJsonFormat(
 
   console.log('Dexie backup import completed successfully.');
   console.log('====================================================');
-}
-
-export async function down(_: Kysely<any>): Promise<void> {
-  // No rollback for imports, maybe delete fallback and imported data
-  void _;
 }
 
 function normalizeTags(tags: any[]) {
@@ -223,7 +237,8 @@ function normalizeTags(tags: any[]) {
 
   const normalizedTags = tags.map((tag) => ({
     id: tag.id ?? generateId(),
-    parentId: (parentMap.get(tag.id)?.at(0) ?? fallbackIds.tag) as ID,
+    parentId:
+      tag.id === ROOT_TAG_ID ? null : ((parentMap.get(tag.id)?.at(0) ?? fallbackIds.tag) as ID),
     idx: (parentMap.get(tag.id)?.at(1) ?? 0) as number,
     name: tag.name ?? '(untitled)',
     color: tag.color ?? '',
@@ -249,7 +264,7 @@ function normalizeLocations(sourcelocations: any[]) {
     isRoot: boolean,
   ) {
     const nodeId = node.id ?? generateId();
-    const parentIdvalue = isRoot ? nodeId : parentId;
+    const parentIdvalue = isRoot ? null : parentId;
     const pathValue = isRoot ? node.path ?? '' : node.name ?? '';
     // Insert into locationNodes
     locationNodes.push({
@@ -293,9 +308,7 @@ function normalizeLocations(sourcelocations: any[]) {
 function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraProperties>[]) {
   const files: Insertable<Files>[] = [];
   const fileTags: Insertable<FileTags>[] = [];
-  const epValText: Insertable<EpValuesText>[] = [];
-  const epValNumber: Insertable<EpValuesNumber>[] = [];
-  const epValTime: Insertable<EpValuesTimestamp>[] = [];
+  const epVal: Insertable<EpValues>[] = [];
 
   for (const file of sourceFiles) {
     const fileId = file.id ?? generateId();
@@ -314,7 +327,11 @@ function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraPro
       dateAdded: serializeDate(file.dateAdded ? new Date(file.dateAdded) : new Date()),
       dateModified: serializeDate(file.dateModified ? new Date(file.dateModified) : new Date()),
       dateModifiedOS: serializeDate(
-        file.dateModifiedOS ? new Date(file.dateModifiedOS) : new Date(),
+        file.OrigDateModified
+          ? new Date(file.OrigDateModified)
+          : file.dateModifiedOS
+          ? new Date(file.dateModifiedOS)
+          : new Date(),
       ),
       dateLastIndexed: serializeDate(
         file.dateLastIndexed ? new Date(file.dateLastIndexed) : new Date(),
@@ -339,29 +356,23 @@ function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraPro
         if (value !== undefined && value !== null) {
           const epType = epRow?.type ?? typeof value;
           if (epType === 'number') {
-            epValNumber.push({
+            epVal.push({
               fileId,
               epId,
-              value: value,
-            });
-          } else if (epType === 'timestamp' || value instanceof Date) {
-            epValTime.push({
-              fileId,
-              epId,
-              value: serializeDate(value),
+              numberValue: value,
             });
           } else {
-            epValText.push({
+            epVal.push({
               fileId,
               epId,
-              value: value,
+              textValue: value,
             });
           }
         }
       }
     }
   }
-  return { files, fileTags, epValText, epValNumber, epValTime };
+  return { files, fileTags, epVal };
 }
 
 function normalizeSavedSearches(sourceSearches: any[]) {

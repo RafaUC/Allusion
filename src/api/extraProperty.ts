@@ -3,6 +3,7 @@ import { ID } from './id';
 export enum ExtraPropertyType {
   text = 'text',
   number = 'number',
+  //timestamp = 'timestamp',
 }
 
 //ToDo: Only support number and string for now, more types could be added in the future.

@@ -147,7 +147,7 @@ export class ClientTag {
       visited = new Set<ClientTag>(),
       path = new Set<ClientTag>(),
     ): Generator<ClientTag> {
-      if (path.has(tag)) {
+      if (path.has(tag) && tag.id !== ROOT_TAG_ID) {
         tag.store.showTagToast(
           tag,
           'has circular relations with other tags',
@@ -179,7 +179,7 @@ export class ClientTag {
       visited = new Set<ClientTag>(),
       path = new Set<ClientTag>(),
     ): Generator<ClientTag> {
-      if (path.has(tag)) {
+      if (path.has(tag) && tag.id !== ROOT_TAG_ID) {
         tag.store.showTagToast(
           tag,
           'has circular implied relations with other tags',

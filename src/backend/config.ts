@@ -1,6 +1,4 @@
-import * as path from 'path';
-import { promises as fs } from 'fs';
-import { Kysely, Migrator, FileMigrationProvider, Migration, MigrationProvider } from 'kysely';
+import { Kysely, Migrator, Migration, MigrationProvider } from 'kysely';
 import { AllusionDB_SQL } from './schemaTypes';
 
 export const DB_NAME = 'Allusion';
@@ -8,6 +6,10 @@ export const DB_NAME = 'Allusion';
 export const NUM_AUTO_BACKUPS = 6;
 
 export const AUTO_BACKUP_TIMEOUT = 1000 * 60 * 10; // 10 minutes
+
+export const USE_BACKEND_AS_WORKER = false;
+
+export const PAD_STRING_LENGTH = 10;
 
 //Register the migrations here.
 class InlineMigrationProvider implements MigrationProvider {

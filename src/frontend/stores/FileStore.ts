@@ -1,5 +1,6 @@
 import fse from 'fs-extra';
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { getThumbnailPath } from 'common/fs';
 import { promiseAllLimit } from 'common/promise';
@@ -28,8 +29,11 @@ import {
 import { InheritedTagsVisibilityModeType } from './UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
+import { USE_BACKEND_AS_WORKER } from 'src/backend/config';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
+
+type FetchArgs = [OrderBy<FileDTO>, OrderDirection, boolean, string];
 
 /** These fields are stored and recovered when the application opens up */
 type PersistentPreferenceFields =
@@ -711,11 +715,18 @@ class FileStore {
    * of `fetchTaskIdPair` with the current timestamp to uniquely identify the task.
    * @returns The generated fetch ID (timestamp)
    */
-  @action.bound newFetchTaskId(): number {
+  @action.bound async newFetchTaskId(): Promise<number> {
     this.numLoadedFiles = 0;
     const now = performance.now();
     this.fetchTaskIdPair[0] = now;
     this.fetchTaskIdPair[1] = 1;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!USE_BACKEND_AS_WORKER && this.activeAverageFetchTime > 2000) {
+      // If the backend is not in a worker and the fetch is heavy
+      // Apply a small delay to give time to the progressbar
+      // to start the animation before the backend blocks the tread.
+      await delay(600);
+    }
     return now;
   }
 
@@ -731,18 +742,22 @@ class FileStore {
     }
   }
 
+  @action.bound getFetchArgs(): FetchArgs {
+    return [
+      this.orderBy,
+      this.orderDirection,
+      this.isNaturalOrderingEnabled,
+      this.orderByExtraProperty,
+    ];
+  }
+
   @action.bound async fetchAllFiles(): Promise<void> {
     try {
       this.setContentAll();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
+      const start = await this.newFetchTaskId();
       this.rootStore.uiStore.clearSearchCriteriaList();
-      const fetchedFiles = await this.backend.fetchFiles(
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-      );
+      const fetchedFiles = await this.backend.fetchFiles(...this.getFetchArgs());
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
@@ -761,18 +776,16 @@ class FileStore {
     try {
       this.setContentUntagged();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
+      const start = await this.newFetchTaskId();
       const { uiStore } = this.rootStore;
+      const { searchMatchAny } = uiStore;
       uiStore.clearSearchCriteriaList();
       const criteria = new ClientTagSearchCriteria('tags');
       uiStore.searchCriteriaList.push(criteria);
       const fetchedFiles = await this.backend.searchFiles(
         criteria.toCondition(this.rootStore),
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-        uiStore.searchMatchAny,
+        ...this.getFetchArgs(),
+        searchMatchAny,
       );
       const end = performance.now();
       this.setAverageFetchTime(end - start);
@@ -791,26 +804,17 @@ class FileStore {
   @action.bound async fetchMissingFiles(): Promise<void> {
     try {
       const {
-        orderBy,
-        orderDirection,
-        isNaturalOrderingEnabled,
-        orderByExtraProperty,
         rootStore: { uiStore },
       } = this;
 
       this.setContentMissing();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
+      const start = await this.newFetchTaskId();
       uiStore.clearSearchCriteriaList();
 
       // Fetch all files, then check their existence and only show the missing ones
       // Similar to {@link updateFromBackend}, but the existence check needs to be awaited before we can show the images
-      const backendFiles = await this.backend.fetchFiles(
-        orderBy,
-        orderDirection,
-        isNaturalOrderingEnabled,
-        orderByExtraProperty,
-      );
+      const backendFiles = await this.backend.fetchFiles(...this.getFetchArgs());
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
@@ -879,7 +883,7 @@ class FileStore {
 
   @action.bound async fetchFilesByQuery(): Promise<void> {
     const { uiStore } = this.rootStore;
-
+    const { searchMatchAny } = uiStore;
     if (uiStore.searchCriteriaList.length === 0) {
       return this.fetchAllFiles();
     }
@@ -890,14 +894,11 @@ class FileStore {
     try {
       this.setContentQuery();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
+      const start = await this.newFetchTaskId();
       const fetchedFiles = await this.backend.searchFiles(
         criterias as [ConditionDTO<FileDTO>, ...ConditionDTO<FileDTO>[]],
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-        uiStore.searchMatchAny,
+        ...this.getFetchArgs(),
+        searchMatchAny,
       );
       const end = performance.now();
       this.setAverageFetchTime(end - start);

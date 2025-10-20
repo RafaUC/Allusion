@@ -12,7 +12,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('tags')
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
-    .addColumn('parent_id', 'text', (col) => col.notNull())
+    .addColumn('parent_id', 'text')
     .addColumn('idx', 'integer', (col) => col.notNull())
     .addColumn('name', 'text', (col) => col.notNull())
     .addColumn('date_added', 'timestamp', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
@@ -23,6 +23,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('description', 'text')
     .addForeignKeyConstraint('fk_tag_parent', ['parent_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
+  await db.schema.createIndex('idx_tags_parent').on('tags').column('parent_id').execute();
 
   await db.schema
     .createTable('tag_implications')
@@ -96,7 +97,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('height', 'integer')
     .addColumn('date_created', 'timestamp')
     .addForeignKeyConstraint('fk_files_location', ['location_id'], 'locations', ['node_id'], (cb) => cb.onDelete('cascade'))
-    .addUniqueConstraint('uq_location_node_parent_path', ['location_id', 'relative_path'])
     .addUniqueConstraint('uq_absolute_path', ['relative_path'])
     .execute();
   // await db.schema.createIndex('idx_files_name').on('files').column('name').execute();
@@ -118,8 +118,8 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addForeignKeyConstraint('fk_file_tags_file', ['file_id'], 'files', ['id'], (cb) => cb.onDelete('cascade'))
     .addForeignKeyConstraint('fk_file_tags_tag', ['tag_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
-  //await db.schema.createIndex('idx_file_tags_tag').on('file_tags').column('tag_id').execute();
-  //await db.schema.createIndex('idx_file_tags_file').on('file_tags').column('file_id').execute();
+  await db.schema.createIndex('idx_file_tags_tag').on('file_tags').column('tag_id').execute();
+  await db.schema.createIndex('idx_file_tags_file').on('file_tags').column('file_id').execute();
 
   //// EXTRA PROPERTIES ////
   await db.schema
@@ -131,44 +131,19 @@ export async function up(db: Kysely<any>): Promise<void> {
     .execute();
 
   await db.schema
-    .createTable('ep_values_text')
+    .createTable('ep_values')
     .addColumn('file_id', 'text', (col) => col.notNull())
     .addColumn('ep_id', 'text', (col) => col.notNull())
-    .addColumn('value', 'text', (col) => col.notNull())
+    .addColumn('text_value', 'text')
+    .addColumn('number_value', 'integer')
+    .addColumn('timestamp_value', 'timestamp')
     .addPrimaryKeyConstraint('pk_ep_values_text', ['file_id', 'ep_id'])
     .addForeignKeyConstraint('fk_ep_values_text_file', ['file_id'], 'files', ['id'], (cb) => cb.onDelete('cascade'))
     .addForeignKeyConstraint('fk_ep_values_text_ep', ['ep_id'], 'extra_properties', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
-  await db.schema.createIndex('idx_ep_values_text_file').on('ep_values_text').column('file_id').execute();
-  await db.schema.createIndex('idx_ep_values_text_value').on('ep_values_text').column('value').execute();
-  await db.schema.createIndex('idx_ep_values_text_ep').on('ep_values_text').column('ep_id').execute();
-
-
-  await db.schema
-    .createTable('ep_values_number')
-    .addColumn('file_id', 'text', (col) => col.notNull())
-    .addColumn('ep_id', 'text', (col) => col.notNull())
-    .addColumn('value', 'integer', (col) => col.notNull())
-    .addPrimaryKeyConstraint('pk_ep_values_number', ['file_id', 'ep_id'])
-    .addForeignKeyConstraint('fk_ep_values_number_file', ['file_id'], 'files', ['id'], (cb) => cb.onDelete('cascade'))
-    .addForeignKeyConstraint('fk_ep_values_number_ep', ['ep_id'], 'extra_properties', ['id'], (cb) => cb.onDelete('cascade'))
-    .execute();
-  await db.schema.createIndex('idx_ep_values_number_file').on('ep_values_number').column('file_id').execute();
-  await db.schema.createIndex('idx_ep_values_number_value').on('ep_values_number').column('value').execute();
-  await db.schema.createIndex('idx_ep_values_number_ep').on('ep_values_number').column('ep_id').execute();
-
-  await db.schema
-    .createTable('ep_values_timestamp')
-    .addColumn('file_id', 'text', (col) => col.notNull())
-    .addColumn('ep_id', 'text', (col) => col.notNull())
-    .addColumn('value', 'timestamp', (col) => col.notNull())
-    .addPrimaryKeyConstraint('pk_ep_values_timestamp', ['file_id', 'ep_id'])
-    .addForeignKeyConstraint('fk_ep_values_timestamp_file', ['file_id'], 'files', ['id'], (cb) => cb.onDelete('cascade'))
-    .addForeignKeyConstraint('fk_ep_values_timestamp_ep', ['ep_id'], 'extra_properties', ['id'], (cb) => cb.onDelete('cascade'))
-    .execute();
-  await db.schema.createIndex('idx_ep_values_timestamp_file').on('ep_values_timestamp').column('file_id').execute();
-  await db.schema.createIndex('idx_ep_values_timestamp_value').on('ep_values_timestamp').column('value').execute();
-  await db.schema.createIndex('idx_ep_values_timestamp_ep').on('ep_values_timestamp').column('ep_id').execute();
+  await db.schema.createIndex('idx_ep_values_text_value').ifNotExists().on('ep_values').column('text_value').execute();
+  await db.schema.createIndex('idx_ep_values_number_value').ifNotExists().on('ep_values').column('number_value').execute();
+  await db.schema.createIndex('idx_ep_values_timestamp_value').ifNotExists().on('ep_values').column('timestamp_value').execute();
 
   //// SAVED SEARCHES ////
   await db.schema
@@ -193,6 +168,7 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
+  /*
   await db.schema.dropIndex('idx_ep_values_text_file').execute();
   await db.schema.dropIndex('idx_ep_values_text_value').execute();
   await db.schema.dropIndex('idx_ep_values_text_ep').execute();
@@ -218,7 +194,7 @@ export async function down(db: Kysely<any>): Promise<void> {
   await db.schema.dropIndex('idx_files_size').execute();
   await db.schema.dropIndex('idx_files_extension').execute();
   await db.schema.dropIndex('idx_files_name').execute();
-
+*/
   await db.schema.dropTable('search_criteria').execute();
   await db.schema.dropTable('saved_searches').execute();
   await db.schema.dropTable('ep_values_timestamp').execute();

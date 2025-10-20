@@ -20,9 +20,8 @@ export async function getLastJsonBackupPath(): Promise<string> {
   return stats.reduce((a, b) => (a.mtime > b.mtime ? a : b)).path;
 }
 
-
 export async function up(db: Kysely<any>): Promise<void> {
-  restoreFromOldJsonFormat(db, await getLastJsonBackupPath());
+  await restoreFromOldJsonFormat(db, await getLastJsonBackupPath());
 }
 
 export async function down(_: Kysely<any>): Promise<void> {

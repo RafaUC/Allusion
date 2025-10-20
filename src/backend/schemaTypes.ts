@@ -9,12 +9,15 @@
  * Note: These are only TypeScript types. Updating them will not update the database automatically.
  * To apply changes to the actual schema you must manually write Kysely migrations,
  * ensuring that the database schema is kept in sync with this definitions.
+ *
+ * Note: All index properties are named idx because index is a reserved keyword in SQLite.
  */
 
 import { ColumnType } from 'kysely';
 import { ID } from '../api/id';
 import { CriteriaValueType, OperatorType } from 'src/api/search-criteria';
-import { FILE_TAGS_SORTING_TYPE, FileDTO } from 'src/api/file';
+import { FILE_TAGS_SORTING_TYPE, FileDTO, IMG_EXTENSIONS_TYPE } from 'src/api/file';
+import { ExtraPropertyType } from 'src/api/extraProperty';
 
 export type BooleanAsNumber = number;
 export const serializeBoolean = (value: boolean): number => (value ? 1 : 0);
@@ -34,9 +37,7 @@ export type AllusionDB_SQL = {
   files: Files;
   fileTags: FileTags;
   extraProperties: ExtraProperties;
-  epValuesText: EpValuesText;
-  epValuesNumber: EpValuesNumber;
-  epValuesTimestamp: EpValuesTimestamp;
+  epValues: EpValues;
   savedSearches: SavedSearches;
   searchCriteria: SearchCriteria;
 };
@@ -45,7 +46,7 @@ export type AllusionDB_SQL = {
 
 export type Tags = {
   id: ColumnType<ID, ID, never>; //pk
-  parentId: ID; //fk
+  parentId: ID | null; //fk
   idx: number;
   name: string;
   dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
@@ -70,7 +71,7 @@ export type TagAliases = {
 
 export type LocationNodes = {
   id: ColumnType<ID, ID, never>; //pk
-  parentId: ID; //fk
+  parentId: ID | null; //fk
   path: string;
 };
 
@@ -105,7 +106,7 @@ export type Files = {
   dateModifiedOS: DateAsNumber;
   dateLastIndexed: DateAsNumber;
   name: string;
-  extension: string;
+  extension: IMG_EXTENSIONS_TYPE;
   size: number;
   width: number;
   height: number;
@@ -121,20 +122,18 @@ export type FileTags = {
 
 export type ExtraProperties = {
   id: ColumnType<ID, ID, never>; //pk
-  type: string;
+  type: ExtraPropertyType;
   name: string;
   dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
 };
 
-type EpValues<T> = {
+export type EpValues = {
   fileId: ID; //pk fk
   epId: ID; //pk fk
-  value: T;
+  textValue: string | null;
+  numberValue: number | null;
+  timestampValue: DateAsNumber | null;
 };
-
-export type EpValuesText = EpValues<string>;
-export type EpValuesNumber = EpValues<number>;
-export type EpValuesTimestamp = EpValues<DateAsNumber>;
 
 /// SAVED SEARCHES ///
 
