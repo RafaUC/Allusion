@@ -260,7 +260,6 @@ export class ClientFile {
       ([extraProperty, value]) => [extraProperty.id, value],
     );
     const extraProperties: ExtraProperties = Object.fromEntries(entries);
-    const extraPropertyIDs = entries.map(([id]) => id);
     return {
       id: this.id,
       ino: this.ino,
@@ -269,7 +268,6 @@ export class ClientFile {
       absolutePath: this.absolutePath,
       tags: Array.from(this.tags, (t) => t.id), // removes observable properties from observable array
       tagsSorting: this.tagsSorting,
-      extraPropertyIDs: extraPropertyIDs,
       extraProperties: extraProperties,
       size: this.size,
       width: this.width,

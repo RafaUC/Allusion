@@ -98,7 +98,7 @@ const isExpanded = (nodeData: ClientLocation | ClientSubLocation, treeData: ITre
 const pathAsSearchPath = (path: string) => `${path}${SysPath.sep}`;
 
 const pathCriteria = (path: string) =>
-  new ClientStringSearchCriteria('absolutePath', pathAsSearchPath(path), 'startsWith');
+  new ClientStringSearchCriteria(undefined, 'absolutePath', pathAsSearchPath(path), 'startsWith');
 
 const customKeys = (
   search: (path: string) => void,

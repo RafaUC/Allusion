@@ -1,4 +1,4 @@
-import { Kysely, Migrator, Migration, MigrationProvider } from 'kysely';
+import { Kysely, Migrator, Migration, MigrationProvider, Logger, LogEvent } from 'kysely';
 import { AllusionDB_SQL } from './schemaTypes';
 
 export const DB_NAME = 'Allusion';
@@ -42,3 +42,17 @@ export async function migrateToLatest(db: Kysely<AllusionDB_SQL>): Promise<void>
     console.error(error);
   }
 }
+
+export const kyselyLogger: Logger = (event: LogEvent): void => {
+  if (event.level === 'query') {
+    console.log('SQL:', event.query.sql);
+    console.log('Parameters:', event.query.parameters);
+    console.log('Duration:', event.queryDurationMillis, 'ms');
+  }
+
+  if (event.level === 'error') {
+    console.error('SQL Error:', event.error);
+    console.error('Failed Query:', event.query.sql);
+    console.error('Parameters:', event.query.parameters);
+  }
+};

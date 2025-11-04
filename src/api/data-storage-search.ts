@@ -13,6 +13,8 @@ export const enum OrderDirection {
   Desc,
 }
 
+export type SearchConjunction = 'and' | 'or';
+
 // General search criteria for a database entity
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1
 
@@ -40,6 +42,7 @@ export type IndexSignatureConditionDTO<T, A> = BaseConditionDTO<
 
 type BaseConditionDTO<T, O, V, VT> = {
   key: ExtractKeyByValue<T, V>;
+  conjunction?: SearchConjunction;
   operator: O;
   value: V;
   valueType: VT;

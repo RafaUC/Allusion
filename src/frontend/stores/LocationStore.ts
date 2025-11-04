@@ -316,9 +316,6 @@ class LocationStore {
               ...match,
               tags: Array.from(new Set([...missingFiles[i].tags, ...match.tags])),
               extraProperties: { ...missingFiles[i].extraProperties, ...match.extraProperties },
-              extraPropertyIDs: Array.from(
-                new Set([...missingFiles[i].extraPropertyIDs, ...match.extraPropertyIDs]),
-              ),
             });
           }
         }
@@ -645,12 +642,18 @@ class LocationStore {
    * Fetches the files belonging to a location
    */
   @action async findLocationFiles(locationId: ID): Promise<FileDTO[]> {
-    const crit = new ClientStringSearchCriteria('locationId', locationId, 'equals').toCondition();
+    const crit = new ClientStringSearchCriteria(
+      undefined,
+      'locationId',
+      locationId,
+      'equals',
+    ).toCondition();
     return this.backend.searchFiles(crit, 'id', OrderDirection.Asc, false);
   }
 
   @action async removeSublocationFiles(subLoc: ClientSubLocation): Promise<void> {
     const crit = new ClientStringSearchCriteria(
+      undefined,
       'absolutePath',
       subLoc.path,
       'startsWith',
@@ -705,7 +708,6 @@ export async function pathToIFile(
     locationId: loc.id,
     tags: [],
     tagsSorting: 'hierarchy',
-    extraPropertyIDs: [],
     extraProperties: {},
     dateAdded: now,
     dateModified: now,

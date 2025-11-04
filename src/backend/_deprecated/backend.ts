@@ -339,7 +339,7 @@ export default class Backend implements DataStorage {
           for (const id of extraPropertyIDs) {
             delete file.extraProperties[id];
           }
-          retainArray(file.extraPropertyIDs, (id) => !extraPropertyIDs.includes(id));
+          //retainArray(file.extraPropertyIDs, (id) => !extraPropertyIDs.includes(id));
         });
 
       await this.#extraProperties.bulkDelete(extraPropertyIDs);
@@ -444,7 +444,7 @@ const exampleFileDTO: FileDTO = {
   dateModified: new Date(),
   dateModifiedOS: new Date(),
   extraProperties: {},
-  extraPropertyIDs: [],
+  //extraPropertyIDs: [],
   tags: [],
 };
 

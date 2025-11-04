@@ -3,6 +3,7 @@ import { FileDTO } from './file';
 import {
   ExtraPropertyOperatorType,
   NumberOperatorType,
+  SearchConjunction,
   StringOperatorType,
 } from './data-storage-search';
 import { ExtraPropertyValue } from './extraProperty';
@@ -29,8 +30,10 @@ export type CriteriaValueType = 'number' | 'date' | 'string' | 'array' | 'indexS
 
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1
 export interface IBaseSearchCriteria {
+  id: ID;
   key: keyof FileDTO;
   valueType: CriteriaValueType;
+  conjunction?: SearchConjunction;
   readonly operator: OperatorType;
 }
 

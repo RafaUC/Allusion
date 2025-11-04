@@ -1,7 +1,6 @@
 import { promises as fs } from 'fs';
 import { Insertable, InsertObject, Kysely, sql } from 'kysely';
 import { generateId, ID } from 'src/api/id';
-import { ROOT_TAG_ID } from 'src/api/tag';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   AllusionDB_SQL,
@@ -19,6 +18,8 @@ import {
   SearchCriteria,
   TagImplications,
   TagAliases,
+  SubTags,
+  Tags,
 } from './schemaTypes';
 import { ExtraPropertyType } from 'src/api/extraProperty';
 import { computeBatchSize, getSqliteMaxVariables } from './backend';
@@ -87,7 +88,7 @@ export async function restoreFromOldJsonFormat(
               continue; // retry
             }
 
-            console.warn(`❌ Error al insertar ${entityName}`, err);
+            console.warn(`❌ Error while inserting ${entityName}`, err);
             errors += batchSize;
             break; // stop retry loop for this batch
           }
@@ -106,8 +107,6 @@ export async function restoreFromOldJsonFormat(
     .insertInto('tags')
     .values({
       id: fallbackIds.tag,
-      parentId: ROOT_TAG_ID,
-      idx: 0,
       name: 'Fallback Tag',
       color: '',
       description: '',
@@ -154,9 +153,10 @@ export async function restoreFromOldJsonFormat(
   /// IMPORTING DATA ///
 
   // Import tags
-  const { normalizedTags, tagImplications, tagAliases } = normalizeTags(tables.tags ?? []);
+  const { tags, subTags, tagImplications, tagAliases } = normalizeTags(tables.tags ?? []);
 
-  await saveEntries('tags', normalizedTags);
+  await saveEntries('tags', tags);
+  await saveEntries('subTags', subTags);
   await saveEntries('tagImplications', tagImplications);
   await saveEntries('tagAliases', tagAliases);
 
@@ -212,16 +212,13 @@ export async function restoreFromOldJsonFormat(
 }
 
 function normalizeTags(tags: any[]) {
-  const parentMap = new Map<ID, [ID | null, number]>();
+  const subTags: Insertable<SubTags>[] = [];
   const tagImplications: Insertable<TagImplications>[] = [];
   const tagAliases: Insertable<TagAliases>[] = [];
 
   for (const tag of tags) {
-    for (const [idx, childId] of (Array.isArray(tag.subTags) ? tag.subTags : []).entries()) {
-      parentMap.set(childId, [tag.id, idx]);
-    }
-    if (!parentMap.has(tag.id)) {
-      parentMap.set(tag.id, [ROOT_TAG_ID, 0]);
+    for (const [index, subTagId] of (Array.isArray(tag.subTags) ? tag.subTags : []).entries()) {
+      subTags.push({ tagId: tag.id, subTagId: subTagId, idx: index });
     }
 
     for (const impliedTagId of Array.isArray(tag.impliedTags) ? tag.impliedTags : []) {
@@ -235,11 +232,8 @@ function normalizeTags(tags: any[]) {
     }
   }
 
-  const normalizedTags = tags.map((tag) => ({
+  const normalizedTags: Insertable<Tags>[] = tags.map((tag) => ({
     id: tag.id ?? generateId(),
-    parentId:
-      tag.id === ROOT_TAG_ID ? null : ((parentMap.get(tag.id)?.at(0) ?? fallbackIds.tag) as ID),
-    idx: (parentMap.get(tag.id)?.at(1) ?? 0) as number,
     name: tag.name ?? '(untitled)',
     color: tag.color ?? '',
     isHidden: serializeBoolean(!!tag.isHidden),
@@ -249,7 +243,7 @@ function normalizeTags(tags: any[]) {
     dateAdded: serializeDate(tag.dateAdded ? new Date(tag.dateAdded) : new Date()),
   }));
 
-  return { normalizedTags, tagImplications, tagAliases };
+  return { tags: normalizedTags, subTags, tagImplications, tagAliases };
 }
 
 function normalizeLocations(sourcelocations: any[]) {
@@ -393,7 +387,7 @@ function normalizeSavedSearches(sourceSearches: any[]) {
         id: criteriaId,
         savedSearchId: searchId,
         idx: idx,
-        matchGroup: search.matchAny ? 'any' : 'all',
+        conjunction: search.matchAny ? 'or' : 'and',
         key: crit.key ?? 'name',
         valueType: crit.valueType ?? 'string',
         operator: crit.operator ?? 'equals',

@@ -18,6 +18,7 @@ import { ID } from '../api/id';
 import { CriteriaValueType, OperatorType } from 'src/api/search-criteria';
 import { FILE_TAGS_SORTING_TYPE, FileDTO, IMG_EXTENSIONS_TYPE } from 'src/api/file';
 import { ExtraPropertyType } from 'src/api/extraProperty';
+import { SearchConjunction } from 'src/api/data-storage-search';
 
 export type BooleanAsNumber = number;
 export const serializeBoolean = (value: boolean): number => (value ? 1 : 0);
@@ -28,6 +29,7 @@ export const deserializeDate = (value: number): Date => new Date(value);
 
 export type AllusionDB_SQL = {
   tags: Tags;
+  subTags: SubTags;
   tagImplications: TagImplications;
   tagAliases: TagAliases;
   locationNodes: LocationNodes;
@@ -46,8 +48,6 @@ export type AllusionDB_SQL = {
 
 export type Tags = {
   id: ColumnType<ID, ID, never>; //pk
-  parentId: ID | null; //fk
-  idx: number;
   name: string;
   dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
   color: string;
@@ -55,6 +55,12 @@ export type Tags = {
   isVisibleInherited: BooleanAsNumber;
   isHeader: BooleanAsNumber;
   description: string;
+};
+
+export type SubTags = {
+  tagId: ID; //pk fk
+  subTagId: ID; //pk fk
+  idx: number;
 };
 
 export type TagImplications = {
@@ -147,7 +153,7 @@ export type SearchCriteria = {
   id: ColumnType<ID, ID, never>; //pk
   savedSearchId: ID; //fk
   idx: number;
-  matchGroup: 'any' | 'all';
+  conjunction: SearchConjunction;
   key: keyof FileDTO;
   valueType: CriteriaValueType;
   operator: OperatorType;

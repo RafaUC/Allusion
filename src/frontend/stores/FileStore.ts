@@ -692,7 +692,7 @@ class FileStore {
 
   @action async deleteFilesByExtension(ext: IMG_EXTENSIONS_TYPE): Promise<void> {
     try {
-      const crit = new ClientStringSearchCriteria('extension', ext, 'equals');
+      const crit = new ClientStringSearchCriteria(undefined, 'extension', ext, 'equals');
       const files = await this.backend.searchFiles(
         crit.toCondition(),
         'id',
@@ -726,6 +726,8 @@ class FileStore {
       // Apply a small delay to give time to the progressbar
       // to start the animation before the backend blocks the tread.
       await delay(600);
+    } else {
+      await delay(10);
     }
     return now;
   }
@@ -780,7 +782,7 @@ class FileStore {
       const { uiStore } = this.rootStore;
       const { searchMatchAny } = uiStore;
       uiStore.clearSearchCriteriaList();
-      const criteria = new ClientTagSearchCriteria('tags');
+      const criteria = new ClientTagSearchCriteria(undefined, 'tags');
       uiStore.searchCriteriaList.push(criteria);
       const fetchedFiles = await this.backend.searchFiles(
         criteria.toCondition(this.rootStore),

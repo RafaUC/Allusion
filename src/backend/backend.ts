@@ -4,8 +4,19 @@ import {
   deserializeDate,
   EpValues,
   Files,
+  LocationNodes,
+  Locations,
+  LocationTags,
   serializeBoolean,
   serializeDate,
+  SubLocations,
+  TagAliases,
+  TagImplications,
+  ExtraProperties as DbExtraProperties,
+  SavedSearches,
+  SearchCriteria,
+  FileTags,
+  SubTags,
 } from './schemaTypes';
 import { expose } from 'comlink';
 import SQLite from 'better-sqlite3';
@@ -20,8 +31,10 @@ import {
   ExpressionBuilder,
   OrderByDirection,
   AnyColumn,
+  Insertable,
+  Expression,
 } from 'kysely';
-import { migrateToLatest, PAD_STRING_LENGTH } from './config';
+import { kyselyLogger, migrateToLatest, PAD_STRING_LENGTH } from './config';
 import { DataStorage } from 'src/api/data-storage';
 import { IndexableType } from 'dexie';
 import {
@@ -36,19 +49,21 @@ import {
   isStringOperator,
   PropertyKeys,
   StringProperties,
+  SearchConjunction,
 } from 'src/api/data-storage-search';
 import { ExtraProperties, ExtraPropertyDTO } from 'src/api/extraProperty';
 import { FileDTO } from 'src/api/file';
 import { FileSearchDTO } from 'src/api/file-search';
-import { ID } from 'src/api/id';
+import { generateId, ID } from 'src/api/id';
 import { LocationDTO, SubLocationDTO } from 'src/api/location';
 import { ROOT_TAG_ID, TagDTO } from 'src/api/tag';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { jsonArrayFrom, jsonObjectFrom, jsonBuildObject } from 'kysely/helpers/sqlite';
+import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
+import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
+const USE_QUERY_LOGGER = false ? IS_DEV : false;
 
 export default class Backend implements DataStorage {
   readonly MAX_VARS!: number;
@@ -65,8 +80,7 @@ export default class Backend implements DataStorage {
   async init(dbPath: string, notifyChange: () => void): Promise<void> {
     console.info(`SQLite3: Initializing database "${dbPath}"...`);
     const database = new SQLite(dbPath, { timeout: 50000 });
-    // HACK
-    // Use a padded string to do natural sorting
+    // HACK Use a padded string to do natural sorting
     database.function('pad_string', { deterministic: true }, (str) => {
       return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
     });
@@ -76,7 +90,7 @@ export default class Backend implements DataStorage {
     const db = new Kysely<AllusionDB_SQL>({
       dialect: dialect,
       plugins: [new ParseJSONResultsPlugin(), new CamelCasePlugin()],
-      log: IS_DEV ? ['query', 'error'] : undefined, // Used only for debugging.
+      log: USE_QUERY_LOGGER ? kyselyLogger : undefined, // Used only for debugging.
     });
     // Instead of initializing this through the constructor, set the class properties here,
     // this allows us to use the class as a worker having async await calls at init.
@@ -106,8 +120,6 @@ export default class Backend implements DataStorage {
         .insertInto('tags')
         .values({
           id: ROOT_TAG_ID,
-          parentId: null,
-          idx: 0,
           name: 'Root',
           dateAdded: serializeDate(new Date()),
           color: '',
@@ -130,9 +142,9 @@ export default class Backend implements DataStorage {
         .select((eb) => [
           jsonArrayFrom(
             eb
-              .selectFrom('tags as subTags')
-              .select('subTags.id')
-              .whereRef('subTags.parentId', '=', 'tags.id')
+              .selectFrom('subTags')
+              .select('subTags.subTagId')
+              .whereRef('subTags.tagId', '=', 'tags.id')
               .orderBy('subTags.idx'),
           ).as('subTags'),
           jsonArrayFrom(
@@ -156,7 +168,7 @@ export default class Backend implements DataStorage {
         name: dbTag.name,
         dateAdded: deserializeDate(dbTag.dateAdded),
         color: dbTag.color,
-        subTags: dbTag.subTags.map((st) => st.id),
+        subTags: dbTag.subTags.map((st) => st.subTagId),
         impliedTags: dbTag.impliedTags.map((it) => it.impliedTagId),
         isHidden: deserializeBoolean(dbTag.isHidden),
         isVisibleInherited: deserializeBoolean(dbTag.isVisibleInherited),
@@ -171,7 +183,6 @@ export default class Backend implements DataStorage {
   // Because creating the jsons takes a lot of time, let's preaggregate them everytime we save our files.
   async preAggregateJSON(): Promise<void> {
     console.info('SQLite: Updating temp aggregates...');
-    this.#isQueryDirty = false;
     await sql`
       DROP TABLE IF EXISTS file_tag_aggregates_temp;
     `.execute(this.#db);
@@ -198,7 +209,8 @@ export default class Backend implements DataStorage {
           'number_value', number_value, 
           'timestamp_value', timestamp_value)) 
         as extra_properties
-      FROM ep_values;
+      FROM ep_values
+      GROUP BY file_id;
     `.execute(this.#db);
 
     await sql`
@@ -207,6 +219,7 @@ export default class Backend implements DataStorage {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_file_ep_aggregates_temp_file ON file_ep_aggregates_temp(file_id);
     `.execute(this.#db);
+    this.#isQueryDirty = false;
   }
 
   async queryFiles(
@@ -272,7 +285,6 @@ export default class Backend implements DataStorage {
         width: dbFile.width,
         height: dbFile.height,
         tags: dbFile.tags ?? [],
-        extraPropertyIDs: extraPropertyIDs,
         extraProperties: extraProperties,
       };
     });
@@ -302,7 +314,7 @@ export default class Backend implements DataStorage {
     extraPropertyID?: ID,
     matchAny?: boolean,
   ): Promise<FileDTO[]> {
-    console.info('SQLite: Searching files...');
+    console.info('SQLite: Searching files...', criteria);
     return this.queryFiles(criteria, {
       order,
       direction: fileOrder,
@@ -312,7 +324,7 @@ export default class Backend implements DataStorage {
   }
 
   async fetchFilesByID(ids: ID[]): Promise<FileDTO[]> {
-    console.info('SQLite: Fetching files by ID...');
+    console.info('SQLite: Fetching files by ID...', ids);
     return this.queryFiles(undefined, { order: 'dateAdded' }, { key: 'id', values: ids });
   }
 
@@ -411,7 +423,7 @@ export default class Backend implements DataStorage {
                 'id',
                 'savedSearchId',
                 'idx',
-                'matchGroup',
+                'conjunction',
                 'key',
                 'valueType',
                 'operator',
@@ -427,8 +439,10 @@ export default class Backend implements DataStorage {
         id: dbSearch.id,
         name: dbSearch.name,
         criteria: dbSearch.criteria.map((dbCrit) => ({
+          id: dbCrit.id,
           key: dbCrit.key,
           operator: dbCrit.operator,
+          conjunction: dbCrit.conjunction,
           valueType: dbCrit.valueType,
           value:
             // the ParseJSONResultsPlugin already parses the arrays but not strings
@@ -458,59 +472,362 @@ export default class Backend implements DataStorage {
   }
 
   async createTag(tag: TagDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Creating tag...', tag);
+    return this.upsertTag(tag);
   }
-  async createFilesFromPath(path: string, files: FileDTO[]): Promise<void> {
-    console.warn('Method not implemented.');
+
+  // Creates many files at once, and checks for duplicates in the path they are in
+  async createFilesFromPath(path: string, filesDTO: FileDTO[]): Promise<void> {
+    console.info('SQLite: Creating files...', path, filesDTO.length);
+
+    if (filesDTO.length === 0) {
+      return;
+    }
+    const { files } = normalizeFiles(filesDTO);
+    const FILES_BATCH_SIZE = computeBatchSize(this.MAX_VARS, files[0]);
+    await this.#db.transaction().execute(async (trx) => {
+      for (let i = 0; i < files.length; i += FILES_BATCH_SIZE) {
+        const batch = files.slice(i, i + FILES_BATCH_SIZE);
+        try {
+          await trx
+            .insertInto('files')
+            .values(batch)
+            .onConflict((oc) => oc.doNothing())
+            .execute();
+        } catch (error) {
+          console.error(`Failed to insert files batch at index ${i}:`, error);
+        }
+      }
+    });
+    this.#isQueryDirty = true;
+    this.#notifyChange();
+    console.info('SQLite: Files created successfully');
   }
+
   async createLocation(location: LocationDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Creating location...', location);
+    return this.upsertLocation(location);
   }
+
   async createSearch(search: FileSearchDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Creating search...', search);
+    return this.upsertSearch(search);
   }
+
   async createExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Creating extra property...', extraProperty);
+    return this.upsertExtraProperty(extraProperty);
   }
+
   async saveTag(tag: TagDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Saving tag...', tag);
+    return this.upsertTag(tag);
   }
-  async saveFiles(files: FileDTO[]): Promise<void> {
-    console.warn('Method not implemented.');
+
+  async upsertTag(tag: TagDTO): Promise<void> {
+    const { tagIds, tags, subTags, tagImplications, tagAliases } = normalizeTags([tag]);
+    if (tags.length === 0) {
+      return;
+    }
+    await this.#db.transaction().execute(async (trx) => {
+      await trx.deleteFrom('subTags').where('tagId', 'in', tagIds).execute();
+      await trx.deleteFrom('tagImplications').where('tagId', 'in', tagIds).execute();
+      await trx.deleteFrom('tagAliases').where('tagId', 'in', tagIds).execute();
+      await upsertTable(trx, 'tags', tags, ['id'], ['dateAdded']);
+      if (subTags.length > 0) {
+        await upsertTable(trx, 'subTags', subTags, ['tagId', 'subTagId']);
+      }
+      if (tagImplications.length > 0) {
+        await upsertTable(trx, 'tagImplications', tagImplications, ['tagId', 'impliedTagId']);
+      }
+      if (tagAliases.length > 0) {
+        await upsertTable(trx, 'tagAliases', tagAliases, ['tagId', 'alias']);
+      }
+    });
+    this.#notifyChange();
   }
+
+  async saveFiles(filesDTO: FileDTO[]): Promise<void> {
+    console.info('SQLite: Saving files...', filesDTO);
+    if (filesDTO.length === 0) {
+      return;
+    }
+
+    const { fileIds, files, fileTags, epVal } = normalizeFiles(filesDTO);
+
+    // Compute batch sizes. To use the maximum number of vars SQLite can handle per query.
+    const DELETE_BATCH_SIZE = this.MAX_VARS;
+    const FILES_BATCH_SIZE = computeBatchSize(this.MAX_VARS, files[0]);
+    const FILE_TAGS_BATCH_SIZE = computeBatchSize(this.MAX_VARS, fileTags[0]);
+    const EP_VALUES_BATCH_SIZE = computeBatchSize(this.MAX_VARS, epVal[0]);
+
+    await this.#db.transaction().execute(async (trx) => {
+      // Create unique temp table names.
+      const tempSuffix = generateId();
+      const tempFiles = `files_temp_${tempSuffix}`;
+      const tempFileTags = `file_tags_temp_${tempSuffix}`;
+      const tempEpValues = `ep_values_temp_${tempSuffix}`;
+
+      try {
+        // Create temp tables form a copy of the actual tables.
+        await sql`CREATE TEMP TABLE ${sql.id(tempFiles)} AS SELECT * FROM files WHERE 0`.execute(
+          trx,
+        );
+        await sql`CREATE TEMP TABLE ${sql.id(
+          tempFileTags,
+        )} AS SELECT * FROM file_tags WHERE 0`.execute(trx);
+        await sql`CREATE TEMP TABLE ${sql.id(
+          tempEpValues,
+        )} AS SELECT * FROM ep_values WHERE 0`.execute(trx);
+        // Insert files into temp files table
+        for (let i = 0; i < files.length; i += FILES_BATCH_SIZE) {
+          const batch = files.slice(i, i + FILES_BATCH_SIZE);
+          await trx
+            .insertInto(tempFiles as any)
+            .values(batch)
+            .execute();
+        }
+        // Delete previous fileTags and epValues, it is quicker to delete all from related files and insert them in bulk.
+        if (fileIds.length > 0) {
+          for (let i = 0; i < fileIds.length; i += DELETE_BATCH_SIZE) {
+            const batchIds = fileIds.slice(i, i + DELETE_BATCH_SIZE);
+            await trx.deleteFrom('fileTags').where('fileId', 'in', batchIds).execute();
+            await trx.deleteFrom('epValues').where('fileId', 'in', batchIds).execute();
+          }
+        }
+        // Insert fileTags into temp table
+        if (fileTags.length > 0) {
+          for (let i = 0; i < fileTags.length; i += FILE_TAGS_BATCH_SIZE) {
+            const batch = fileTags.slice(i, i + FILE_TAGS_BATCH_SIZE);
+            await trx
+              .insertInto(tempFileTags as any)
+              .values(batch)
+              .execute();
+          }
+        }
+        // Insert epValues into temp table
+        if (epVal.length > 0) {
+          for (let i = 0; i < epVal.length; i += EP_VALUES_BATCH_SIZE) {
+            const batch = epVal.slice(i, i + EP_VALUES_BATCH_SIZE);
+            await trx
+              .insertInto(tempEpValues as any)
+              .values(batch)
+              .execute();
+          }
+        }
+        // Transfer from temp tables
+        // Upsert FILES
+        upsertTable(
+          trx,
+          'files',
+          sql`SELECT * FROM ${sql.id(tempFiles)} WHERE true`,
+          ['id'],
+          ['dateAdded'],
+          files[0],
+        );
+        // Insert FileTags
+        if (fileTags.length > 0) {
+          await sql`
+          INSERT INTO file_tags 
+          SELECT * FROM ${sql.id(tempFileTags)}
+        `.execute(trx);
+        }
+        // Insert EpValues
+        if (epVal.length > 0) {
+          await sql`
+          INSERT INTO ep_values 
+          SELECT * FROM ${sql.id(tempEpValues)}
+        `.execute(trx);
+        }
+        this.#isQueryDirty = true;
+        console.info('SQLite: Files saved successfully');
+      } finally {
+        // Clean temp table.
+        await sql`DROP TABLE IF EXISTS ${sql.id(tempFiles)}`.execute(trx);
+        await sql`DROP TABLE IF EXISTS ${sql.id(tempFileTags)}`.execute(trx);
+        await sql`DROP TABLE IF EXISTS ${sql.id(tempEpValues)}`.execute(trx);
+      }
+    });
+    this.#notifyChange();
+  }
+
   async saveLocation(location: LocationDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Saving location...', location);
+    return this.upsertLocation(location);
   }
+
+  async upsertLocation(location: LocationDTO): Promise<void> {
+    const { nodeIds, locationNodes, locations, subLocations, locationTags } = normalizeLocations([
+      location,
+    ]);
+    if (locationNodes.length === 0) {
+      return;
+    }
+    await this.#db.transaction().execute(async (trx) => {
+      await trx.deleteFrom('locationTags').where('nodeId', 'in', nodeIds).execute();
+      await trx.deleteFrom('locationNodes').where('parentId', 'in', nodeIds).execute();
+      await upsertTable(trx, 'locationNodes', locationNodes, ['id']);
+      if (locations.length > 0) {
+        await upsertTable(trx, 'locations', locations, ['nodeId'], ['dateAdded']);
+      }
+      if (subLocations.length > 0) {
+        await upsertTable(trx, 'subLocations', subLocations, ['nodeId']);
+      }
+      if (locationTags.length > 0) {
+        await upsertTable(trx, 'locationTags', locationTags, ['nodeId', 'tagId']);
+      }
+    });
+    this.#notifyChange();
+  }
+
   async saveSearch(search: FileSearchDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Saving search...', search);
+    return this.upsertSearch(search);
   }
+
+  async upsertSearch(search: FileSearchDTO): Promise<void> {
+    const { savedSearchesIds, savedSearches, searchCriteria } = normalizeSavedSearches([search]);
+    if (savedSearches.length === 0) {
+      return;
+    }
+    await this.#db.transaction().execute(async (trx) => {
+      await trx
+        .deleteFrom('searchCriteria')
+        .where('savedSearchId', 'in', savedSearchesIds)
+        .execute();
+      await upsertTable(trx, 'savedSearches', savedSearches, ['id']);
+      if (searchCriteria.length > 0) {
+        await upsertTable(trx, 'searchCriteria', searchCriteria, ['id']);
+      }
+    });
+    this.#notifyChange();
+  }
+
   async saveExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Saving extra property...', extraProperty);
+    return this.upsertExtraProperty(extraProperty);
   }
-  async removeTags(tags: ID[]): Promise<void> {
-    console.warn('Method not implemented.');
+
+  async upsertExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
+    const extraProperties: Insertable<DbExtraProperties>[] = [extraProperty].map((ep) => ({
+      id: ep.id,
+      type: ep.type,
+      name: ep.name,
+      dateAdded: serializeDate(ep.dateAdded),
+    }));
+    await this.#db.transaction().execute(async (trx) => {
+      await upsertTable(trx, 'extraProperties', extraProperties, ['id'], ['dateAdded']);
+    });
+    this.#notifyChange();
   }
+
   async mergeTags(tagToBeRemoved: ID, tagToMergeWith: ID): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Merging tags...', tagToBeRemoved, tagToMergeWith);
+
+    await this.#db.transaction().execute(async (trx) => {
+      // Merge in FileTags
+      // first delete the records that would make a duplicate
+      await trx
+        .deleteFrom('fileTags')
+        .where('tagId', '=', tagToBeRemoved)
+        .where('fileId', 'in', (eb) =>
+          eb.selectFrom('fileTags').select('fileId').where('tagId', '=', tagToMergeWith),
+        )
+        .execute();
+      // Update the thag ids
+      await trx
+        .updateTable('fileTags')
+        .set({ tagId: tagToMergeWith })
+        .where('tagId', '=', tagToBeRemoved)
+        .execute();
+      // Merge in locationTags
+      await trx
+        .deleteFrom('locationTags')
+        .where('tagId', '=', tagToBeRemoved)
+        .where('nodeId', 'in', (eb) =>
+          eb.selectFrom('locationTags').select('nodeId').where('tagId', '=', tagToMergeWith),
+        )
+        .execute();
+      await trx
+        .updateTable('locationTags')
+        .set({ tagId: tagToMergeWith })
+        .where('tagId', '=', tagToBeRemoved)
+        .execute();
+
+      // delete the tag
+      await trx.deleteFrom('tags').where('id', '=', tagToBeRemoved).execute();
+    });
+    this.#notifyChange();
   }
+
+  async removeTags(tags: ID[]): Promise<void> {
+    console.info('SQLite: Removing tags...', tags);
+    // Cascade delte in other tables deleting from tags table.
+    await this.#db.deleteFrom('tags').where('id', 'in', tags).execute();
+    this.#notifyChange();
+  }
+
   async removeFiles(files: ID[]): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Removing files...', files);
+    // Cascade delte in other tables deleting from files table.
+    await this.#db.deleteFrom('files').where('id', 'in', files).execute();
+    this.#notifyChange();
   }
+
   async removeLocation(location: ID): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Removing location...', location);
+    // Cascade delte in other tables deleting from locationNodes table.
+    await this.#db.deleteFrom('locationNodes').where('id', '=', location).execute();
+    this.#notifyChange();
   }
+
   async removeSearch(search: ID): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Removing search...', search);
+    // Cascade delte in other tables deleting from savedSearches table.
+    await this.#db.deleteFrom('savedSearches').where('id', '=', search).execute();
+    this.#notifyChange();
   }
-  async removeExtraProperties(extraProperty: ID[]): Promise<void> {
-    console.warn('Method not implemented.');
+
+  async removeExtraProperties(extraPropertyIDs: ID[]): Promise<void> {
+    console.info('SQLite: Removing extra properties...', extraPropertyIDs);
+    // Cascade delte in other tables deleting from extraProperties table.
+    await this.#db.deleteFrom('extraProperties').where('id', 'in', extraPropertyIDs).execute();
+    this.#notifyChange();
   }
+
   async countFiles(): Promise<[fileCount: number, untaggedFileCount: number]> {
-    console.warn('Method not implemented.');
-    return [0, 0];
+    console.info('SQLite: Counting files...');
+    const totalResult = await this.#db
+      .selectFrom('files')
+      .select(({ fn }) => fn.count<number>('id').as('count'))
+      .executeTakeFirst();
+    const fileCount = totalResult?.count ?? 0;
+
+    const untaggedResult = await this.#db
+      .selectFrom('files as f')
+      .leftJoin('fileTags as ft', 'ft.fileId', 'f.id')
+      .where('ft.fileId', 'is', null)
+      .select(({ fn }) => fn.count<number>('f.id').as('count'))
+      .executeTakeFirst();
+    const untaggedFileCount = untaggedResult?.count ?? 0;
+    return [fileCount, untaggedFileCount];
   }
+
   async clear(): Promise<void> {
-    console.warn('Method not implemented.');
+    console.info('SQLite: Clearing database...');
+    const tables = await this.#db
+      .selectFrom('sqlite_master' as any)
+      .select('name')
+      .where('type', '=', 'table')
+      .where('name', 'not like', 'sqlite_%')
+      .execute();
+
+    for (const { name } of tables) {
+      if (name === 'kysely_migration' || name === 'kysely_migration_lock') {
+        continue;
+      }
+      await this.#db.deleteFrom(name as any).execute();
+    }
   }
 }
 
@@ -581,7 +898,6 @@ const exampleFileDTO: FileDTO = {
   dateModified: new Date(),
   dateModifiedOS: new Date(),
   extraProperties: {},
-  extraPropertyIDs: [],
   tags: [],
 };
 
@@ -651,8 +967,6 @@ async function applySortOrder<O>(
 ///////////////////////////
 
 type KeyInListOptions = { key: AnyColumn<AllusionDB_SQL, 'files'>; values: any[] };
-
-type SearchConjunction = 'and' | 'or';
 
 export type ConditionWithConjunction<T> = ConditionDTO<T> & {
   conjunction?: SearchConjunction;
@@ -956,4 +1270,243 @@ function applyExtraPropertyCondition(
   }
   // Return the expression
   return eb('files.id', 'in', subquery);
+}
+
+///////////////////
+///// HELPERS /////
+///////////////////
+
+async function upsertTable<
+  Table extends keyof AllusionDB_SQL,
+  Columns extends ReadonlyArray<AnyColumn<AllusionDB_SQL, Table>>,
+>(
+  db: Kysely<AllusionDB_SQL>,
+  table: Table,
+  values: Insertable<AllusionDB_SQL[Table]>[] | Expression<any>,
+  conflictColumns: Columns,
+  excludeFromUpdate?: (keyof Insertable<AllusionDB_SQL[Table]>)[],
+  sampleObject?: Insertable<AllusionDB_SQL[Table]>,
+) {
+  const isExpression = !Array.isArray(values);
+  if (!isExpression && values.length === 0) {
+    return;
+  }
+
+  // Infer Columns
+  let columnsToUpdate: string[];
+  if (isExpression) {
+    if (!sampleObject) {
+      throw new Error(
+        `sampleObject is required when using SQL expressions for table ${String(table)}`,
+      );
+    }
+    columnsToUpdate = Object.keys(sampleObject).filter(
+      (key) =>
+        !conflictColumns.includes(key as any) &&
+        (!excludeFromUpdate || !excludeFromUpdate.includes(key as any)),
+    );
+  } else {
+    const firstRow = (sampleObject || values[0]) as Record<string, unknown>;
+    columnsToUpdate = Object.keys(firstRow).filter(
+      (key) =>
+        !conflictColumns.includes(key as any) &&
+        (!excludeFromUpdate || !excludeFromUpdate.includes(key as any)),
+    );
+  }
+  const updateSet = columnsToUpdate.reduce((acc, column) => {
+    acc[column] = (eb: any) => eb.ref(`excluded.${column}`);
+    return acc;
+  }, {} as Record<string, any>) as UpdateObject<AllusionDB_SQL, Table, Table>;
+
+  let query;
+  if (isExpression) {
+    query = db.insertInto(table as keyof AllusionDB_SQL & string).expression(values as any);
+  } else {
+    query = db.insertInto(table as keyof AllusionDB_SQL & string).values(values as any);
+  }
+
+  if (columnsToUpdate.length === 0) {
+    query = query.onConflict((oc) => oc.columns(conflictColumns as any).doNothing());
+  } else {
+    query = query.onConflict((oc) =>
+      oc.columns(conflictColumns as any).doUpdateSet(updateSet as any),
+    );
+  }
+
+  return query.execute();
+}
+
+function normalizeTags(tags: TagDTO[]) {
+  const tagIds: ID[] = [];
+  const subTags: Insertable<SubTags>[] = [];
+  const tagImplications: Insertable<TagImplications>[] = [];
+  const tagAliases: Insertable<TagAliases>[] = [];
+
+  for (const tag of tags) {
+    tagIds.push(tag.id);
+    for (const [index, subTagId] of (Array.isArray(tag.subTags) ? tag.subTags : []).entries()) {
+      subTags.push({ tagId: tag.id, subTagId: subTagId, idx: index });
+    }
+    for (const impliedTagId of Array.isArray(tag.impliedTags) ? tag.impliedTags : []) {
+      tagImplications.push({ tagId: tag.id, impliedTagId: impliedTagId });
+    }
+    // Convert to Set to get rid of duplicates.
+    const aliases = new Set<string>(Array.isArray(tag.aliases) ? tag.aliases : []);
+    for (const alias of aliases) {
+      tagAliases.push({ tagId: tag.id, alias: alias });
+    }
+  }
+
+  const normalizedTags = tags.map((tag) => ({
+    id: tag.id,
+    name: tag.name,
+    color: tag.color,
+    isHidden: serializeBoolean(tag.isHidden),
+    isVisibleInherited: serializeBoolean(tag.isVisibleInherited),
+    isHeader: serializeBoolean(tag.isHeader),
+    description: tag.description,
+    dateAdded: serializeDate(tag.dateAdded),
+  }));
+
+  return { tagIds, tags: normalizedTags, subTags, tagImplications, tagAliases };
+}
+
+function normalizeLocations(sourcelocations: LocationDTO[]) {
+  const locationNodes: Insertable<LocationNodes>[] = [];
+  const locations: Insertable<Locations>[] = [];
+  const subLocations: Insertable<SubLocations>[] = [];
+  const locationTags: Insertable<LocationTags>[] = [];
+  const nodeIds: ID[] = [];
+
+  function normalizeLocationNodeRecursive(
+    node: LocationDTO | SubLocationDTO,
+    parentId: ID | null,
+    isRoot: boolean,
+  ) {
+    const parentIdvalue = isRoot ? null : parentId;
+    const pathValue = 'path' in node ? node.path : node.name;
+    nodeIds.push(node.id);
+    locationNodes.push({
+      id: node.id,
+      parentId: parentIdvalue,
+      path: pathValue,
+    });
+    if (isRoot) {
+      const location = node as LocationDTO;
+      locations.push({
+        nodeId: node.id,
+        idx: location.index,
+        isWatchingFiles: serializeBoolean(!!location.isWatchingFiles),
+        dateAdded: serializeDate(new Date(location.dateAdded)),
+      });
+    } else {
+      const subLocation = node as SubLocationDTO;
+      subLocations.push({
+        nodeId: node.id,
+        isExcluded: serializeBoolean(subLocation.isExcluded),
+      });
+    }
+    // Insert tags
+    for (const tagId of Array.isArray(node.tags) ? node.tags : []) {
+      locationTags.push({
+        nodeId: node.id,
+        tagId: tagId,
+      });
+    }
+    // Recurse for sublocations
+    for (const sub of Array.isArray(node.subLocations) ? node.subLocations : []) {
+      normalizeLocationNodeRecursive(sub, node.id, false);
+    }
+  }
+
+  for (const loc of sourcelocations) {
+    normalizeLocationNodeRecursive(loc, null, true);
+  }
+  return { nodeIds, locationNodes, locations, subLocations, locationTags };
+}
+
+function normalizeSavedSearches(sourceSearches: FileSearchDTO[]) {
+  const savedSearchesIds: ID[] = [];
+  const savedSearches: Insertable<SavedSearches>[] = [];
+  const searchCriteria: Insertable<SearchCriteria>[] = [];
+
+  for (const search of sourceSearches) {
+    savedSearchesIds.push(search.id);
+    savedSearches.push({
+      id: search.id,
+      name: search.name,
+      idx: search.index,
+    });
+
+    for (const [idx, crit] of (Array.isArray(search.criteria) ? search.criteria : []).entries()) {
+      searchCriteria.push({
+        id: crit.id,
+        savedSearchId: search.id,
+        idx: idx,
+        conjunction: crit.conjunction ?? 'and',
+        key: crit.key,
+        valueType: crit.valueType,
+        operator: crit.operator,
+        jsonValue: JSON.stringify(crit.value),
+      });
+    }
+  }
+  return { savedSearchesIds, savedSearches, searchCriteria };
+}
+
+function normalizeFiles(sourceFiles: FileDTO[]) {
+  const fileIds: ID[] = [];
+  const files: Insertable<Files>[] = [];
+  const fileTags: Insertable<FileTags>[] = [];
+  const epVal: Insertable<EpValues>[] = [];
+
+  for (const file of sourceFiles) {
+    const fileId = file.id;
+    fileIds.push(fileId);
+    files.push({
+      id: fileId,
+      ino: file.ino,
+      locationId: file.locationId,
+      relativePath: file.relativePath,
+      absolutePath: file.absolutePath,
+      tagSorting: file.tagsSorting,
+      name: file.name,
+      extension: file.extension,
+      size: file.size,
+      width: file.width,
+      height: file.height,
+      dateAdded: serializeDate(file.dateAdded),
+      dateModified: serializeDate(file.dateModified),
+      dateModifiedOS: serializeDate(file.dateModifiedOS),
+      dateLastIndexed: serializeDate(file.dateLastIndexed),
+      dateCreated: serializeDate(file.dateCreated),
+    });
+    // file_tags (tags relations)
+    for (const tagId of Array.isArray(file.tags) ? file.tags : []) {
+      fileTags.push({
+        fileId: fileId,
+        tagId: tagId,
+      });
+    }
+    // ep_values  (extra properties relations)
+    for (const [epId, value] of Object.entries(file.extraProperties)) {
+      // TODO: Maybe should fetch the ExtraProperties types to assign the type based on
+      // the extra property definition, but since the DTO types do not overlap for now, this
+      // is good enough.
+      if (typeof value === 'number') {
+        epVal.push({
+          fileId,
+          epId,
+          numberValue: value,
+        });
+      } else {
+        epVal.push({
+          fileId,
+          epId,
+          textValue: value,
+        });
+      }
+    }
+  }
+  return { fileIds, files, fileTags, epVal };
 }

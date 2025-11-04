@@ -67,7 +67,9 @@ const QuickSearchList = observer(() => {
   });
 
   const handleSelect = useAction((item: Readonly<ClientTag>) =>
-    uiStore.addSearchCriteria(new ClientTagSearchCriteria('tags', item.id, 'containsRecursively')),
+    uiStore.addSearchCriteria(
+      new ClientTagSearchCriteria(undefined, 'tags', item.id, 'containsRecursively'),
+    ),
   );
 
   const handleDeselect = useAction((item: Readonly<ClientTag>) => {
@@ -96,7 +98,9 @@ const QuickSearchList = observer(() => {
         value={`Search in file paths for "${query}"`}
         onClick={() => {
           resetTextBox();
-          uiStore.addSearchCriteria(new ClientStringSearchCriteria('absolutePath', query));
+          uiStore.addSearchCriteria(
+            new ClientStringSearchCriteria(undefined, 'absolutePath', query),
+          );
         }}
       />,
       <Row
@@ -186,6 +190,7 @@ const QuickExtraPropertySearchOption = (props: QuickEPOption) => {
 
       uiStore.addSearchCriteria(
         new ClientExtraPropertySearchCriteria(
+          undefined,
           'extraProperties',
           [eventExtraProperty.id, value],
           operator,

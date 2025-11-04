@@ -128,7 +128,7 @@ const toggleQuery = (nodeData: ClientTag, uiStore: UiStore) => {
       );
     }
   } else {
-    uiStore.addSearchCriteria(new ClientTagSearchCriteria('tags', nodeData.id));
+    uiStore.addSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags', nodeData.id));
   }
 };
 
@@ -287,7 +287,12 @@ const TagItem = observer((props: ITagItemProps) => {
           }
         } else {
           // otherwise, search it
-          const query = new ClientTagSearchCriteria('tags', nodeData.id, 'containsRecursively');
+          const query = new ClientTagSearchCriteria(
+            undefined,
+            'tags',
+            nodeData.id,
+            'containsRecursively',
+          );
           if (event.ctrlKey || event.metaKey) {
             uiStore.addSearchCriteria(query);
           } else {

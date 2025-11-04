@@ -12,8 +12,6 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('tags')
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
-    .addColumn('parent_id', 'text')
-    .addColumn('idx', 'integer', (col) => col.notNull())
     .addColumn('name', 'text', (col) => col.notNull())
     .addColumn('date_added', 'timestamp', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
     .addColumn('color', 'text')
@@ -21,9 +19,18 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('is_visible_inherited', 'boolean', (col) => col.notNull().defaultTo(1))
     .addColumn('is_header', 'boolean', (col) => col.notNull().defaultTo(0))
     .addColumn('description', 'text')
-    .addForeignKeyConstraint('fk_tag_parent', ['parent_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
     .execute();
-  await db.schema.createIndex('idx_tags_parent').on('tags').column('parent_id').execute();
+
+  await db.schema
+    .createTable('sub_tags')
+    .addColumn('tag_id', 'text', (col) => col.notNull())
+    .addColumn('sub_tag_id', 'text', (col) => col.notNull())
+    .addColumn('idx', 'integer', (col) => col.notNull())
+    .addPrimaryKeyConstraint('pk_tag_implications', ['tag_id', 'sub_tag_id'])
+    .addForeignKeyConstraint('fk_tag_implications_tag', ['tag_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
+    .addForeignKeyConstraint('fk_tag_implications_implied', ['sub_tag_id'], 'tags', ['id'], (cb) => cb.onDelete('cascade'))
+    .addUniqueConstraint('uq_sub_tags_sub_tag', ['sub_tag_id'])
+    .execute();
 
   await db.schema
     .createTable('tag_implications')
@@ -158,7 +165,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('id', 'text', (col) => col.primaryKey().notNull())
     .addColumn('saved_search_id', 'text', (col) => col.notNull())
     .addColumn('idx', 'integer', (col) => col.notNull())
-    .addColumn('match_group', 'text', (col) => col.notNull()) // 'any' | 'all'
+    .addColumn('conjunction', 'text', (col) => col.notNull())
     .addColumn('key', 'text', (col) => col.notNull())
     .addColumn('value_type', 'text', (col) => col.notNull())
     .addColumn('operator', 'text', (col) => col.notNull())

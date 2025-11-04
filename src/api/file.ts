@@ -11,8 +11,6 @@ export type FileDTO = {
   absolutePath: string;
   tags: ID[];
   tagsSorting: FILE_TAGS_SORTING_TYPE;
-  /** used only for index on dexie */
-  extraPropertyIDs: ID[];
   extraProperties: ExtraProperties;
   /** When the file was imported into Allusion */
   dateAdded: Date;

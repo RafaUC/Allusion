@@ -131,7 +131,9 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
           onClick={(e) =>
             handleSearchSimilar(
               e,
-              file.tags.toJSON().map((t) => new ClientTagSearchCriteria('tags', t.id, 'contains')),
+              file.tags
+                .toJSON()
+                .map((t) => new ClientTagSearchCriteria(undefined, 'tags', t.id, 'contains')),
             )
           }
           text="Same Tags"
@@ -142,6 +144,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
             handleSearchSimilar(
               e,
               new ClientStringSearchCriteria(
+                undefined,
                 'absolutePath',
                 SysPath.dirname(file.absolutePath) + SysPath.sep,
                 'startsWith',
@@ -156,6 +159,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
             handleSearchSimilar(
               e,
               new ClientStringSearchCriteria(
+                undefined,
                 'absolutePath',
                 locationStore.get(file.locationId)!.path + SysPath.sep,
                 'startsWith',
@@ -168,7 +172,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
           onClick={(e) =>
             handleSearchSimilar(
               e,
-              new ClientStringSearchCriteria('extension', file.extension, 'equals'),
+              new ClientStringSearchCriteria(undefined, 'extension', file.extension, 'equals'),
             )
           }
           text="Same File Type"
@@ -177,8 +181,8 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
         <MenuItem
           onClick={(e) =>
             handleSearchSimilar(e, [
-              new ClientNumberSearchCriteria('width', file.width, 'equals'),
-              new ClientNumberSearchCriteria('height', file.height, 'equals'),
+              new ClientNumberSearchCriteria(undefined, 'width', file.width, 'equals'),
+              new ClientNumberSearchCriteria(undefined, 'height', file.height, 'equals'),
             ])
           }
           text="Same Resolution"
@@ -186,7 +190,10 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
         />
         <MenuItem
           onClick={(e) =>
-            handleSearchSimilar(e, new ClientNumberSearchCriteria('size', file.size, 'equals'))
+            handleSearchSimilar(
+              e,
+              new ClientNumberSearchCriteria(undefined, 'size', file.size, 'equals'),
+            )
           }
           text="Same File Size"
           icon={IconSet.FILTER_FILTER_DOWN}
@@ -195,7 +202,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
           onClick={(e) =>
             handleSearchSimilar(
               e,
-              new ClientDateSearchCriteria('dateCreated', file.dateCreated, 'equals'),
+              new ClientDateSearchCriteria(undefined, 'dateCreated', file.dateCreated, 'equals'),
             )
           }
           text="Same Creation Date"
@@ -205,7 +212,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
           onClick={(e) =>
             handleSearchSimilar(
               e,
-              new ClientDateSearchCriteria('dateModified', file.dateModified, 'equals'),
+              new ClientDateSearchCriteria(undefined, 'dateModified', file.dateModified, 'equals'),
             )
           }
           text="Same Modification Date"

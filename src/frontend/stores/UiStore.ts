@@ -1206,7 +1206,7 @@ class UiStore {
   @action.bound addTagSelectionToCriteria(): void {
     const newCrits = Array.from(
       this.tagSelection,
-      (tag) => new ClientTagSearchCriteria('tags', tag.id),
+      (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
     );
     this.addSearchCriterias(newCrits);
     for (const tag of this.tagSelection) {
@@ -1217,7 +1217,10 @@ class UiStore {
 
   @action.bound replaceCriteriaWithTagSelection(): void {
     this.replaceSearchCriterias(
-      Array.from(this.tagSelection, (tag) => new ClientTagSearchCriteria('tags', tag.id)),
+      Array.from(
+        this.tagSelection,
+        (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
+      ),
     );
     for (const tag of this.tagSelection) {
       this.addRecentlyUsedTag(tag);
