@@ -68,7 +68,9 @@ const USE_QUERY_LOGGER = false ? IS_DEV : false;
 export default class Backend implements DataStorage {
   readonly MAX_VARS!: number;
   #db!: Kysely<AllusionDB_SQL>;
+  #dbPath!: string;
   #notifyChange!: () => void;
+  #restoreEmpty!: () => Promise<void>;
   /** State variable that indicates if we need to recompute preAggregateJSON */
   #isQueryDirty: boolean = true;
 
@@ -77,45 +79,70 @@ export default class Backend implements DataStorage {
     return USE_TIMING_PROXY ? createTimingProxy(this) : this;
   }
 
-  async init(dbPath: string, notifyChange: () => void): Promise<void> {
+  async init({
+    dbPath,
+    jsonToImport,
+    notifyChange,
+    restoreEmpty,
+    mode = 'default',
+  }: {
+    dbPath: string;
+    jsonToImport: string | undefined;
+    notifyChange: () => void;
+    restoreEmpty: () => Promise<void>;
+    mode?: 'default' | 'migrate' | 'readonly';
+  }): Promise<void> {
     console.info(`SQLite3: Initializing database "${dbPath}"...`);
-    const database = new SQLite(dbPath, { timeout: 50000 });
+    // For some reason, if initializing the better-sqlite3 db with readonly true, later when disposing the instance,
+    // it does not remove the WAL files, which is bothersome to leave in the backup directory.
+    //const isReadOnly = mode === 'readonly';
+    const database = new SQLite(dbPath, { timeout: 50000 }); //, readonly: isReadOnly });
+
     // HACK Use a padded string to do natural sorting
     database.function('pad_string', { deterministic: true }, (str) => {
       return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
     });
-    const dialect = new SqliteDialect({
-      database: database,
-    });
+
+    const dialect = new SqliteDialect({ database });
     const db = new Kysely<AllusionDB_SQL>({
       dialect: dialect,
       plugins: [new ParseJSONResultsPlugin(), new CamelCasePlugin()],
       log: USE_QUERY_LOGGER ? kyselyLogger : undefined, // Used only for debugging.
     });
+
     // Instead of initializing this through the constructor, set the class properties here,
     // this allows us to use the class as a worker having async await calls at init.
     this.#db = db;
+    this.#dbPath = dbPath;
     this.#notifyChange = notifyChange;
+    this.#restoreEmpty = restoreEmpty;
     (this as any).MAX_VARS = await getSqliteMaxVariables(db);
 
-    // check if any migration is needed before configure pragma
-    await migrateToLatest(db);
+    // Run migrations if required
+    if (mode === 'default' || mode === 'migrate') {
+      await migrateToLatest(db, { jsonToImport });
+    }
 
-    // We enable case sensitive like for search queries
-    await sql`PRAGMA case_sensitive_like = ON;`.execute(db);
-    // Do not wait for writes
+    if (mode === 'migrate' || mode === 'readonly') {
+      return;
+    }
+    // Configure PRAGMA settings (these can create WAL/SHM files)
+    // Enable WAL mode to not wait for writes and optimize database
     await sql`PRAGMA journal_mode = WAL;`.execute(db);
+    await sql`PRAGMA case_sensitive_like = ON;`.execute(db);
     await sql`PRAGMA synchronous = NORMAL;`.execute(db);
     await sql`PRAGMA temp_store = MEMORY;`.execute(db);
     await sql`PRAGMA automatic_index = ON;`.execute(db);
     await sql`PRAGMA cache_size = -64000;`.execute(db);
-    await sql`PRAGMA VACUUM;`.execute(db);
     await sql`PRAGMA OPTIMIZE;`.execute(db);
 
     // Create Root Tag if not exists.
-    if (
-      !(await db.selectFrom('tags').selectAll().where('id', '=', ROOT_TAG_ID).executeTakeFirst())
-    ) {
+    const rootTag = await db
+      .selectFrom('tags')
+      .selectAll()
+      .where('id', '=', ROOT_TAG_ID)
+      .executeTakeFirst();
+    if (!rootTag) {
       await db
         .insertInto('tags')
         .values({
@@ -778,6 +805,8 @@ export default class Backend implements DataStorage {
     console.info('SQLite: Removing location...', location);
     // Cascade delte in other tables deleting from locationNodes table.
     await this.#db.deleteFrom('locationNodes').where('id', '=', location).execute();
+    // Run VACUUM to free disk space after large deletions.
+    await sql`VACUUM;`.execute(this.#db);
     this.#notifyChange();
   }
 
@@ -815,6 +844,7 @@ export default class Backend implements DataStorage {
 
   async clear(): Promise<void> {
     console.info('SQLite: Clearing database...');
+    /*
     const tables = await this.#db
       .selectFrom('sqlite_master' as any)
       .select('name')
@@ -827,7 +857,11 @@ export default class Backend implements DataStorage {
         continue;
       }
       await this.#db.deleteFrom(name as any).execute();
-    }
+    } */
+
+    // Empy the tables with a large database takes too long, instead create an emprty DB,
+    // reinit and restore it at startup relying in the backup-scheduler checkAndRestoreDB behaviour.
+    await this.#restoreEmpty();
   }
 }
 

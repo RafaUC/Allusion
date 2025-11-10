@@ -3,6 +3,8 @@ import { AllusionDB_SQL } from './schemaTypes';
 
 export const DB_NAME = 'Allusion';
 
+export const DB_TO_IMPORT_NAME = 'DB_TO_IMPORT';
+
 export const NUM_AUTO_BACKUPS = 6;
 
 export const AUTO_BACKUP_TIMEOUT = 1000 * 60 * 10; // 10 minutes
@@ -13,18 +15,27 @@ export const PAD_STRING_LENGTH = 10;
 
 //Register the migrations here.
 class InlineMigrationProvider implements MigrationProvider {
+  #context: Record<string, any>;
+
+  constructor(context: Record<string, any> = {}) {
+    this.#context = context;
+  }
   async getMigrations(): Promise<Record<string, Migration>> {
+    const context = this.#context;
     return {
       '000_initial': await import('./migrations/000_initial'),
-      '001_migrateJSON': await import('./migrations/001_migrateJSON'),
+      '001_migrateJSON': (await import('./migrations/001_migrateJSON')).default(context),
     };
   }
 }
 
-export async function migrateToLatest(db: Kysely<AllusionDB_SQL>): Promise<void> {
+export async function migrateToLatest(
+  db: Kysely<AllusionDB_SQL>,
+  context: { jsonToImport: string | undefined },
+): Promise<void> {
   const migrator = new Migrator({
     db,
-    provider: new InlineMigrationProvider(),
+    provider: new InlineMigrationProvider(context),
   });
 
   const { error, results } = await migrator.migrateToLatest();

@@ -40,7 +40,7 @@ export const ImportExport = observer(() => {
 
   const handleCreateExport = async () => {
     const formattedDateTime = getFilenameFriendlyFormattedDateTime(new Date());
-    const filename = `backup_${formattedDateTime}.json`.replaceAll(':', '-');
+    const filename = `backup_${formattedDateTime}.sqlite`.replaceAll(':', '-');
     const filepath = SysPath.join(backupDir, filename);
     try {
       await rootStore.backupDatabaseToFile(filepath);
@@ -132,7 +132,11 @@ export const ImportExport = observer(() => {
           className="btn-outlined"
           options={{
             properties: ['openFile'],
-            filters: [{ extensions: ['json'], name: 'JSON' }],
+            filters: [
+              { extensions: ['sqlite', 'json'], name: 'Backup file' },
+              { extensions: ['sqlite'], name: 'SQLite' },
+              { extensions: ['json'], name: 'JSON' },
+            ],
             defaultPath: backupDir,
           }}
           onChange={handleChooseImportDir}

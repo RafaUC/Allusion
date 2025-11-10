@@ -20,6 +20,10 @@ export default class BackupScheduler implements DataBackup {
     this.#backupDirectory = directory;
   }
 
+  restoreEmpty(): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
   static async init(db: Dexie, backupDirectory: string): Promise<BackupScheduler> {
     await fse.ensureDir(backupDirectory);
     return new BackupScheduler(db, backupDirectory);
