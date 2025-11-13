@@ -1,3 +1,4 @@
+// @ts-nocheck
 import Dexie, { Collection, IndexableType, Table, WhereClause } from 'dexie';
 
 import { retainArray, shuffleArray } from '../../../common/core';

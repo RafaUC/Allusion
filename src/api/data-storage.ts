@@ -1,4 +1,3 @@
-import { IndexableType } from 'dexie';
 import { ConditionDTO, OrderBy, OrderDirection } from './data-storage-search';
 import { FileDTO } from './file';
 import { FileSearchDTO } from './file-search';
@@ -6,6 +5,8 @@ import { ID } from './id';
 import { LocationDTO } from './location';
 import { TagDTO } from './tag';
 import { ExtraPropertyDTO } from './extraProperty';
+
+export type IndexableType = number | string | Date | Array<number | string | Date> | Uint8Array;
 
 /**
  * The user generated persisted data edited or viewed by one or multiple actors (users, multiple devices etc.).

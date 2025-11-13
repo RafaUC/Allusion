@@ -295,7 +295,7 @@ export async function restoreFromOldJsonFormat(
               .values(batch)
               .onConflict((oc) => oc.doNothing())
               .execute();
-            // If success breack the while
+            // If success, break the while
             break;
           } catch (err: any) {
             if (err.code === 'SQLITE_BUSY' && attempt < MAX_RETRIES) {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import Dexie from 'dexie';
 import { exportDB, importDB, peakImportFile } from 'dexie-export-import';
 import fse from 'fs-extra';

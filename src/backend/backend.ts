@@ -36,7 +36,7 @@ import {
 } from 'kysely';
 import { kyselyLogger, migrateToLatest, PAD_STRING_LENGTH } from './config';
 import { DataStorage } from 'src/api/data-storage';
-import { IndexableType } from 'dexie';
+import { IndexableType } from '../api/data-storage';
 import {
   OrderBy,
   OrderDirection,

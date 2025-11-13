@@ -106,16 +106,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addForeignKeyConstraint('fk_files_location', ['location_id'], 'locations', ['node_id'], (cb) => cb.onDelete('cascade'))
     .addUniqueConstraint('uq_absolute_path', ['relative_path'])
     .execute();
-  // await db.schema.createIndex('idx_files_name').on('files').column('name').execute();
-  // await db.schema.createIndex('idx_files_extension').on('files').column('extension').execute();
-  // await db.schema.createIndex('idx_files_size').on('files').column('size').execute();
-  // await db.schema.createIndex('idx_files_width').on('files').column('width').execute();
-  // await db.schema.createIndex('idx_files_height').on('files').column('height').execute();
-  // await db.schema.createIndex('idx_files_date_added').on('files').column('date_added').execute();
-  // await db.schema.createIndex('idx_files_date_modified').on('files').column('date_modified').execute();
-  // await db.schema.createIndex('idx_files_date_created').on('files').column('date_created').execute();
-  // await db.schema.createIndex('idx_files_relative_path').on('files').column('relative_path').unique().execute();
-  // await db.schema.createIndex('idx_files_location').on('files').column('location_id').execute();
 
   await db.schema
     .createTable('file_tags')
@@ -175,33 +165,11 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  /*
-  await db.schema.dropIndex('idx_ep_values_text_file').execute();
   await db.schema.dropIndex('idx_ep_values_text_value').execute();
-  await db.schema.dropIndex('idx_ep_values_text_ep').execute();
-
-  await db.schema.dropIndex('idx_ep_values_number_file').execute();
   await db.schema.dropIndex('idx_ep_values_number_value').execute();
-  await db.schema.dropIndex('idx_ep_values_number_ep').execute();
-
-  await db.schema.dropIndex('idx_ep_values_timestamp_file').execute();
   await db.schema.dropIndex('idx_ep_values_timestamp_value').execute();
-  await db.schema.dropIndex('idx_ep_values_timestamp_ep').execute();
-
   await db.schema.dropIndex('idx_file_tags_file').execute();
   await db.schema.dropIndex('idx_file_tags_tag').execute();
-
-  await db.schema.dropIndex('idx_files_location').execute();
-  await db.schema.dropIndex('idx_files_relative_path').execute();
-  await db.schema.dropIndex('idx_files_date_created').execute();
-  await db.schema.dropIndex('idx_files_date_modified').execute();
-  await db.schema.dropIndex('idx_files_date_added').execute();
-  await db.schema.dropIndex('idx_files_height').execute();
-  await db.schema.dropIndex('idx_files_width').execute();
-  await db.schema.dropIndex('idx_files_size').execute();
-  await db.schema.dropIndex('idx_files_extension').execute();
-  await db.schema.dropIndex('idx_files_name').execute();
-*/
   await db.schema.dropTable('search_criteria').execute();
   await db.schema.dropTable('saved_searches').execute();
   await db.schema.dropTable('ep_values_timestamp').execute();

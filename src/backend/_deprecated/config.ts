@@ -1,3 +1,4 @@
+// @ts-nocheck
 import Dexie, { Transaction } from 'dexie';
 import fse from 'fs-extra';
 
