@@ -49,7 +49,7 @@ export const AdvancedSearchDialog = observer(() => {
 
         <QueryEditor query={query} setQuery={setQuery} />
 
-        <QueryMatch searchMatchAny={uiStore.searchMatchAny} toggle={uiStore.toggleSearchMatchAny} />
+        <br />
 
         <fieldset className="dialog-actions">
           <Button styling="outlined" text="Reset" icon={IconSet.CLOSE} onClick={reset} />

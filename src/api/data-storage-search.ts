@@ -13,8 +13,6 @@ export const enum OrderDirection {
   Desc,
 }
 
-export type SearchConjunction = 'and' | 'or';
-
 // General search criteria for a database entity
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1
 
@@ -55,6 +53,9 @@ export type ExtractKeyByValue<T, V> = {
 export type BaseIndexSignature = { [key: string]: any };
 
 // Trick for converting array to type https://stackoverflow.com/a/49529930/2350481
+
+export const SearchConjunctions = ['and', 'or'] as const;
+export type SearchConjunction = (typeof SearchConjunctions)[number];
 
 export const NumberOperators = [
   'equals',

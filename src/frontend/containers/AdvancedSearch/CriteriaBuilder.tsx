@@ -3,7 +3,7 @@ import React, { RefObject, memo, useMemo, useState } from 'react';
 import { IconButton } from 'widgets/button';
 import { IconSet } from 'widgets/icons';
 import { InfoButton } from 'widgets/notifications';
-import { KeySelector, OperatorSelector, ValueInput } from './Inputs';
+import { ConjuctionSelector, KeySelector, OperatorSelector, ValueInput } from './Inputs';
 import { QueryDispatch } from './QueryEditor';
 import { defaultQuery, generateCriteriaId } from './data';
 import { useStore } from 'src/frontend/contexts/StoreContext';
@@ -36,6 +36,9 @@ const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: Qu
           A criteria is made of three components:
           <ul>
             <li>
+              <b>conjunction</b> (conj) defines how this criteria will be grouped with others,
+            </li>
+            <li>
               <b>key</b> (a property of the image file),
             </li>
             <li>
@@ -57,11 +60,19 @@ const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: Qu
         </InfoButton>
       </legend>
       <div id="criteria-builder">
+        <label id="builder-space">&nbsp;</label>
+        <label id="builder-conjuction">Conj</label>
         <label id="builder-key">Key</label>
         <label id="builder-operator">Operator</label>
         <label id="builder-value">Value</label>
         <span></span>
 
+        <div aria-labelledby={'builder-space'}>&nbsp;</div>
+        <ConjuctionSelector
+          labelledby={'builder-conjuction'}
+          value={criteria.conjunction}
+          dispatch={setCriteria}
+        />
         <KeySelector
           labelledby="builder-key"
           ref={keySelector}

@@ -4,9 +4,17 @@ import { ID } from 'src/api/id';
 import { IconSet } from 'widgets/icons';
 import { Callout, InfoButton } from 'widgets/notifications';
 import { Radio, RadioGroup } from 'widgets/radio';
-import { KeySelector, OperatorSelector, ValueInput } from './Inputs';
+import {
+  ConjuctionSelector,
+  IndexInput,
+  KeySelector,
+  OperatorSelector,
+  ValueInput,
+} from './Inputs';
 import { Criteria } from './data';
 import { useStore } from 'src/frontend/contexts/StoreContext';
+import { clamp } from 'common/core';
+import { SearchConjunction } from 'src/api/data-storage-search';
 
 export type Query = Map<string, Criteria>;
 export type QueryDispatch = React.Dispatch<React.SetStateAction<Query>>;
@@ -22,10 +30,11 @@ export const QueryEditor = memo(function QueryEditor({
   setQuery,
   submissionButtonText = 'Search',
 }: QueryEditorProps) {
+  let lastconjuction: SearchConjunction = query.entries().next().value?.[1].conjunction ?? 'and';
   return (
     <fieldset aria-labelledby="query-editor-container-label">
-      <div style={{ display: 'flex' }}>
-        <legend id="query-editor-container-label">Query Editor</legend>
+      <legend id="query-editor-container-label">
+        Query Editor
         <InfoButton>
           A query is a list of criterias.
           <br />
@@ -38,10 +47,24 @@ export const QueryEditor = memo(function QueryEditor({
           icon button next to the inputs.
           <br />
           <br />
-          Additionally, there is <b>Match</b> option that decides whether all criterias must match
-          or just one.
+          <p>
+            When the search runs, criteria are automatically{' '}
+            <strong>grouped by consecutive conjunctions</strong>. In practice this means:
+          </p>
+          <ul>
+            <li>
+              <strong>Adjacent criteria using the same conjunction</strong> (either <code>AND</code>{' '}
+              or <code>OR</code>) are grouped together.
+            </li>
+            <li>Each group is evaluated as a single expression using its shared conjunction.</li>
+            <li>The final search combines those groups in order.</li>
+          </ul>
+          <p>
+            In other words, the conjunction applies between consecutive items, and the system will
+            internally create the correct logical structure based on how you arranged them.
+          </p>
         </InfoButton>
-      </div>
+      </legend>
       {query.size === 0 ? (
         <Callout icon={IconSet.INFO} header="Empty Query">
           Your query is currently empty. Create a criteria above to enable the{' '}
@@ -49,45 +72,65 @@ export const QueryEditor = memo(function QueryEditor({
         </Callout>
       ) : undefined}
       <div id="query-editor-container">
-        <table id="query-editor">
-          <thead className="visually-hidden">
-            <tr>
-              <td></td>
-              <th id="col-key">Key</th>
-              <th id="col-operator">Operator</th>
-              <th id="col-value">Value</th>
-              <th id="col-remove">Remove</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from(query.entries(), ([id, query], index) => (
-              <EditableCriteria
-                key={id}
-                index={index}
-                id={id}
-                criteria={query}
-                dispatch={setQuery}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div id="query-editor">
+          {/*
+          <div></div>
+          <div id="col-key">Key</div>
+          <div id="col-operator">Operator</div>
+          <div id="col-value">Value</div>
+          <div id="col-remove">Remove</div>
+          */}
+          {Array.from(query.entries(), ([id, criteria], index) => {
+            const changed = lastconjuction !== criteria.conjunction;
+            lastconjuction = criteria.conjunction;
+            return (
+              <React.Fragment key={id}>
+                {changed && <CriteriaSeparator text={'AND'} />}
+                <EditableCriteria
+                  index={index}
+                  id={id}
+                  criteria={criteria}
+                  dispatch={setQuery}
+                  totalCriterias={query.size}
+                />
+              </React.Fragment>
+            );
+          })}
+        </div>
       </div>
     </fieldset>
   );
 });
+
+const CriteriaSeparator = ({ text }: { text: string }) => {
+  return <div className="separator">{text}</div>;
+};
+
+function reorderMapByIndex<K, V>(map: Map<K, V>, fromIndex: number, toIndex: number): Map<K, V> {
+  const entries = Array.from(map.entries());
+  const [moved] = entries.splice(fromIndex, 1);
+  entries.splice(toIndex, 0, moved);
+  return new Map(entries);
+}
 
 export interface EditableCriteriaProps {
   index: number;
   id: ID;
   criteria: Criteria;
   dispatch: QueryDispatch;
+  totalCriterias: number;
 }
 
 // The main Criteria component, finds whatever input fields for the key should be rendered
-export const EditableCriteria = ({ index, id, criteria, dispatch }: EditableCriteriaProps) => {
+export const EditableCriteria = (props: EditableCriteriaProps) => {
+  const { index, id, criteria, dispatch, totalCriterias } = props;
   const setCriteria = (fn: (criteria: Criteria) => Criteria) => {
     const c = fn(criteria);
     dispatch((query) => new Map(query.set(id, c)));
+  };
+  const setIndex = (newIndex: number) => {
+    newIndex = clamp(newIndex - 1, 0, totalCriterias - 1);
+    dispatch((query) => reorderMapByIndex(query, index, newIndex));
   };
   const { extraPropertyStore } = useStore();
   const epID = 'extraProperty' in criteria ? criteria.extraProperty : undefined;
@@ -97,55 +140,55 @@ export const EditableCriteria = ({ index, id, criteria, dispatch }: EditableCrit
   );
 
   return (
-    <tr>
-      <th scope="row" id={id}>
-        {index + 1}
-      </th>
-      <td>
-        <KeySelector
-          labelledby={`${id} col-key`}
-          keyValue={criteria.key}
-          dispatch={setCriteria}
-          extraProperty={extraProperty}
-        />
-      </td>
-      <td>
-        <OperatorSelector
-          labelledby={`${id} col-operator`}
-          keyValue={criteria.key}
-          value={criteria.operator}
-          dispatch={setCriteria}
-          extraProperty={extraProperty}
-        />
-      </td>
-      <td>
-        <ValueInput
-          labelledby={`${id} col-value`}
-          keyValue={criteria.key}
-          value={criteria.value}
-          dispatch={setCriteria}
-          extraProperty={extraProperty}
-          operator={criteria.operator}
-        />
-      </td>
-      <td>
-        <button
-          className="btn-icon"
-          data-tooltip={`Remove Criteria ${index + 1}`}
-          aria-labelledby={`col-remove ${id}`}
-          type="button"
-          onClick={() =>
-            dispatch((form) => {
-              form.delete(id);
-              return new Map(form);
-            })
-          }
-        >
-          {IconSet.DELETE}
-          <span className="visually-hidden">Remove Criteria</span>
-        </button>
-      </td>
-    </tr>
+    <div style={{ display: 'contents' }}>
+      <IndexInput
+        labelledby={`${id} col-index`}
+        value={index + 1}
+        setValue={setIndex}
+        total={totalCriterias}
+      />
+      <ConjuctionSelector
+        labelledby={`${id} col-conjuction`}
+        value={criteria.conjunction}
+        dispatch={setCriteria}
+      />
+      <KeySelector
+        labelledby={`${id} col-key`}
+        keyValue={criteria.key}
+        dispatch={setCriteria}
+        extraProperty={extraProperty}
+      />
+      <OperatorSelector
+        labelledby={`${id} col-operator`}
+        keyValue={criteria.key}
+        value={criteria.operator}
+        dispatch={setCriteria}
+        extraProperty={extraProperty}
+      />
+      <ValueInput
+        labelledby={`${id} col-value`}
+        keyValue={criteria.key}
+        value={criteria.value}
+        dispatch={setCriteria}
+        extraProperty={extraProperty}
+        operator={criteria.operator}
+      />
+      <button
+        className="btn-icon"
+        data-tooltip={`Remove Criteria ${index + 1}`}
+        aria-labelledby={`col-remove ${id}`}
+        type="button"
+        onClick={() =>
+          dispatch((form) => {
+            form.delete(id);
+            return new Map(form);
+          })
+        }
+      >
+        {IconSet.DELETE}
+        <span className="visually-hidden">Remove Criteria</span>
+      </button>
+    </div>
   );
 };
 

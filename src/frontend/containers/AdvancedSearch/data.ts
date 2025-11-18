@@ -2,6 +2,7 @@ import { generateWidgetId } from 'widgets/utility';
 import {
   ExtraPropertyOperatorType,
   NumberOperatorType,
+  SearchConjunction,
   StringOperatorType,
 } from '../../../api/data-storage-search';
 import { FileDTO, IMG_EXTENSIONS } from '../../../api/file';
@@ -38,6 +39,7 @@ interface Field<K extends Key, O extends Operator, V extends Value> {
   key: K;
   operator: O;
   value: V;
+  conjunction: SearchConjunction;
 }
 
 interface ExtraPropertyField<
@@ -67,15 +69,16 @@ export type ExtraPropertyID = ID | undefined;
 
 export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): Criteria {
   if (key === 'name' || key === 'absolutePath') {
-    return { id: generateId(), key, operator: 'contains', value: '' };
+    return { id: generateId(), key, operator: 'contains', value: '', conjunction: 'and' };
   } else if (key === 'tags') {
-    return { id: generateId(), key, operator: 'contains', value: undefined };
+    return { id: generateId(), key, operator: 'contains', value: undefined, conjunction: 'and' };
   } else if (key === 'extension') {
     return {
       id: generateId(),
       key,
       operator: 'equals',
       value: IMG_EXTENSIONS[0],
+      conjunction: 'and',
     };
   } else if (key === 'dateAdded') {
     return {
@@ -83,6 +86,7 @@ export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): C
       key,
       operator: 'equals',
       value: new Date(),
+      conjunction: 'and',
     };
   } else if (key === 'extraProperties') {
     if (extraPropertyType !== undefined) {
@@ -93,6 +97,7 @@ export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): C
           key: 'extraProperties',
           value: 0,
           operator: 'equals',
+          conjunction: 'and',
         };
       } else if (extraPropertyType === ExtraPropertyType.text) {
         return {
@@ -101,6 +106,7 @@ export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): C
           key: 'extraProperties',
           value: '',
           operator: 'contains',
+          conjunction: 'and',
         };
       }
     }
@@ -110,9 +116,16 @@ export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): C
       key: 'extraProperties',
       value: 0,
       operator: 'equals',
+      conjunction: 'and',
     };
   } else {
-    return { id: generateId(), key: key, operator: 'greaterThanOrEquals', value: 0 };
+    return {
+      id: generateId(),
+      key: key,
+      operator: 'greaterThanOrEquals',
+      value: 0,
+      conjunction: 'and',
+    };
   }
 }
 

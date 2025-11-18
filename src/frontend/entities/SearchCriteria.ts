@@ -39,6 +39,11 @@ export const CustomKeyDict: SearchKeyDict = {
   locationId: 'Location',
 };
 
+export const SearchConjuctionSymbols: Record<SearchConjunction, string> = {
+  and: 'AND',
+  or: 'OR',
+};
+
 export const NumberOperatorSymbols: Record<NumberOperatorType, string> = {
   equals: '=',
   notEqual: '≠',

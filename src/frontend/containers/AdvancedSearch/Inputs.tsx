@@ -3,7 +3,9 @@ import React, {
   ForwardedRef,
   forwardRef,
   useCallback,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -13,6 +15,8 @@ import {
   ExtraPropertyOperators,
   isExtraPropertyOperatorType,
   NumberOperators,
+  SearchConjunction,
+  SearchConjunctions,
   StringOperators,
 } from '../../../api/data-storage-search';
 import { IMG_EXTENSIONS } from '../../../api/file';
@@ -22,6 +26,7 @@ import { useStore } from '../../contexts/StoreContext';
 import {
   ExtraPropertyOperatorLabels,
   NumberOperatorSymbols,
+  SearchConjuctionSymbols,
   StringOperatorLabels,
 } from '../../entities/SearchCriteria';
 import { ClientTag } from '../../entities/Tag';
@@ -31,6 +36,87 @@ import { ClientExtraProperty } from 'src/frontend/entities/ExtraProperty';
 import { usePopover } from 'widgets/popovers/usePopover';
 import { ExtraPropertyType } from 'src/api/extraProperty';
 import { Observer } from 'mobx-react-lite';
+import { debounce } from 'common/timeout';
+import { clamp } from 'common/core';
+
+interface IndexInputProps {
+  value: number;
+  setValue: (newIdx: number) => void;
+  labelledby?: string;
+  total: number;
+}
+
+export const IndexInput = ({ value, setValue, labelledby, total }: IndexInputProps) => {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText(`${value}`);
+  }, [value]);
+  const debouncesetValue = useMemo(() => debounce(setValue, 400), [setValue]);
+  const commit = useCallback(
+    (raw: string) => {
+      if (raw === '' || raw === '-') {
+        return;
+      }
+      let newIdx = parseInt(raw, 10);
+      if (isNaN(newIdx)) {
+        return;
+      }
+      newIdx = clamp(newIdx, 1, total);
+      setText(String(newIdx));
+      debouncesetValue(newIdx);
+    },
+    [debouncesetValue, total],
+  );
+  const handleInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value;
+      if (/^-?\d*$/.test(raw)) {
+        commit(raw);
+      }
+    },
+    [commit],
+  );
+  const handleBlur = () => {
+    commit(text);
+  };
+
+  return (
+    <input
+      aria-labelledby={labelledby}
+      className="input criteria-input"
+      type="text"
+      value={text}
+      inputMode="numeric"
+      onInput={handleInput}
+      onBlur={handleBlur}
+    />
+  );
+};
+
+export const ConjuctionSelector = ({
+  labelledby,
+  value,
+  dispatch,
+}: Omit<FieldInput<SearchConjunction>, 'operator' | 'keyValue' | 'extraProperty'>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const conjuction = e.target.value as SearchConjunction;
+    dispatch((criteria) => {
+      criteria.conjunction = conjuction;
+      return { ...criteria };
+    });
+  };
+
+  return (
+    <select
+      className="conjuction-input"
+      aria-labelledby={labelledby}
+      onChange={handleChange}
+      value={value}
+    >
+      {SearchConjunctions.map((sc) => toOperatorOption(sc, SearchConjuctionSymbols))}
+    </select>
+  );
+};
 
 type SetCriteria = (fn: (criteria: Criteria) => Criteria) => void;
 
@@ -444,7 +530,7 @@ function getOperatorOptions(key: Key, extraPropertyType?: ExtraPropertyType) {
   return [];
 }
 
-const toOperatorOption = <T extends string>(o: T, labels?: Record<T, string>) => (
+export const toOperatorOption = <T extends string>(o: T, labels?: Record<T, string>) => (
   <option key={o} value={o}>
     {labels && o in labels ? labels[o] : camelCaseToSpaced(o)}
   </option>
