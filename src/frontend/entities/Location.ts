@@ -517,7 +517,17 @@ export class ClientLocation {
     this._worker?.terminate();
     this._worker = worker;
     // Make a list of all files in this directory, which will be returned when all subdirs have been traversed
-    const initialFiles = await this.worker.watch(directory, this.extensions);
+    await fse.ensureDir(this.store.watcherSnapshotDirectory);
+    const snapshotFilePath = SysPath.join(
+      this.store.watcherSnapshotDirectory,
+      `${this.id}.snapshot.json`,
+    );
+    const initialFiles = await this.worker.watch(
+      directory,
+      this.extensions,
+      snapshotFilePath,
+      this.store.PARCEL_WATCHER_BACKEND,
+    );
 
     this.setSettingWatcher(false);
     // Filter out images from excluded sub-locations
@@ -526,6 +536,12 @@ export class ClientLocation {
       ({ absolutePath }) =>
         !this.excludedPaths.some((subLoc) => absolutePath.startsWith(subLoc.path)),
     );
+  }
+
+  // close and save snapshots of the watcher worker
+  @action async close(): Promise<void> {
+    await this.worker?.cancel();
+    await this.worker?.close();
   }
 }
 interface IDirectoryTreeItem {

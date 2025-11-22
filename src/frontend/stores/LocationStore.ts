@@ -17,6 +17,9 @@ import { ClientStringSearchCriteria } from '../entities/SearchCriteria';
 import ImageLoader from '../image/ImageLoader';
 import RootStore from './RootStore';
 import { ClientTag } from '../entities/Tag';
+import { IS_MAC, IS_WIN } from 'common/process';
+import { BackendType } from '@parcel/watcher';
+import { execSync } from 'child_process';
 
 const PREFERENCES_STORAGE_KEY = 'location-store-preferences';
 type Preferences = { extensions: IMG_EXTENSIONS_TYPE[] };
@@ -35,9 +38,20 @@ function areFilesIdenticalBesidesName(a: FileDTO, b: FileDTO): boolean {
   );
 }
 
+function isWatchmanInstalled(): boolean {
+  try {
+    execSync('watchman --version', { stdio: 'ignore' });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 class LocationStore {
   private readonly backend: DataStorage;
   private readonly rootStore: RootStore;
+  watcherSnapshotDirectory!: string;
+  PARCEL_WATCHER_BACKEND!: BackendType;
 
   readonly locationList = observable<ClientLocation>([]);
 
@@ -63,6 +77,19 @@ class LocationStore {
       // By default, disable EXR for now (experimental)
       this.enabledFileExtensions.delete('exr');
     }
+    this.watcherSnapshotDirectory = await RendererMessenger.getWatcherSnapshotsDirectory();
+
+    // Fix the console popup bug when initializing the watcher by ensuring the watcher backend to use.
+    // look at https://github.com/eclipse-theia/theia/pull/16335
+    const isWatchman = isWatchmanInstalled();
+    this.PARCEL_WATCHER_BACKEND = isWatchman
+      ? 'watchman'
+      : IS_WIN
+      ? 'windows'
+      : IS_MAC
+      ? 'fs-events'
+      : 'inotify';
+    console.debug('Watcher backend:', this.PARCEL_WATCHER_BACKEND);
 
     // Get dirs from backend
     const dirs = await this.backend.fetchLocations();
@@ -675,6 +702,13 @@ class LocationStore {
     for (let i = startIndex; i <= endIndex; i++) {
       this.locationList[i].setIndex(i);
       this.save(this.locationList[i].serialize());
+    }
+  }
+
+  // Close and save snapshots for all watcher workers
+  @action async close(): Promise<void> {
+    for (const location of this.locationList) {
+      await location.close();
     }
   }
 }

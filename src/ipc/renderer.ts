@@ -194,6 +194,13 @@ export class RendererMessenger {
     return path.join(userDataPath, 'themes');
   };
 
-  static sendConsoleMessage = (type: 'log' | 'info' | 'error' | 'warn' | 'debug', message: string) =>
-    ipcRenderer.send(CONSOLE_MESSAGE, { type, message });
+  static getWatcherSnapshotsDirectory = async () => {
+    const userDataPath = await RendererMessenger.getPath('userData');
+    return path.join(userDataPath, 'watcher_snapshots');
+  };
+
+  static sendConsoleMessage = (
+    type: 'log' | 'info' | 'error' | 'warn' | 'debug',
+    message: string,
+  ) => ipcRenderer.send(CONSOLE_MESSAGE, { type, message });
 }

@@ -188,6 +188,7 @@ class RootStore {
   }
 
   async close(): Promise<void> {
+    await this.locationStore.close();
     // TODO: should be able to be done more reliably by running exiftool as a child process
     await this.exifTool.close();
   }
