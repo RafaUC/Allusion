@@ -631,7 +631,7 @@ class FileStore {
     file.setBroken(true);
     this.rootStore.uiStore.deselectFile(file);
     this.incrementNumMissingFiles();
-    if (file.tags.size === 0) {
+    if (file.tags.size === 0 && this.numUntaggedFiles > 0) {
       this.decrementNumUntaggedFiles();
     }
   }
@@ -731,6 +731,7 @@ class FileStore {
     }
   }
 
+  firstFetchAll = true;
   @action.bound async fetchAllFiles(): Promise<void> {
     try {
       this.setContentAll();
@@ -748,9 +749,14 @@ class FileStore {
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
-        return this.updateFromBackend(fetchedFiles);
+        this.updateFromBackend(fetchedFiles);
       } else {
         console.debug('FETCH All ABORTED');
+      }
+      if (this.firstFetchAll) {
+        this.firstFetchAll = false;
+        this.rootStore.tagStore.initializeFileCounts(fetchedFiles);
+        this.rootStore.locationStore.updateLocations(undefined, fetchedFiles);
       }
     } catch (err) {
       console.error('Could not load all files', err);

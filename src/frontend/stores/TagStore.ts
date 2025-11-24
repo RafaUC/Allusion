@@ -19,6 +19,7 @@ class TagStore {
 
   /** A lookup map to speedup finding entities */
   private readonly tagGraph = observable(new Map<ID, ClientTag>());
+  @observable fileCountsInitialized = false;
 
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
@@ -37,7 +38,6 @@ class TagStore {
     }
   }
 
-  fileCountsInitialized = false;
   @action.bound async initializeFileCounts(files: FileDTO[]): Promise<void> {
     if (this.fileCountsInitialized) {
       return;

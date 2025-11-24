@@ -188,6 +188,13 @@
   input {
     width: 100%;
   }
+
+  &[data-watching='false'] {
+    SVG {
+      //color: var(--text-color-muted);
+      opacity: 0.63;
+    }
+  }
 }
 
 // ACTIONBAR

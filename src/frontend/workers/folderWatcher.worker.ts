@@ -9,8 +9,6 @@ const ctx: Worker = self as any;
 
 export class FolderWatcherWorker {
   private watcher?: parcelWatcher.AsyncSubscription;
-  // Whether the initial scan has been completed, and new/removed files are being watched
-  private isReady = false;
   private isCancelled = false;
   private directory?: string;
   private snapshotFilePath?: string;
@@ -44,7 +42,7 @@ export class FolderWatcherWorker {
     extensions: IMG_EXTENSIONS_TYPE[],
     snapshotFilePath: string,
     backend: parcelWatcher.BackendType,
-  ) {
+  ): Promise<void> {
     this.isCancelled = false;
     this.backend = backend;
 
@@ -58,7 +56,6 @@ export class FolderWatcherWorker {
     // Watch for files being added/changed/removed:
     // Usually you'd include a glob in the watch argument, e.g. `directory/**/.{jpg|png|...}`, but we cannot use globs unfortunately (see disableGlobbing)
     // watch for this https://github.com/parcel-bundler/watcher/pull/207
-    this.isReady = true;
 
     const handleEvents = // Small indentation hack to avoid affecting git blame
       (events: parcelWatcher.Event[], extensions: IMG_EXTENSIONS_TYPE[]) => {
@@ -93,11 +90,7 @@ export class FolderWatcherWorker {
               ino: stats.ino.toString(),
             };
 
-            if (this.isReady) {
-              ctx.postMessage({ type: 'add', value: fileStats });
-            } else {
-              initialFiles.push(fileStats);
-            }
+            ctx.postMessage({ type: 'add', value: fileStats });
           } else if (event.type === 'update') {
             const stats = statSync(event.path);
             if (this.isCancelled) {
@@ -144,15 +137,6 @@ export class FolderWatcherWorker {
       },
       { ignore: [], backend: backend },
     );
-
-    // Make a list of all files in this directory, which will be returned when all subdirs have been traversed
-    const initialFiles: FileStats[] = [];
-
-    // This is stubbed out as @parcel/watcher doesn't have a ready event like chokidar
-    // Because @parcel/watcher has the ability to have snapshots and historical changes, we can use it to reduce startup time
-    return new Promise<FileStats[]>((resolve) => {
-      resolve([]);
-    });
   }
 }
 

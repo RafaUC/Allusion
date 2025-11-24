@@ -13,6 +13,7 @@ import ImageLoader from '../image/ImageLoader';
 import { RendererMessenger } from 'src/ipc/renderer';
 import SearchStore from './SearchStore';
 import ExtraPropertyStore from './ExtraPropertyStore';
+import { AppToaster } from '../components/Toaster';
 
 // This will throw exceptions whenever we try to modify the state directly without an action
 // Actions will batch state modifications -> better for performance
@@ -123,11 +124,8 @@ class RootStore {
       );
     }
 
-    // Quick look for any new or removed images, and refetch if necessary
-    rootStore.locationStore.updateLocations().then(() => {
-      // Then, watch the locations
-      rootStore.locationStore.watchLocations();
-    });
+    // look for any new or removed images, handled by parcel/watcher
+    rootStore.locationStore.watchLocations();
 
     return rootStore;
   }
@@ -188,9 +186,12 @@ class RootStore {
   }
 
   async close(): Promise<void> {
+    AppToaster.show({ message: 'Closing Allusion...', type: 'info', timeout: 0 }, 'closing');
     await this.locationStore.close();
     // TODO: should be able to be done more reliably by running exiftool as a child process
     await this.exifTool.close();
+    AppToaster.show({ message: 'Closing Allusion...', type: 'success', timeout: 0 }, 'closing');
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }
 
