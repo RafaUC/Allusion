@@ -800,6 +800,14 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
       }}
       headerToolbar={
         <Toolbar controls="tag-hierarchy" isCompact>
+          {!tagStore.fileCountsInitialized && (
+            <ToolbarButton
+              icon={IconSet.RELOAD_COMPACT}
+              text="Load Tag File Counts"
+              onClick={() => tagStore.initializeFileCounts()}
+              tooltip={'Load Tag File Counts'}
+            />
+          )}
           {uiStore.tagSelection.size > 0 ? (
             <ToolbarButton
               icon={IconSet.CLOSE}

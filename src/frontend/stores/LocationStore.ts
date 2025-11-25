@@ -742,7 +742,7 @@ class LocationStore {
 
   // Close and save snapshots for all watcher workers
   @action async close(): Promise<void> {
-    for (const location of this.locationList) {
+    for (const location of this.locationList.slice()) {
       await location.close();
     }
   }
