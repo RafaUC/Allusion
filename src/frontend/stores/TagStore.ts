@@ -39,7 +39,7 @@ class TagStore {
     }
   }
 
-  @action.bound async initializeFileCounts(allDbFiles?: FileDTO[]): Promise<void> {
+  @action.bound async initializeTagFileCounts(allDbFiles?: FileDTO[]): Promise<void> {
     if (this.fileCountsInitialized) {
       return;
     }

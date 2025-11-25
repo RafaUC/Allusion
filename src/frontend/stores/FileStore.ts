@@ -731,7 +731,6 @@ class FileStore {
     }
   }
 
-  firstFetchAll = true;
   @action.bound async fetchAllFiles(): Promise<void> {
     try {
       this.setContentAll();
@@ -748,16 +747,14 @@ class FileStore {
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      let promise = undefined;
       if (start === currentFetchId) {
-        this.updateFromBackend(fetchedFiles);
+        promise = this.updateFromBackend(fetchedFiles);
       } else {
         console.debug('FETCH All ABORTED');
       }
-      if (this.firstFetchAll) {
-        this.firstFetchAll = false;
-        this.rootStore.tagStore.initializeFileCounts(fetchedFiles);
-        this.rootStore.locationStore.updateLocations(undefined, fetchedFiles);
-      }
+      this.rootStore.initStartupLoads(fetchedFiles);
+      return promise;
     } catch (err) {
       console.error('Could not load all files', err);
     }

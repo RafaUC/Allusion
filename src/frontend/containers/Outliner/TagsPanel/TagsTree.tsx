@@ -804,7 +804,7 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
             <ToolbarButton
               icon={IconSet.RELOAD_COMPACT}
               text="Load Tag File Counts"
-              onClick={() => tagStore.initializeFileCounts()}
+              onClick={() => tagStore.initializeTagFileCounts()}
               tooltip={'Load Tag File Counts'}
             />
           )}
