@@ -394,6 +394,7 @@ const Location = observer(
     return (
       <div
         className="tree-content-label"
+        data-watching={nodeData.isWatchingFiles}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         draggable

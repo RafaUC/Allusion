@@ -9,39 +9,57 @@ const ctx: Worker = self as any;
 
 export class FolderWatcherWorker {
   private watcher?: parcelWatcher.AsyncSubscription;
-  // Whether the initial scan has been completed, and new/removed files are being watched
-  private isReady = false;
   private isCancelled = false;
+  private directory?: string;
+  private snapshotFilePath?: string;
+  private backend?: parcelWatcher.BackendType;
 
   cancel() {
     this.isCancelled = true;
   }
 
   async close() {
-    this.watcher?.unsubscribe();
+    if (this.watcher) {
+      this.watcher.unsubscribe();
+      this.watcher = undefined;
+    }
+    // Save watcher snapshot on close
+    if (this.snapshotFilePath && this.directory) {
+      console.debug(`Creating watcher snapshot for ${this.directory}: ${this.snapshotFilePath}`);
+      try {
+        await parcelWatcher.writeSnapshot(this.directory, this.snapshotFilePath, {
+          backend: this.backend,
+        });
+      } catch (err) {
+        console.error(`${this.snapshotFilePath} - Failed writing snapshot on close:`, err);
+      }
+    }
   }
 
   /** Returns all supported image files in the given directly, and callbacks for new or removed files */
-  async watch(directory: string, extensions: IMG_EXTENSIONS_TYPE[]) {
+  async watch(
+    directory: string,
+    extensions: IMG_EXTENSIONS_TYPE[],
+    snapshotFilePath: string,
+    backend: parcelWatcher.BackendType,
+  ): Promise<void> {
     this.isCancelled = false;
+    this.backend = backend;
 
     // Replace backslash with forward slash, recommended by chokidar
     // See docs for the .watch method: https://github.com/paulmillr/chokidar#api
     directory = directory.replace(/\\/g, '/');
+    snapshotFilePath = snapshotFilePath.replace(/\\/g, '/');
+    this.directory = directory;
+    this.snapshotFilePath = snapshotFilePath;
 
     // Watch for files being added/changed/removed:
     // Usually you'd include a glob in the watch argument, e.g. `directory/**/.{jpg|png|...}`, but we cannot use globs unfortunately (see disableGlobbing)
     // watch for this https://github.com/parcel-bundler/watcher/pull/207
-    this.isReady = true;
 
-    this.watcher = await parcelWatcher.subscribe(
-      directory,
-      (err, events) => {
+    const handleEvents = // Small indentation hack to avoid affecting git blame
+      (events: parcelWatcher.Event[], extensions: IMG_EXTENSIONS_TYPE[]) => {
         for (const event of events) {
-          if (err) {
-            console.error('Error fired in watcher', directory, err);
-            ctx.postMessage({ type: 'error', value: err });
-          }
           // Ignore Files that aren't our extension type
           const ext = SysPath.extname(event.path).toLowerCase().split('.')[1];
           if (!extensions.includes(ext as IMG_EXTENSIONS_TYPE)) {
@@ -72,11 +90,7 @@ export class FolderWatcherWorker {
               ino: stats.ino.toString(),
             };
 
-            if (this.isReady) {
-              ctx.postMessage({ type: 'add', value: fileStats });
-            } else {
-              initialFiles.push(fileStats);
-            }
+            ctx.postMessage({ type: 'add', value: fileStats });
           } else if (event.type === 'update') {
             const stats = statSync(event.path);
             if (this.isCancelled) {
@@ -99,18 +113,30 @@ export class FolderWatcherWorker {
             ctx.postMessage({ type: 'remove', value: event.path });
           }
         }
+      };
+
+    //Query for changes made while the watcher was down.
+    try {
+      console.debug('Reading watcher snapshot...', directory);
+      const historical = await parcelWatcher.getEventsSince(directory, this.snapshotFilePath, {
+        backend: this.backend,
+      });
+      handleEvents(historical, extensions);
+    } catch (err) {
+      console.warn('No snapshot available, skipping historical events.', err);
+    }
+
+    this.watcher = await parcelWatcher.subscribe(
+      directory,
+      (err, events) => {
+        if (err) {
+          console.error('Error fired in watcher', directory, err);
+          ctx.postMessage({ type: 'error', value: err });
+        }
+        handleEvents(events, extensions);
       },
-      { ignore: [] },
+      { ignore: [], backend: backend },
     );
-
-    // Make a list of all files in this directory, which will be returned when all subdirs have been traversed
-    const initialFiles: FileStats[] = [];
-
-    // This is stubbed out as @parcel/watcher doesn't have a ready event like chokidar
-    // Because @parcel/watcher has the ability to have snapshots and historical changes, we can use it to reduce startup time
-    return new Promise<FileStats[]>((resolve) => {
-      resolve([]);
-    });
   }
 }
 

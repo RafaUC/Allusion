@@ -13,6 +13,9 @@ import ImageLoader from '../image/ImageLoader';
 import { RendererMessenger } from 'src/ipc/renderer';
 import SearchStore from './SearchStore';
 import ExtraPropertyStore from './ExtraPropertyStore';
+import { AppToaster } from '../components/Toaster';
+import { FileDTO } from 'src/api/file';
+import { OrderDirection } from 'src/api/data-storage-search';
 
 // This will throw exceptions whenever we try to modify the state directly without an action
 // Actions will batch state modifications -> better for performance
@@ -99,10 +102,11 @@ class RootStore {
       numCriterias === 0
         ? rootStore.fileStore.fetchAllFiles
         : async () => {
-            // When searching by criteria, the file counts won't be set (only when fetching all files),
+            // When searching by criteria, the file counts and startup Loads won't be set (only when fetching all files),
             // so fetch them manually
             await rootStore.fileStore.refetchFileCounts().catch(console.error);
-            return rootStore.fileStore.fetchFilesByQuery();
+            await rootStore.fileStore.fetchFilesByQuery();
+            return rootStore.initStartupLoads().catch(console.error);
           };
 
     // Load the files already in the database so user instantly sees their images
@@ -123,11 +127,8 @@ class RootStore {
       );
     }
 
-    // Quick look for any new or removed images, and refetch if necessary
-    rootStore.locationStore.updateLocations().then(() => {
-      // Then, watch the locations
-      rootStore.locationStore.watchLocations();
-    });
+    // look for any new or removed images, handled by parcel/watcher
+    rootStore.locationStore.watchLocations();
 
     return rootStore;
   }
@@ -168,6 +169,25 @@ class RootStore {
     return rootStore;
   }
 
+  isStartupLoadsInitialized = false;
+  async initStartupLoads(allDbFiles?: FileDTO[]): Promise<void> {
+    if (this.isStartupLoadsInitialized) {
+      return;
+    }
+    this.isStartupLoadsInitialized = true;
+    runInAction(async () => {
+      const doInitFileCounts = this.uiStore.isLoadFileCountsStartupEnabled;
+      const doRefreshLocations = this.uiStore.isRefreshLocationsStartupEnabled;
+      const files = allDbFiles ?? (await this.#backend.fetchFiles('id', OrderDirection.Asc, false));
+      if (doInitFileCounts) {
+        await this.tagStore.initializeTagFileCounts(files);
+      }
+      if (doRefreshLocations) {
+        await this.locationStore.updateLocations(undefined, files);
+      }
+    });
+  }
+
   async backupDatabaseToFile(path: string): Promise<void> {
     return this.#backup.backupToFile(path);
   }
@@ -188,8 +208,12 @@ class RootStore {
   }
 
   async close(): Promise<void> {
+    AppToaster.show({ message: 'Closing Allusion...', type: 'info', timeout: 0 }, 'closing');
+    await this.locationStore.close();
     // TODO: should be able to be done more reliably by running exiftool as a child process
     await this.exifTool.close();
+    AppToaster.show({ message: 'Closing Allusion...', type: 'success', timeout: 0 }, 'closing');
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }
 

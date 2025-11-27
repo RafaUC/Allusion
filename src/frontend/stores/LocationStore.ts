@@ -17,6 +17,9 @@ import { ClientStringSearchCriteria } from '../entities/SearchCriteria';
 import ImageLoader from '../image/ImageLoader';
 import RootStore from './RootStore';
 import { ClientTag } from '../entities/Tag';
+import { IS_MAC, IS_WIN } from 'common/process';
+import { BackendType } from '@parcel/watcher';
+import { execSync } from 'child_process';
 
 const PREFERENCES_STORAGE_KEY = 'location-store-preferences';
 type Preferences = { extensions: IMG_EXTENSIONS_TYPE[] };
@@ -35,9 +38,20 @@ function areFilesIdenticalBesidesName(a: FileDTO, b: FileDTO): boolean {
   );
 }
 
+function isWatchmanInstalled(): boolean {
+  try {
+    execSync('watchman --version', { stdio: 'ignore' });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 class LocationStore {
   private readonly backend: DataStorage;
   private readonly rootStore: RootStore;
+  watcherSnapshotDirectory!: string;
+  PARCEL_WATCHER_BACKEND!: BackendType;
 
   readonly locationList = observable<ClientLocation>([]);
 
@@ -63,6 +77,19 @@ class LocationStore {
       // By default, disable EXR for now (experimental)
       this.enabledFileExtensions.delete('exr');
     }
+    this.watcherSnapshotDirectory = await RendererMessenger.getWatcherSnapshotsDirectory();
+
+    // Fix the console popup bug when initializing the watcher by ensuring the watcher backend to use.
+    // look at https://github.com/eclipse-theia/theia/pull/16335
+    const isWatchman = isWatchmanInstalled();
+    this.PARCEL_WATCHER_BACKEND = isWatchman
+      ? 'watchman'
+      : IS_WIN
+      ? 'windows'
+      : IS_MAC
+      ? 'fs-events'
+      : 'inotify';
+    console.debug('Watcher backend:', this.PARCEL_WATCHER_BACKEND);
 
     // Get dirs from backend
     const dirs = await this.backend.fetchLocations();
@@ -87,35 +114,85 @@ class LocationStore {
         ),
     );
     runInAction(() => this.locationList.replace(locations));
+    runInAction(() => {
+      for (const location of this.locationList) {
+        location.init();
+      }
+    });
   }
 
   save(loc: LocationDTO): void {
     this.backend.saveLocation(loc);
   }
 
-  // chokidar.watch is significantly slower in windows. This negatively affects UX at
-  // Startup when dealing with locations containing a large number of files.
-  // Performing the initial scan for new or removed images directly with fse greatly
-  // improves the initial sync on Windows.
-  @action async updateLocations(locations?: ClientLocation | ClientLocation[]): Promise<boolean> {
-    let locs: ClientLocation[];
-    if (locations === undefined) {
-      locs = this.locationList.slice();
-    } else if (!Array.isArray(locations)) {
-      locs = [locations];
-    } else {
-      locs = locations;
+  retryToastTimeout: NodeJS.Timeout | undefined;
+  private showLocationProcessToast(
+    action: 'show' | 'cancel-retry' | 'show-missing' | 'hide',
+    msgMode: 'update' | 'watch',
+    location: ClientLocation | { name: 'None'; id: 'None' } = { name: 'None', id: 'None' },
+    total: number = 0,
+    progress: number = 0,
+  ) {
+    const watch = msgMode === 'watch';
+    const progressToastKey = 'progress';
+    switch (action) {
+      case 'show':
+        const toastsMsg = watch ? 'Syncing locations' : 'Looking for new images';
+
+        AppToaster.show(
+          {
+            message: `${toastsMsg}... [${progress + 1} / ${total}]`,
+            timeout: 6000,
+          },
+          progressToastKey,
+        );
+
+        // TODO: Add a maximum timeout for init: sometimes it's hanging for me. Could also be some of the following steps though
+        // added a retry toast for now, can't figure out the cause, and it's hard to reproduce
+        // FIXME: Toasts should not be abused for error handling. Create some error messaging mechanism.
+        this.retryToastTimeout = setTimeout(() => {
+          AppToaster.show(
+            {
+              message: `${toastsMsg}... [${progress + 1} / ${total}]`,
+              timeout: 6000,
+            },
+            progressToastKey,
+          );
+          AppToaster.show(
+            {
+              message: 'This appears to be taking longer than usual.',
+              timeout: 10000,
+              clickAction: {
+                onClick: RendererMessenger.reload,
+                label: 'Retry?',
+              },
+            },
+            'retry-init',
+          );
+        }, 20000);
+        break;
+      case 'cancel-retry':
+        clearTimeout(this.retryToastTimeout);
+        AppToaster.dismiss('retry-init');
+        break;
+      case 'show-missing':
+        AppToaster.show(
+          {
+            message: `Cannot ${watch ? 'watch' : 'find'} Location "${location.name}"`,
+            timeout: 6000,
+          },
+          // a key such that the toast can be dismissed automatically on recovery
+          `missing-loc-${location.id}`,
+        );
+        break;
+      case 'hide':
+      default:
+        AppToaster.dismiss(progressToastKey);
+        break;
     }
-    const foundNewFiles = await this.compareLocations(false, locs);
-    if (foundNewFiles) {
-      this.rootStore.fileStore.refetch();
-    }
-    return foundNewFiles;
   }
 
-  // We still need to initialize the watching and compare disk and db files like before,
-  // since changes may occur on disk during watcher initialization.
-  @action async watchLocations(locations?: ClientLocation | ClientLocation[]): Promise<boolean> {
+  @action async watchLocations(locations?: ClientLocation | ClientLocation[]): Promise<void> {
     let locs: ClientLocation[];
     if (locations === undefined) {
       locs = this.locationList;
@@ -125,26 +202,52 @@ class LocationStore {
       locs = locations;
     }
     locs = locs.filter((l) => l.isWatchingFiles);
+    const len = locs.length;
+    for (let i = 0; i < len; i++) {
+      const location = locs[i];
+      this.showLocationProcessToast('show', 'watch', location, len, i);
+      const success = await location.watch();
+      this.showLocationProcessToast('cancel-retry', 'watch', location);
+      if (!success) {
+        this.showLocationProcessToast('show-missing', 'watch', location);
+      }
+    }
+    this.showLocationProcessToast('hide', 'watch');
+  }
 
-    const foundNewFiles = await this.compareLocations(true, locs);
+  /** Manually synchronizes the database files and locations with the current file system state using a brute-force scan. */
+  @action async updateLocations(
+    locations?: ClientLocation | ClientLocation[],
+    allDbFiles?: FileDTO[],
+  ): Promise<boolean> {
+    let locs: ClientLocation[];
+    if (locations === undefined) {
+      locs = this.locationList.slice();
+    } else if (!Array.isArray(locations)) {
+      locs = [locations];
+    } else {
+      locs = locations;
+    }
+    locs.forEach((loc) => (loc.isRefreshing = true));
+    const foundNewFiles = await this.compareLocations(locs, allDbFiles);
     if (foundNewFiles) {
       this.rootStore.fileStore.refetch();
     }
     return foundNewFiles;
   }
 
-  // E.g. in preview window, it's not needed to watch the locations
   // Returns whether files have been added, changed or removed
-  @action async compareLocations(watch = true, locations: ClientLocation[]): Promise<boolean> {
-    const progressToastKey = 'progress';
+  @action async compareLocations(
+    locations: ClientLocation[],
+    allDbFiles?: FileDTO[],
+  ): Promise<boolean> {
     let foundNewFiles = false;
     const len = locations.length;
 
     // Get all files in the DB, set up data structures for quick lookups
     // Doing it for all locations, so files moved to another Location on disk, it's properly re-assigned in Allusion too
-    const dbFiles: FileDTO[] = await this.backend.fetchFiles('id', OrderDirection.Asc, false);
-    // Taking advantage of the fact that we're doing a full fetch here, try to initialize file counts if they haven't been initialized yet.
-    this.rootStore.tagStore.initializeFileCounts(dbFiles);
+    const dbFiles: FileDTO[] =
+      allDbFiles ?? (await this.backend.fetchFiles('id', OrderDirection.Asc, false));
     const dbFilesPathSet = new Set(dbFiles.map((f) => f.absolutePath));
     const dbFilesByCreatedDate = new Map<number, FileDTO[]>();
     for (const file of dbFiles) {
@@ -157,74 +260,31 @@ class LocationStore {
       }
     }
 
-    const toastsMsg = watch ? 'Syncing locations' : 'Looking for new images';
-
     // For every location, find created/moved/deleted files, and update the database accordingly.
     // TODO: Do this in a web worker, not in the renderer thread!
     for (let i = 0; i < len; i++) {
       const location = locations[i];
 
-      AppToaster.show(
-        {
-          message: `${toastsMsg}... [${i + 1} / ${len}]`,
-          timeout: 6000,
-        },
-        progressToastKey,
-      );
-
-      // TODO: Add a maximum timeout for init: sometimes it's hanging for me. Could also be some of the following steps though
-      // added a retry toast for now, can't figure out the cause, and it's hard to reproduce
-      // FIXME: Toasts should not be abused for error handling. Create some error messaging mechanism.
-      const readyTimeout = setTimeout(() => {
-        AppToaster.show(
-          {
-            message: `${toastsMsg}... [${i + 1} / ${len}]`,
-            timeout: 6000,
-          },
-          progressToastKey,
-        );
-        AppToaster.show(
-          {
-            message: 'This appears to be taking longer than usual.',
-            timeout: 10000,
-            clickAction: {
-              onClick: RendererMessenger.reload,
-              label: 'Retry?',
-            },
-          },
-          'retry-init',
-        );
-      }, 20000);
+      this.showLocationProcessToast('show', 'update', location, len, i);
 
       const wasInitialized = runInAction(() => location.isInitialized);
       if (!wasInitialized) {
         console.group(`Initializing location ${location.name}`);
         await location.init();
       }
-      const diskFiles =
-        watch && runInAction(() => location.isWatchingFiles)
-          ? await location.watch()
-          : await (async () => {
-              const [files, rootDirectoryItem] = await location.getDiskFilesAndDirectories();
-              location.refreshSublocations(rootDirectoryItem);
-              return files;
-            })();
+      const diskFiles = await (async () => {
+        const [files, rootDirectoryItem] = await location.getDiskFilesAndDirectories();
+        location.refreshSublocations(rootDirectoryItem);
+        return files;
+      })();
       const diskFileMap = new Map<string, FileStats>(
         diskFiles?.map((f) => [f.absolutePath, f]) ?? [],
       );
 
-      clearTimeout(readyTimeout);
-      AppToaster.dismiss('retry-init');
+      this.showLocationProcessToast('cancel-retry', 'update', location);
 
       if (diskFiles === undefined) {
-        AppToaster.show(
-          {
-            message: `Cannot ${watch ? 'watch' : 'find'} Location "${location.name}"`,
-            timeout: 6000,
-          },
-          // a key such that the toast can be dismissed automatically on recovery
-          `missing-loc-${location.id}`,
-        );
+        this.showLocationProcessToast('show-missing', 'update', location);
         continue;
       }
 
@@ -347,9 +407,9 @@ class LocationStore {
     }
 
     if (foundNewFiles) {
-      AppToaster.show({ message: 'New images detected.', timeout: 5000 }, progressToastKey);
+      AppToaster.show({ message: 'New images detected.', timeout: 5000 }, 'new-images');
     } else {
-      AppToaster.dismiss(progressToastKey);
+      this.showLocationProcessToast('hide', 'update');
     }
     return foundNewFiles;
   }
@@ -675,6 +735,13 @@ class LocationStore {
     for (let i = startIndex; i <= endIndex; i++) {
       this.locationList[i].setIndex(i);
       this.save(this.locationList[i].serialize());
+    }
+  }
+
+  // Close and save snapshots for all watcher workers
+  @action async close(): Promise<void> {
+    for (const location of this.locationList.slice()) {
+      await location.close();
     }
   }
 }

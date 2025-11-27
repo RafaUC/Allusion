@@ -136,7 +136,7 @@ const DnDHelper = createDragReorderHelper('tag-dnd-preview', DnDTagType);
 
 const TagItem = observer((props: ITagItemProps) => {
   const { nodeData, dispatch, expansion, isEditing, submit, pos, select } = props;
-  const { uiStore } = useStore();
+  const { uiStore, tagStore } = useStore();
   const dndData = useTagDnD();
 
   const show = useContextMenu();
@@ -327,7 +327,7 @@ const TagItem = observer((props: ITagItemProps) => {
         onSubmit={submit}
         tooltip={`${nodeData.path
           .map((v) => (v.startsWith('#') ? '&nbsp;<b>' + v.slice(1) + '</b>&nbsp;' : v))
-          .join(' › ')} (${nodeData.fileCount})`}
+          .join(' › ')}${tagStore.fileCountsInitialized ? ` (${nodeData.fileCount})` : ''}`}
       />
       {!isEditing && (
         <SearchButton
@@ -800,6 +800,14 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
       }}
       headerToolbar={
         <Toolbar controls="tag-hierarchy" isCompact>
+          {!tagStore.fileCountsInitialized && (
+            <ToolbarButton
+              icon={IconSet.RELOAD_COMPACT}
+              text="Load Tag File Counts"
+              onClick={() => tagStore.initializeTagFileCounts()}
+              tooltip={'Load Tag File Counts'}
+            />
+          )}
           {uiStore.tagSelection.size > 0 ? (
             <ToolbarButton
               icon={IconSet.CLOSE}
