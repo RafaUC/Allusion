@@ -141,6 +141,7 @@ type PersistentPreferenceFields =
   | 'importDirectory'
   | 'method'
   | 'thumbnailSize'
+  | 'thumbnailRadius'
   | 'largeThumbFullResThreshold'
   | 'masonryItemPadding'
   | 'thumbnailShape'
@@ -217,6 +218,7 @@ class UiStore {
   //   unnecessary conversions every time we set or read the value. Converting the index to an ID once per refetch is simpler and more efficient.
   @observable firstItem: number = 0;
   @observable thumbnailSize: ThumbnailSize | number = 'medium';
+  @observable thumbnailRadius: number = 1;
   @observable largeThumbFullResThreshold: number = 3840;
   @observable masonryItemPadding: number = 8;
   @observable thumbnailShape: ThumbnailShape = 'square';
@@ -320,10 +322,13 @@ class UiStore {
     this.thumbnailSize = size;
   }
 
+  @action.bound setThumbnailRadius(size: number): void {
+    this.thumbnailRadius = clamp(size, 0, 50);
+  }
+
   @action.bound setMasonryItemPadding(size: number): void {
-    // constrain between 0 to 20
-    const limitedValue = Math.max(0, Math.min(20, size));
-    this.masonryItemPadding = limitedValue;
+    // constrain between 0 to 30
+    this.masonryItemPadding = clamp(size, 0, 30);
   }
 
   @action.bound setThumbnailShape(shape: ThumbnailShape): void {
@@ -1385,6 +1390,9 @@ class UiStore {
         if (prefs.thumbnailSize) {
           this.setThumbnailSize(prefs.thumbnailSize);
         }
+        if (prefs.thumbnailRadius) {
+          this.setThumbnailRadius(prefs.thumbnailRadius);
+        }
         if ('largeThumbFullResThreshold' in prefs) {
           this.setLargeThumbFullResThreshold(prefs.largeThumbFullResThreshold);
         }
@@ -1486,6 +1494,7 @@ class UiStore {
       importDirectory: this.importDirectory,
       method: this.method,
       thumbnailSize: this.thumbnailSize,
+      thumbnailRadius: this.thumbnailRadius,
       largeThumbFullResThreshold: this.largeThumbFullResThreshold,
       masonryItemPadding: this.masonryItemPadding,
       thumbnailShape: this.thumbnailShape,

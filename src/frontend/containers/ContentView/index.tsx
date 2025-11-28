@@ -27,6 +27,7 @@ const ContentView = observer(() => {
     <div
       id="content-view"
       className={`thumbnail-${uiStore.thumbnailSize} thumbnail-${uiStore.thumbnailShape}`}
+      style={{ '--thumbnail-radius': `${uiStore.thumbnailRadius}%` } as React.CSSProperties}
     >
       <ContentProgressBar />
       {fileList.length === 0 || fileDimensions.length === 0 ? <Placeholder /> : <Content />}
