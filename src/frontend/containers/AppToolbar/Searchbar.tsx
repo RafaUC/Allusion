@@ -6,7 +6,7 @@ const SEARCHBAR_ID = 'toolbar-searchbar';
 
 const Searchbar = observer(() => {
   const { uiStore } = useStore();
-  const searchCriteriaList = uiStore.searchCriteriaList;
+  const searchCriteriaList = uiStore.searchRootGroup.children;
 
   // Only show quick search bar when all criteria are tags,
   // otherwise show a search bar that opens to the advanced search form
@@ -16,6 +16,7 @@ const Searchbar = observer(() => {
     searchCriteriaList.length === 0 ||
     searchCriteriaList.every(
       (crit) =>
+        crit instanceof ClientTagSearchCriteria &&
         crit.key === 'tags' &&
         crit.operator === 'containsRecursively' &&
         (crit as ClientTagSearchCriteria).value,
@@ -128,7 +129,7 @@ const QuickSearchList = observer(() => {
       onSelect={handleSelect}
       onDeselect={handleDeselect}
       onTagClick={uiStore.toggleAdvancedSearch}
-      onClear={uiStore.clearSearchCriteriaList}
+      onClear={uiStore.clearSearchCriteriaTree}
       ignoreOnBlur={ingnoreOnBlur}
       renderCreateOption={renderCreateOption}
       extraIconButtons={<SearchMatchButton disabled={selection.get().length < 2} />}
@@ -263,41 +264,35 @@ const CriteriaList = observer(() => {
     <div className="input" onClick={uiStore.toggleAdvancedSearch}>
       <div className="multiautocomplete-input">
         <div className="input-wrapper">
-          {uiStore.searchCriteriaList.map((c, i) => (
+          {uiStore.searchRootGroup.getLabels(CustomKeyDict, rootStore).map((label) => (
             <Tag
-              key={`${i}-${c.getLabel(CustomKeyDict, rootStore)}`}
-              text={c.getLabel(CustomKeyDict, rootStore)}
-              onRemove={() => uiStore.removeSearchCriteriaByIndex(i)}
+              key={`${label.id}`}
+              text={label.label}
+              onRemove={() => uiStore.removeSearchCriteriaById(label.id)}
               // Italicize system tags (for now only "Untagged images")
-              className={
-                c instanceof ClientTagSearchCriteria && c.isSystemTag() ? 'italic' : undefined
-              }
+              className={label.isSystemTag ? 'italic' : undefined}
             />
           ))}
         </div>
 
-        {uiStore.searchCriteriaList.length > 1 ? (
-          <IconButton
-            icon={uiStore.searchMatchAny ? IconSet.SEARCH_ANY : IconSet.SEARCH_ALL}
-            text={`Search using ${uiStore.searchMatchAny ? 'any' : 'all'} queries`}
-            onClick={(e) => {
-              uiStore.toggleSearchMatchAny();
-              fileStore.refetch();
-              e.stopPropagation();
-              e.preventDefault();
-              // TODO: search input element keeps focus after click???
-            }}
-            className="btn-icon-large"
-          />
-        ) : (
-          <> </>
-        )}
+        <IconButton
+          icon={uiStore.searchMatchAny ? IconSet.SEARCH_ANY : IconSet.SEARCH_ALL}
+          text={`Search using ${uiStore.searchMatchAny ? 'any' : 'all'} queries`}
+          onClick={(e) => {
+            uiStore.toggleSearchMatchAny();
+            fileStore.refetch();
+            e.stopPropagation();
+            e.preventDefault();
+            // TODO: search input element keeps focus after click???
+          }}
+          className="btn-icon-large"
+        />
 
         <IconButton
           icon={IconSet.CLOSE}
           text="Clear"
           onClick={(e) => {
-            uiStore.clearSearchCriteriaList();
+            uiStore.clearSearchCriteriaTree();
             e.stopPropagation();
             e.preventDefault();
           }}

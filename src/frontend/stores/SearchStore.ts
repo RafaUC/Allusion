@@ -2,8 +2,7 @@ import { action, makeObservable, observable } from 'mobx';
 
 import { DataStorage } from '../../api/data-storage';
 import { ID, generateId } from '../../api/id';
-import { ClientFileSearchCriteria } from '../entities/SearchCriteria';
-import { ClientFileSearchItem } from '../entities/SearchItem';
+import { ClientFileSearchItem, ClientSearchGroup } from '../entities/SearchItem';
 import RootStore from './RootStore';
 
 /**
@@ -30,8 +29,7 @@ class SearchStore {
 
       this.searchList.push(
         ...fetchedSearches.map(
-          (s, i) =>
-            new ClientFileSearchItem(s.id, s.name, s.criteria, s.matchAny === true, s.index ?? i),
+          (s, i) => new ClientFileSearchItem(s.id, s.name, s.rootGroup, s.index ?? i),
         ),
       );
     } catch (err) {
@@ -59,8 +57,7 @@ class SearchStore {
     const newSearch = new ClientFileSearchItem(
       generateId(),
       `${search.name} (copy)`,
-      search.criteria.map((c) => c.serialize(this.rootStore)),
-      search.matchAny,
+      search.rootGroup.serialize(this.rootStore, true),
       this.searchList.length,
     );
     // TODO: insert below given item or keep it at the end like this?
@@ -70,10 +67,9 @@ class SearchStore {
   }
 
   @action.bound replaceWithActiveSearch(search: ClientFileSearchItem): void {
-    search.setMatchAny(this.rootStore.uiStore.searchMatchAny);
-    search.setCriteria(
-      this.rootStore.uiStore.searchCriteriaList.map((c) =>
-        ClientFileSearchCriteria.deserialize(c.serialize(this.rootStore)),
+    search.setRootGroup(
+      ClientSearchGroup.deserialize(
+        this.rootStore.uiStore.searchRootGroup.serialize(this.rootStore, true),
       ),
     );
   }

@@ -41,6 +41,7 @@ export type AllusionDB_SQL = {
   extraProperties: ExtraProperties;
   epValues: EpValues;
   savedSearches: SavedSearches;
+  searchGroups: SearchGroups;
   searchCriteria: SearchCriteria;
 };
 
@@ -149,11 +150,19 @@ export type SavedSearches = {
   idx: number;
 };
 
-export type SearchCriteria = {
-  id: ColumnType<ID, ID, never>; //pk
-  savedSearchId: ID; //fk
+export type SearchGroups = {
+  id: ColumnType<ID, ID, never>;
+  name: string;
+  savedSearchId: ID;
+  parentGroupId: ID | null;
   idx: number;
   conjunction: SearchConjunction;
+};
+
+export type SearchCriteria = {
+  id: ColumnType<ID, ID, never>; //pk
+  groupId: ID; //fk
+  idx: number;
   key: keyof FileDTO;
   valueType: CriteriaValueType;
   operator: OperatorType;

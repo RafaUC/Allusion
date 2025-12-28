@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 
 import { ID } from 'src/api/id';
 import { IconSet } from 'widgets/icons';
@@ -6,18 +6,27 @@ import { Callout, InfoButton } from 'widgets/notifications';
 import { Radio, RadioGroup } from 'widgets/radio';
 import {
   ConjuctionSelector,
+  ConjuctionSelectorProps,
   IndexInput,
   KeySelector,
   OperatorSelector,
   ValueInput,
 } from './Inputs';
-import { Criteria } from './data';
+import {
+  Criteria,
+  CriteriaGroup,
+  CritIndexPath,
+  deleteNode,
+  getPathByIndexPath,
+  isCriteriaGroup,
+  moveNodeByIndexPath,
+  parseIndexPath,
+  Query,
+  QueryDispatch,
+  updateNode,
+} from './data';
 import { useStore } from 'src/frontend/contexts/StoreContext';
-import { clamp } from 'common/core';
 import { SearchConjunction } from 'src/api/data-storage-search';
-
-export type Query = Map<string, Criteria>;
-export type QueryDispatch = React.Dispatch<React.SetStateAction<Query>>;
 
 export interface QueryEditorProps {
   query: Query;
@@ -30,7 +39,6 @@ export const QueryEditor = memo(function QueryEditor({
   setQuery,
   submissionButtonText = 'Search',
 }: QueryEditorProps) {
-  let lastconjuction: SearchConjunction = query.entries().next().value?.[1].conjunction ?? 'and';
   return (
     <fieldset aria-labelledby="query-editor-container-label">
       <legend id="query-editor-container-label">
@@ -47,90 +55,200 @@ export const QueryEditor = memo(function QueryEditor({
           icon button next to the inputs.
           <br />
           <br />
-          <p>
-            When the search runs, criteria are automatically{' '}
-            <strong>grouped by consecutive conjunctions</strong>. In practice this means:
-          </p>
-          <ul>
-            <li>
-              <strong>Adjacent criteria using the same conjunction</strong> (either <code>AND</code>{' '}
-              or <code>OR</code>) are grouped together.
-            </li>
-            <li>Each group is evaluated as a single expression using its shared conjunction.</li>
-            <li>The final search combines those groups in order.</li>
-          </ul>
-          <p>
-            In other words, the conjunction applies between consecutive items, and the system will
-            internally create the correct logical structure based on how you arranged them.
-          </p>
+          To change the order of criteria and groups, or move them to different groups, modify their
+          nesting position using the index/nesting input at the start of each criterion row.
+          <br />
+          <br />
+          To change how criteria are evaluated together, change the conjunction (AND/OR) between
+          groups/criteria.
+          <br />
+          <br />
+          You can set a name for groups for better identification. If defined, it will replace the
+          labels in the search bar and saved searches hierarchy.
+          <br />
+          <br />
         </InfoButton>
       </legend>
-      {query.size === 0 ? (
+      {query.children.size === 0 ? (
         <Callout icon={IconSet.INFO} header="Empty Query">
           Your query is currently empty. Create a criteria above to enable the{' '}
           <b>{submissionButtonText}</b> button.
         </Callout>
       ) : undefined}
       <div id="query-editor-container">
-        <div id="query-editor">
-          {/*
-          <div></div>
-          <div id="col-key">Key</div>
-          <div id="col-operator">Operator</div>
-          <div id="col-value">Value</div>
-          <div id="col-remove">Remove</div>
-          */}
-          {Array.from(query.entries(), ([id, criteria], index) => {
-            const changed = lastconjuction !== criteria.conjunction;
-            lastconjuction = criteria.conjunction;
-            return (
-              <React.Fragment key={id}>
-                {changed && <CriteriaSeparator text={'AND'} />}
-                <EditableCriteria
-                  index={index}
-                  id={id}
-                  criteria={criteria}
-                  dispatch={setQuery}
-                  totalCriterias={query.size}
-                />
-              </React.Fragment>
-            );
-          })}
-        </div>
+        <EditableCriteriaGroup
+          group={query} //
+          groupId={''}
+          path={''}
+          setQuery={setQuery}
+        />
       </div>
     </fieldset>
   );
 });
 
-const CriteriaSeparator = ({ text }: { text: string }) => {
-  return <div className="separator">{text}</div>;
+export const GroupConjunctionEditor = (props: ConjuctionSelectorProps & { className?: string }) => {
+  const { labelledby, value, setConjunction, className } = props;
+  return (
+    <div className={`separator ${className}`}>
+      <ConjuctionSelector labelledby={labelledby} value={value} setConjunction={setConjunction} />
+    </div>
+  );
 };
 
-function reorderMapByIndex<K, V>(map: Map<K, V>, fromIndex: number, toIndex: number): Map<K, V> {
-  const entries = Array.from(map.entries());
-  const [moved] = entries.splice(fromIndex, 1);
-  entries.splice(toIndex, 0, moved);
-  return new Map(entries);
+export const CriteriaSeparator = ({ text, className }: { text: string; className?: string }) => {
+  return <div className={`separator ${className}`}>{text}</div>;
+};
+
+export const EditableGroupControls = (props: EditableCriteriaGroupProps) => {
+  const { groupId, group, path, setQuery } = props;
+  const handleChangeGroupIndex = useCallback(
+    (toIndexPat: CritIndexPath) => {
+      const groupIndexPat = parseIndexPath(path);
+      setQuery((query) => moveNodeByIndexPath(query, groupIndexPat, toIndexPat));
+    },
+    [path, setQuery],
+  );
+  const handelDelete = useCallback(() => {
+    setQuery((query) => {
+      const critPath = getPathByIndexPath(query, parseIndexPath(path));
+      if (!critPath) {
+        return query;
+      }
+      return deleteNode(query, critPath);
+    });
+  }, [path, setQuery]);
+  const handelChangeName = useCallback(
+    (newName: string) => {
+      setQuery((query) => {
+        const critPath = getPathByIndexPath(query, parseIndexPath(path));
+        if (!critPath) {
+          return query;
+        }
+        return updateNode(query, critPath, (node) => (node ? { ...node, name: newName } : null));
+      });
+    },
+    [path, setQuery],
+  );
+  return (
+    <div className="group-controls">
+      <IndexInput
+        labelledby={`${groupId} group-index`} //
+        path={path}
+        setValue={handleChangeGroupIndex}
+      />
+      <input
+        aria-labelledby={`${groupId} group-name`}
+        className="input criteria-input group-name-input"
+        type="text"
+        placeholder="Criteria Group Name"
+        defaultValue={group.name}
+        onBlur={(e) => handelChangeName(e.target.value)}
+      />
+      <button
+        className="btn-icon"
+        data-tooltip={`Remove Group ${path}`}
+        title={`Remove Group ${path}`}
+        aria-labelledby={`col-group-remove ${groupId}`}
+        type="button"
+        onClick={handelDelete}
+      >
+        {IconSet.DELETE}
+        <span className="visually-hidden">Remove Criteria</span>
+      </button>
+    </div>
+  );
+};
+
+export interface EditableCriteriaGroupProps {
+  groupId: string;
+  group: CriteriaGroup;
+  path: string;
+  setQuery: QueryDispatch;
 }
 
+export const EditableCriteriaGroup = React.memo(function EditableCriteriaGroup(
+  props: EditableCriteriaGroupProps,
+) {
+  const { group, groupId, path, setQuery } = props;
+  const handleChangeConjunction = useCallback(
+    (conjunction: SearchConjunction) => {
+      setQuery((query) => {
+        const critPath = getPathByIndexPath(query, parseIndexPath(path));
+        if (!critPath) {
+          return query;
+        }
+        return updateNode(query, critPath, (node) => (node ? { ...node, conjunction } : null));
+      });
+    },
+    [path, setQuery],
+  );
+  return (
+    <div className="group-containter query-editor">
+      {path !== '' && (
+        <EditableGroupControls groupId={groupId} group={group} path={path} setQuery={setQuery} />
+      )}
+      {Array.from(group.children.entries(), ([nodeCompId, node], nodeIndex) => (
+        <React.Fragment key={nodeCompId}>
+          {nodeIndex > 0 && (
+            <GroupConjunctionEditor
+              labelledby={`${groupId} group-conjunction`}
+              value={group.conjunction}
+              setConjunction={handleChangeConjunction}
+              className="criteria-separator"
+            />
+          )}
+          {/*critIndex > 1 && (
+            <CriteriaSeparator
+              text={SearchConjuctionSymbols[group.conjunction]}
+              className="criteria-separator"
+            />
+          )*/}
+          {isCriteriaGroup(node) ? (
+            <EditableCriteriaGroup
+              group={node}
+              groupId={nodeCompId}
+              path={`${path ? `${path}.` : ''}${nodeIndex}`}
+              setQuery={setQuery}
+            />
+          ) : (
+            <EditableCriteria
+              critId={nodeCompId}
+              criteria={node}
+              path={`${path ? `${path}.` : ''}${nodeIndex}`}
+              dispatch={setQuery}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+});
+
 export interface EditableCriteriaProps {
-  index: number;
-  id: ID;
+  critId: ID;
   criteria: Criteria;
+  path: string;
   dispatch: QueryDispatch;
-  totalCriterias: number;
 }
 
 // The main Criteria component, finds whatever input fields for the key should be rendered
-export const EditableCriteria = (props: EditableCriteriaProps) => {
-  const { index, id, criteria, dispatch, totalCriterias } = props;
+export const EditableCriteria = React.memo(function EditableCriteria(props: EditableCriteriaProps) {
+  const { critId, criteria, path, dispatch } = props;
   const setCriteria = (fn: (criteria: Criteria) => Criteria) => {
-    const c = fn(criteria);
-    dispatch((query) => new Map(query.set(id, c)));
+    dispatch((query) => {
+      const critPath = getPathByIndexPath(query, parseIndexPath(path));
+      if (!critPath) {
+        return query;
+      }
+      return updateNode(query, critPath, (node) =>
+        node ? (!isCriteriaGroup(node) ? { ...node, ...fn(node) } : { ...node }) : null,
+      );
+    });
   };
-  const setIndex = (newIndex: number) => {
-    newIndex = clamp(newIndex - 1, 0, totalCriterias - 1);
-    dispatch((query) => reorderMapByIndex(query, index, newIndex));
+  const setIndex = (toIndexPat: CritIndexPath) => {
+    const critIndexPat = parseIndexPath(path);
+    dispatch((query) => moveNodeByIndexPath(query, critIndexPat, toIndexPat));
   };
   const { extraPropertyStore } = useStore();
   const epID = 'extraProperty' in criteria ? criteria.extraProperty : undefined;
@@ -142,31 +260,25 @@ export const EditableCriteria = (props: EditableCriteriaProps) => {
   return (
     <div style={{ display: 'contents' }}>
       <IndexInput
-        labelledby={`${id} col-index`}
-        value={index + 1}
+        labelledby={`${critId} col-index`} //
+        path={path}
         setValue={setIndex}
-        total={totalCriterias}
-      />
-      <ConjuctionSelector
-        labelledby={`${id} col-conjuction`}
-        value={criteria.conjunction}
-        dispatch={setCriteria}
       />
       <KeySelector
-        labelledby={`${id} col-key`}
+        labelledby={`${critId} col-key`}
         keyValue={criteria.key}
         dispatch={setCriteria}
         extraProperty={extraProperty}
       />
       <OperatorSelector
-        labelledby={`${id} col-operator`}
+        labelledby={`${critId} col-operator`}
         keyValue={criteria.key}
         value={criteria.operator}
         dispatch={setCriteria}
         extraProperty={extraProperty}
       />
       <ValueInput
-        labelledby={`${id} col-value`}
+        labelledby={`${critId} col-value`}
         keyValue={criteria.key}
         value={criteria.value}
         dispatch={setCriteria}
@@ -175,13 +287,17 @@ export const EditableCriteria = (props: EditableCriteriaProps) => {
       />
       <button
         className="btn-icon"
-        data-tooltip={`Remove Criteria ${index + 1}`}
-        aria-labelledby={`col-remove ${id}`}
+        data-tooltip={`Remove Criteria ${path}`}
+        title={`Remove Criteria ${path}`}
+        aria-labelledby={`col-remove ${critId}`}
         type="button"
         onClick={() =>
-          dispatch((form) => {
-            form.delete(id);
-            return new Map(form);
+          dispatch((query) => {
+            const critPath = getPathByIndexPath(query, parseIndexPath(path));
+            if (!critPath) {
+              return query;
+            }
+            return deleteNode(query, critPath);
           })
         }
       >
@@ -190,7 +306,7 @@ export const EditableCriteria = (props: EditableCriteriaProps) => {
       </button>
     </div>
   );
-};
+});
 
 type QueryMatchProps = {
   searchMatchAny: boolean;

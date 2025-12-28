@@ -73,7 +73,7 @@ export class ClientFile {
   readonly filename: string;
 
   @observable thumbnailPath: string = '';
-  @observable tagsSorting: FILE_TAGS_SORTING_TYPE;
+  @observable tagSorting: FILE_TAGS_SORTING_TYPE;
 
   // Is undefined until existence check has been completed
   @observable isBroken?: boolean;
@@ -95,7 +95,7 @@ export class ClientFile {
     this.dateLastIndexed = fileProps.dateLastIndexed;
     this.name = fileProps.name;
     this.extension = fileProps.extension;
-    this.tagsSorting = fileProps.tagsSorting || 'hierarchy';
+    this.tagSorting = fileProps.tagSorting || 'hierarchy';
 
     const location = store.getLocation(this.locationId);
     this.absolutePath = Path.join(location.path, this.relativePath);
@@ -267,7 +267,7 @@ export class ClientFile {
       relativePath: this.relativePath,
       absolutePath: this.absolutePath,
       tags: Array.from(this.tags, (t) => t.id), // removes observable properties from observable array
-      tagsSorting: this.tagsSorting,
+      tagSorting: this.tagSorting,
       extraProperties: extraProperties,
       size: this.size,
       width: this.width,

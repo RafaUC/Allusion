@@ -648,7 +648,12 @@ class LocationStore {
       locationId,
       'equals',
     ).toCondition();
-    return this.backend.searchFiles(crit, 'id', OrderDirection.Asc, false);
+    return this.backend.searchFiles(
+      { conjunction: 'and', children: [crit] },
+      'id',
+      OrderDirection.Asc,
+      false,
+    );
   }
 
   @action async removeSublocationFiles(subLoc: ClientSubLocation): Promise<void> {
@@ -658,7 +663,12 @@ class LocationStore {
       subLoc.path,
       'startsWith',
     ).toCondition();
-    const files = await this.backend.searchFiles(crit, 'id', OrderDirection.Asc, false);
+    const files = await this.backend.searchFiles(
+      { conjunction: 'and', children: [crit] },
+      'id',
+      OrderDirection.Asc,
+      false,
+    );
     await this.backend.removeFiles(files.map((f) => f.id));
     this.rootStore.fileStore.refetch();
   }
@@ -707,7 +717,7 @@ export async function pathToIFile(
     id: generateId(),
     locationId: loc.id,
     tags: [],
-    tagsSorting: 'hierarchy',
+    tagSorting: 'hierarchy',
     extraProperties: {},
     dateAdded: now,
     dateModified: now,

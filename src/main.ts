@@ -24,8 +24,6 @@ import { IS_DEV, IS_MAC } from '../common/process';
 import { TagDTO, ROOT_TAG_ID } from './api/tag';
 import { MainMessenger } from './ipc/main';
 import { WindowSystemButtonPress } from './ipc/messages';
-import { DB_NAME } from './backend/config';
-import Backend from './backend/backend';
 
 // TODO: change this when running in portable mode, see portable-improvements branch
 const basePath = app.getPath('userData');

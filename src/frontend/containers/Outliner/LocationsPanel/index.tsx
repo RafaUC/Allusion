@@ -17,7 +17,10 @@ import DropContext from '../../../contexts/DropContext';
 import { useStore } from '../../../contexts/StoreContext';
 import { DnDLocationType, useLocationDnD } from '../../../contexts/TagDnDContext';
 import { ClientLocation, ClientSubLocation } from '../../../entities/Location';
-import { ClientStringSearchCriteria } from '../../../entities/SearchCriteria';
+import {
+  ClientStringSearchCriteria,
+  ClientTagSearchCriteria,
+} from '../../../entities/SearchCriteria';
 import { useAutorun } from '../../../hooks/mobx';
 import LocationStore from '../../../stores/LocationStore';
 import { IExpansionState } from '../../types';
@@ -248,7 +251,7 @@ const SubLocation = observer((props: { nodeData: ClientSubLocation; treeData: IT
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
       existingSearchCrit // toggle search
-        ? uiStore.removeSearchCriteria(existingSearchCrit)
+        ? uiStore.removeSearchCriteria(existingSearchCrit as ClientTagSearchCriteria)
         : event.ctrlKey // otherwise add/replace depending on ctrl
         ? uiStore.addSearchCriteria(pathCriteria(nodeData.path))
         : uiStore.replaceSearchCriteria(pathCriteria(nodeData.path));
@@ -319,7 +322,7 @@ const Location = observer(
     const handleClick = useCallback(
       (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
         existingSearchCrit // toggle search
-          ? uiStore.removeSearchCriteria(existingSearchCrit)
+          ? uiStore.removeSearchCriteria(existingSearchCrit as ClientTagSearchCriteria)
           : event.ctrlKey
           ? uiStore.addSearchCriteria(pathCriteria(nodeData.path))
           : uiStore.replaceSearchCriteria(pathCriteria(nodeData.path));

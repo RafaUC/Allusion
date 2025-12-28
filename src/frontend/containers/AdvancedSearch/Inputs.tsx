@@ -30,52 +30,89 @@ import {
   StringOperatorLabels,
 } from '../../entities/SearchCriteria';
 import { ClientTag } from '../../entities/Tag';
-import { Criteria, Key, Operator, TagValue, Value, defaultQuery } from './data';
+import {
+  CritIndexPath,
+  Criteria,
+  Key,
+  Operator,
+  TagValue,
+  Value,
+  defaultQuery,
+  parseIndexPath,
+} from './data';
 import { ExtraPropertySelector } from 'src/frontend/components/ExtraPropertySelector';
 import { ClientExtraProperty } from 'src/frontend/entities/ExtraProperty';
 import { usePopover } from 'widgets/popovers/usePopover';
 import { ExtraPropertyType } from 'src/api/extraProperty';
 import { Observer } from 'mobx-react-lite';
 import { debounce } from 'common/timeout';
-import { clamp } from 'common/core';
 
-interface IndexInputProps {
-  value: number;
-  setValue: (newIdx: number) => void;
-  labelledby?: string;
-  total: number;
+function formatPath(path: string): string {
+  return parseIndexPath(path)
+    .map((v) => v + 1)
+    .join('.');
 }
 
-export const IndexInput = ({ value, setValue, labelledby, total }: IndexInputProps) => {
-  const [text, setText] = useState(String(value));
+interface IndexInputProps {
+  path: string;
+  setValue: (toIndexPat: CritIndexPath) => void;
+  labelledby?: string;
+}
+
+export const IndexInput = ({ path, setValue, labelledby }: IndexInputProps) => {
+  const [text, setText] = useState(formatPath(path));
+
   useEffect(() => {
-    setText(`${value}`);
-  }, [value]);
-  const debouncesetValue = useMemo(() => debounce(setValue, 400), [setValue]);
+    setText(formatPath(path));
+  }, [path]);
+
+  const debounceSetValue = useMemo(() => debounce(setValue, 0), [setValue]);
   const commit = useCallback(
     (raw: string) => {
-      if (raw === '' || raw === '-') {
+      // allow to set incomplete paths while typing but not commit them
+      if (raw.endsWith('.')) {
         return;
       }
-      let newIdx = parseInt(raw, 10);
-      if (isNaN(newIdx)) {
-        return;
+      const parts = raw ? raw.split('.') : [];
+      const path: number[] = [];
+      for (const part of parts) {
+        if (part === '') {
+          return;
+        }
+        let index = parseInt(part, 10);
+        if (isNaN(index)) {
+          return;
+        }
+        // UI is 1-based
+        index = Math.max(index, 1);
+        path.push(index - 1);
       }
-      newIdx = clamp(newIdx, 1, total);
-      setText(String(newIdx));
-      debouncesetValue(newIdx);
+
+      const normalizedText = path.map((v) => v + 1).join('.');
+      setText(normalizedText);
+      debounceSetValue(path);
     },
-    [debouncesetValue, total],
+    [debounceSetValue],
   );
-  const handleInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value;
-      if (/^-?\d*$/.test(raw)) {
-        commit(raw);
+
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (!/^\d*(\.\d*)*$/.test(raw)) {
+      return;
+    }
+    setText(raw);
+    //commit(raw);
+  }, []);
+
+  const handleKeydown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        commit(text);
       }
     },
-    [commit],
+    [commit, text],
   );
+
   const handleBlur = () => {
     commit(text);
   };
@@ -85,30 +122,35 @@ export const IndexInput = ({ value, setValue, labelledby, total }: IndexInputPro
       aria-labelledby={labelledby}
       className="input criteria-input"
       type="text"
+      placeholder="e.g. 1.2.3"
       value={text}
       inputMode="numeric"
       onInput={handleInput}
       onBlur={handleBlur}
+      onKeyDown={handleKeydown}
     />
   );
 };
 
+export interface ConjuctionSelectorProps {
+  labelledby: string;
+  value: SearchConjunction;
+  setConjunction: (conjunction: SearchConjunction) => void;
+}
+
 export const ConjuctionSelector = ({
   labelledby,
   value,
-  dispatch,
-}: Omit<FieldInput<SearchConjunction>, 'operator' | 'keyValue' | 'extraProperty'>) => {
+  setConjunction,
+}: ConjuctionSelectorProps) => {
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const conjuction = e.target.value as SearchConjunction;
-    dispatch((criteria) => {
-      criteria.conjunction = conjuction;
-      return { ...criteria };
-    });
+    const conjunction = e.target.value as SearchConjunction;
+    setConjunction(conjunction);
   };
 
   return (
     <select
-      className="conjuction-input"
+      className="conjunction-input"
       aria-labelledby={labelledby}
       onChange={handleChange}
       value={value}

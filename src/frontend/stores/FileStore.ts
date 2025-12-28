@@ -6,7 +6,7 @@ import { getThumbnailPath } from 'common/fs';
 import { promiseAllLimit } from 'common/promise';
 import { debounce } from 'common/timeout';
 import { DataStorage } from '../../api/data-storage';
-import { ConditionDTO, OrderBy, OrderDirection } from '../../api/data-storage-search';
+import { OrderBy, OrderDirection } from '../../api/data-storage-search';
 import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
 import { AppToaster } from '../components/Toaster';
@@ -694,7 +694,7 @@ class FileStore {
     try {
       const crit = new ClientStringSearchCriteria(undefined, 'extension', ext, 'equals');
       const files = await this.backend.searchFiles(
-        crit.toCondition(),
+        { conjunction: 'and', children: [crit.toCondition()] },
         'id',
         OrderDirection.Asc,
         false,
@@ -758,7 +758,7 @@ class FileStore {
       this.setContentAll();
       // Indicate a new fetch process
       const start = await this.newFetchTaskId();
-      this.rootStore.uiStore.clearSearchCriteriaList();
+      this.rootStore.uiStore.clearSearchCriteriaTree();
       const fetchedFiles = await this.backend.fetchFiles(...this.getFetchArgs());
       const end = performance.now();
       this.setAverageFetchTime(end - start);
@@ -780,14 +780,11 @@ class FileStore {
       // Indicate a new fetch process
       const start = await this.newFetchTaskId();
       const { uiStore } = this.rootStore;
-      const { searchMatchAny } = uiStore;
-      uiStore.clearSearchCriteriaList();
-      const criteria = new ClientTagSearchCriteria(undefined, 'tags');
-      uiStore.searchCriteriaList.push(criteria);
+      uiStore.clearSearchCriteriaTree();
+      uiStore.searchRootGroup.children.push(new ClientTagSearchCriteria(undefined, 'tags'));
       const fetchedFiles = await this.backend.searchFiles(
-        criteria.toCondition(this.rootStore),
+        uiStore.searchRootGroup.toCondition(this.rootStore),
         ...this.getFetchArgs(),
-        searchMatchAny,
       );
       const end = performance.now();
       this.setAverageFetchTime(end - start);
@@ -812,7 +809,7 @@ class FileStore {
       this.setContentMissing();
       // Indicate a new fetch process
       const start = await this.newFetchTaskId();
-      uiStore.clearSearchCriteriaList();
+      uiStore.clearSearchCriteriaTree();
 
       // Fetch all files, then check their existence and only show the missing ones
       // Similar to {@link updateFromBackend}, but the existence check needs to be awaited before we can show the images
@@ -885,23 +882,16 @@ class FileStore {
 
   @action.bound async fetchFilesByQuery(): Promise<void> {
     const { uiStore } = this.rootStore;
-    const { searchMatchAny } = uiStore;
-    if (uiStore.searchCriteriaList.length === 0) {
+    if (uiStore.searchRootGroup.children.length === 0) {
       return this.fetchAllFiles();
     }
 
-    const criterias: ConditionDTO<FileDTO>[] = uiStore.searchCriteriaList.flatMap((c) =>
-      c.toCondition(this.rootStore),
-    );
+    const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
     try {
       this.setContentQuery();
       // Indicate a new fetch process
       const start = await this.newFetchTaskId();
-      const fetchedFiles = await this.backend.searchFiles(
-        criterias as [ConditionDTO<FileDTO>, ...ConditionDTO<FileDTO>[]],
-        ...this.getFetchArgs(),
-        searchMatchAny,
-      );
+      const fetchedFiles = await this.backend.searchFiles(criterias, ...this.getFetchArgs());
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch

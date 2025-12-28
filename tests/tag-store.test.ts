@@ -9,7 +9,7 @@ describe('TagStore', () => {
     it(name, async () => {
       const db = dbInit(`Test_${TEST_DATABASE_ID_COUNTER++}`);
       const backend = await Backend.init(db, () => {});
-      const store = new TagStore(backend, {} as any);
+      const store = new TagStore(backend as any, {} as any);
       await store.init();
       await test(store);
       // FIXME: That is kind of our fault for automatically making backend calls in MobX reactions.

@@ -20,6 +20,7 @@ import {
   TagAliases,
   SubTags,
   Tags,
+  SearchGroups,
 } from './schemaTypes';
 import fse from 'fs-extra';
 import path from 'path';
@@ -395,8 +396,11 @@ export async function restoreFromOldJsonFormat(
   await saveEntries('epValues', epVal);
 
   // Import seved searches
-  const { savedSearches, searchCriteria } = normalizeSavedSearches(tables.searches ?? []);
+  const { savedSearches, searchGroups, searchCriteria } = normalizeSavedSearches(
+    tables.searches ?? [],
+  );
   await saveEntries('savedSearches', savedSearches);
+  await saveEntries('searchGroups', searchGroups);
   await saveEntries('searchCriteria', searchCriteria);
 
   //  Re-enable foreign keys
@@ -579,23 +583,35 @@ function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraPro
 
 function normalizeSavedSearches(sourceSearches: any[]) {
   const savedSearches: Insertable<SavedSearches>[] = [];
+  const searchGroups: Insertable<SearchGroups>[] = [];
   const searchCriteria: Insertable<SearchCriteria>[] = [];
 
   for (const search of sourceSearches) {
     const searchId = search.id ?? generateId();
+    // Extract saved search
     savedSearches.push({
       id: searchId,
       name: search.name ?? '(unnamed search)',
       idx: search.index ?? 0,
     });
-
-    for (const [idx, crit] of (Array.isArray(search.criteria) ? search.criteria : []).entries()) {
+    // Root group
+    const rootGroupId = generateId();
+    searchGroups.push({
+      id: rootGroupId,
+      name: '',
+      savedSearchId: searchId,
+      parentGroupId: null,
+      idx: 0,
+      conjunction: search.matchAny ? 'or' : 'and',
+    });
+    //Extract Criterias
+    const criteriaArray = Array.isArray(search.criteria) ? search.criteria : [];
+    for (const [idx, crit] of criteriaArray.entries()) {
       const criteriaId = generateId();
       searchCriteria.push({
         id: criteriaId,
-        savedSearchId: searchId,
+        groupId: rootGroupId,
         idx: idx,
-        conjunction: search.matchAny ? 'or' : 'and',
         key: crit.key ?? 'name',
         valueType: crit.valueType ?? 'string',
         operator: crit.operator ?? 'equals',
@@ -603,5 +619,10 @@ function normalizeSavedSearches(sourceSearches: any[]) {
       });
     }
   }
-  return { savedSearches, searchCriteria };
+
+  return {
+    savedSearches,
+    searchGroups,
+    searchCriteria,
+  };
 }

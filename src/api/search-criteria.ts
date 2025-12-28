@@ -3,7 +3,6 @@ import { FileDTO } from './file';
 import {
   ExtraPropertyOperatorType,
   NumberOperatorType,
-  SearchConjunction,
   StringOperatorType,
 } from './data-storage-search';
 import { ExtraPropertyValue } from './extraProperty';
@@ -33,7 +32,6 @@ export interface IBaseSearchCriteria {
   id: ID;
   key: keyof FileDTO;
   valueType: CriteriaValueType;
-  conjunction?: SearchConjunction;
   readonly operator: OperatorType;
 }
 

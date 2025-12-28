@@ -10,7 +10,7 @@ export type FileDTO = {
   relativePath: string;
   absolutePath: string;
   tags: ID[];
-  tagsSorting: FILE_TAGS_SORTING_TYPE;
+  tagSorting: FILE_TAGS_SORTING_TYPE;
   extraProperties: ExtraProperties;
   /** When the file was imported into Allusion */
   dateAdded: Date;

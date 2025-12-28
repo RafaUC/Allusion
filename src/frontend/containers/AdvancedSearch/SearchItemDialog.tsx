@@ -4,13 +4,12 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Button } from 'widgets/button';
 import { IconSet } from 'widgets/icons';
 import { Dialog } from 'widgets/popovers';
-import { ID } from '../../../api/id';
 import { useStore } from '../../contexts/StoreContext';
 import { ClientFileSearchItem } from '../../entities/SearchItem';
 import { useAutorun } from '../../hooks/mobx';
 import CriteriaBuilder from './CriteriaBuilder';
-import { QueryEditor, QueryMatch } from './QueryEditor';
-import { Criteria, fromCriteria, intoCriteria } from './data';
+import { QueryEditor } from './QueryEditor';
+import { queryFromCriteria, intoGroup, Query, getemptyQuery } from './data';
 
 interface ISearchItemDialogProps {
   searchItem: ClientFileSearchItem;
@@ -24,21 +23,15 @@ const SearchItemDialog = observer<ISearchItemDialogProps>(({ searchItem, onClose
 
   // Copy state of search item: only update the ClientSearchItem on submit.
   const [name, setName] = useState(searchItem.name);
-  const [searchMatchAny, setSearchMatchAny] = useState(searchItem.matchAny);
-  const toggle = useCallback(() => setSearchMatchAny((v) => !v), []);
 
-  const [query, setQuery] = useState(new Map<ID, Criteria>());
+  const [query, setQuery] = useState<Query>(getemptyQuery());
   const keySelector = useRef<HTMLSelectElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
 
   // Initialize form with current queries. When the form is closed, all inputs
   // are unmounted to save memory.
   useAutorun(() => {
-    const map = new Map();
-    for (const criteria of searchItem.criteria) {
-      const [id, query] = fromCriteria(criteria);
-      map.set(id, query);
-    }
+    const map = queryFromCriteria(searchItem.rootGroup);
     // Focus and select the input text so the user can rename immediately after creating a new search item
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -50,12 +43,11 @@ const SearchItemDialog = observer<ISearchItemDialogProps>(({ searchItem, onClose
   });
 
   const handleSubmit = useCallback(async () => {
+    searchItem.setRootGroup(intoGroup(query, tagStore));
     searchItem.setName(name);
-    searchItem.setMatchAny(searchMatchAny);
-    searchItem.setCriteria(Array.from(query.values(), (vals) => intoCriteria(vals, tagStore)));
     searchStore.save(searchItem);
     onClose();
-  }, [name, onClose, query, searchItem, searchMatchAny, searchStore, tagStore]);
+  }, [name, onClose, query, searchItem, searchStore, tagStore]);
 
   return (
     <Dialog
@@ -89,8 +81,6 @@ const SearchItemDialog = observer<ISearchItemDialogProps>(({ searchItem, onClose
 
         <QueryEditor query={query} setQuery={setQuery} submissionButtonText="Save" />
 
-        <QueryMatch toggle={toggle} searchMatchAny={searchMatchAny} />
-
         <fieldset className="dialog-actions">
           <Button styling="outlined" text="Close" icon={IconSet.CLOSE} onClick={onClose} />
           <Button
@@ -98,7 +88,7 @@ const SearchItemDialog = observer<ISearchItemDialogProps>(({ searchItem, onClose
             text="Save"
             icon={IconSet.SELECT_CHECKED}
             onClick={handleSubmit}
-            disabled={query.size === 0}
+            disabled={query.children.size === 0}
           />
         </fieldset>
       </form>

@@ -1,4 +1,4 @@
-import { ConditionDTO, OrderBy, OrderDirection } from './data-storage-search';
+import { ConditionGroupDTO, OrderBy, OrderDirection } from './data-storage-search';
 import { FileDTO } from './file';
 import { FileSearchDTO } from './file-search';
 import { ID } from './id';
@@ -31,12 +31,11 @@ export interface DataStorage {
   fetchSearches(): Promise<FileSearchDTO[]>;
   fetchExtraProperties(): Promise<ExtraPropertyDTO[]>;
   searchFiles(
-    criteria: ConditionDTO<FileDTO> | [ConditionDTO<FileDTO>, ...ConditionDTO<FileDTO>[]],
+    criteria: ConditionGroupDTO<FileDTO>,
     order: OrderBy<FileDTO>,
     fileOrder: OrderDirection,
     useNaturalOrdering: boolean,
     extraPropertyID?: ID,
-    matchAny?: boolean,
   ): Promise<FileDTO[]>;
   createTag(tag: TagDTO): Promise<void>;
   createFilesFromPath(path: string, files: FileDTO[]): Promise<void>;

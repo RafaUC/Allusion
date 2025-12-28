@@ -40,7 +40,7 @@ describe('Backend', () => {
         relativePath: `test (${index}).jpg`,
         locationId: 'Default location',
         name: `test (${index}).jpg`,
-        tagsSorting: 'hierarchy',
+        tagSorting: 'hierarchy',
         size: 42,
         width: 640,
         height: 480,

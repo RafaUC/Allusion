@@ -143,25 +143,39 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema.createIndex('idx_ep_values_timestamp_value').ifNotExists().on('ep_values').column('timestamp_value').execute();
 
   //// SAVED SEARCHES ////
-  await db.schema
-    .createTable('saved_searches')
-    .addColumn('id', 'text', (col) => col.primaryKey().notNull())
-    .addColumn('name', 'text', (col) => col.notNull())
-    .addColumn('idx', 'integer', (col) => col.notNull())
-    .execute();
+await db.schema
+  .createTable('saved_searches')
+  .addColumn('id', 'text', (col) => col.primaryKey().notNull())
+  .addColumn('name', 'text', (col) => col.notNull())
+  .addColumn('idx', 'integer', (col) => col.notNull())
+  .execute();
 
-  await db.schema
-    .createTable('search_criteria')
-    .addColumn('id', 'text', (col) => col.primaryKey().notNull())
-    .addColumn('saved_search_id', 'text', (col) => col.notNull())
-    .addColumn('idx', 'integer', (col) => col.notNull())
-    .addColumn('conjunction', 'text', (col) => col.notNull())
-    .addColumn('key', 'text', (col) => col.notNull())
-    .addColumn('value_type', 'text', (col) => col.notNull())
-    .addColumn('operator', 'text', (col) => col.notNull())
-    .addColumn('json_value', 'text', (col) => col.notNull())
-    .addForeignKeyConstraint('fk_search_criteria_saved_search', ['saved_search_id'], 'saved_searches', ['id'], (cb) => cb.onDelete('cascade'))
-    .execute();
+await db.schema
+  .createTable('search_groups')
+  .addColumn('id', 'text', (col) => col.primaryKey().notNull())
+  .addColumn('name', 'text', (col) => col.notNull())
+  .addColumn('saved_search_id', 'text', (col) => col.notNull())
+  .addColumn('parent_group_id', 'text')
+  .addColumn('idx', 'integer', (col) => col.notNull())
+  .addColumn('conjunction', 'text', (col) => col.notNull())
+  .addForeignKeyConstraint('fk_search_groups_saved_search',  ['saved_search_id'], 'saved_searches',  ['id'],  (cb) => cb.onDelete('cascade'))
+  .addForeignKeyConstraint('fk_search_groups_parent', ['parent_group_id'], 'search_groups',  ['id'], (cb) => cb.onDelete('cascade'))
+  .execute();
+await db.schema.createIndex('idx_search_groups_saved_search').on('search_groups').column('saved_search_id').execute();
+await db.schema.createIndex('idx_search_groups_parent').on('search_groups').column('parent_group_id').execute();
+
+await db.schema
+  .createTable('search_criteria')
+  .addColumn('id', 'text', (col) => col.primaryKey().notNull())
+  .addColumn('group_id', 'text', (col) => col.notNull())
+  .addColumn('idx', 'integer', (col) => col.notNull())
+  .addColumn('key', 'text', (col) => col.notNull())
+  .addColumn('value_type', 'text', (col) => col.notNull())
+  .addColumn('operator', 'text', (col) => col.notNull())
+  .addColumn('json_value', 'text', (col) => col.notNull())
+  .addForeignKeyConstraint('fk_search_criteria_group', ['group_id'], 'search_groups', ['id'], (cb) => cb.onDelete('cascade'))
+  .execute();
+await db.schema.createIndex('idx_search_criteria_group').on('search_criteria').column('group_id').execute();
 }
 
 export async function down(db: Kysely<any>): Promise<void> {

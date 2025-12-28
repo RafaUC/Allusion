@@ -92,7 +92,7 @@ class RootStore {
     rootStore.fileStore.recoverPersistentPreferences();
     const isSlideMode = runInAction(() => rootStore.uiStore.isSlideMode);
 
-    const numCriterias = runInAction(() => rootStore.uiStore.searchCriteriaList.length);
+    const numCriterias = runInAction(() => rootStore.uiStore.searchRootGroup.children.length);
 
     // There may already be a search already present, recovered from a previous session
     const fileStoreInit =

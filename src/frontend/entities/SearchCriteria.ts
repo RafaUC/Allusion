@@ -1,4 +1,4 @@
-import { action, Lambda, makeObservable, observable } from 'mobx';
+import { action, computed, Lambda, makeObservable, observable } from 'mobx';
 
 import { camelCaseToSpaced } from '../../../common/fmt';
 import {
@@ -30,6 +30,7 @@ import {
 } from '../../api/search-criteria';
 import RootStore from '../stores/RootStore';
 import { ExtraPropertyType as epType, ExtraPropertyValue } from 'src/api/extraProperty';
+import { ClientSearchGroup } from './SearchItem';
 
 // A dictionary of labels for (some of) the keys of the type we search for
 export type SearchKeyDict = Partial<Record<keyof FileDTO, string>>;
@@ -71,10 +72,10 @@ export const ExtraPropertyOperatorLabels: Record<ExtraPropertyOperatorType, stri
 
 export abstract class ClientFileSearchCriteria implements IBaseSearchCriteria {
   readonly id: ID;
-  @observable conjunction?: SearchConjunction;
   @observable public key: keyof FileDTO;
   @observable public valueType: CriteriaValueType;
   @observable public operator: OperatorType;
+  @observable private _parent: ClientSearchGroup | undefined;
 
   private disposers: Lambda[] = [];
 
@@ -93,7 +94,7 @@ export abstract class ClientFileSearchCriteria implements IBaseSearchCriteria {
 
   // The component who call this metod must be observer.
   abstract getLabel(dict: SearchKeyDict, rootStore: RootStore): string;
-  abstract serialize(rootStore: RootStore): SearchCriteria;
+  abstract serialize(rootStore: RootStore, duplicate?: boolean): SearchCriteria;
   abstract toCondition(rootStore: RootStore): ConditionDTO<FileDTO> | ConditionDTO<FileDTO>[];
 
   static deserialize(criteria: SearchCriteria): ClientFileSearchCriteria {
@@ -128,6 +129,15 @@ export abstract class ClientFileSearchCriteria implements IBaseSearchCriteria {
       default:
         throw new Error(`Unknown value type ${valueType}`);
     }
+  }
+
+  @computed get parent(): ClientSearchGroup | undefined {
+    return this._parent;
+  }
+
+  @action.bound
+  setParent(parent?: ClientSearchGroup): void {
+    this._parent = parent;
   }
 
   dispose(): void {
@@ -170,7 +180,7 @@ export class ClientTagSearchCriteria extends ClientFileSearchCriteria {
     )} ${!this.value ? 'no tags' : rootStore.tagStore.get(this.value)?.name}`;
   };
 
-  serialize = (rootStore: RootStore): ITagSearchCriteria => {
+  serialize = (rootStore: RootStore, duplicate = false): ITagSearchCriteria => {
     // for the *recursive options, convert it to the corresponding non-recursive option,
     // by putting all child IDs in the value in the serialization step
     let op = this.operator as TagOperatorType;
@@ -178,6 +188,11 @@ export class ClientTagSearchCriteria extends ClientFileSearchCriteria {
     if (val.length > 0 && op.includes('Recursively')) {
       const tag = rootStore.tagStore.get(val[0]);
       val = tag !== undefined ? Array.from(tag.getImpliedSubTree(), (t) => t.id) : [];
+      // deserialization depends on val.length to determine correctly if it was recursively
+      // so add an extra dummy value if length = 1
+      if (val.length === 1) {
+        val.push(val[0]);
+      }
     }
     if (op === 'containsNotRecursively') {
       op = 'notContains';
@@ -187,7 +202,7 @@ export class ClientTagSearchCriteria extends ClientFileSearchCriteria {
     }
 
     return {
-      id: this.id,
+      id: duplicate ? generateId() : this.id,
       key: this.key,
       valueType: this.valueType,
       operator: op,
@@ -240,9 +255,9 @@ export class ClientExtraPropertySearchCriteria extends ClientFileSearchCriteria 
     } ${isExtraPropertyOperatorType(this.operator) ? '' : `"${this.value[1]}"`}`;
   };
 
-  serialize = (): IExtraProperySearchCriteria => {
+  serialize = (_: unknown, duplicate = false): IExtraProperySearchCriteria => {
     return {
-      id: this.id,
+      id: duplicate ? generateId() : this.id,
       key: this.key,
       valueType: this.valueType,
       operator: this.operator,
@@ -252,7 +267,10 @@ export class ClientExtraPropertySearchCriteria extends ClientFileSearchCriteria 
 
   toCondition = (): IndexSignatureConditionDTO<FileDTO, ExtraPropertyValue> => {
     // Hacky
-    return this.serialize() as unknown as IndexSignatureConditionDTO<FileDTO, ExtraPropertyValue>;
+    return this.serialize(undefined) as unknown as IndexSignatureConditionDTO<
+      FileDTO,
+      ExtraPropertyValue
+    >;
   };
 
   @action.bound setOperator(op: StringOperatorType | NumberOperatorType): void {
@@ -283,9 +301,9 @@ export class ClientStringSearchCriteria extends ClientFileSearchCriteria {
       StringOperatorLabels[this.operator as StringOperatorType] || camelCaseToSpaced(this.operator)
     } "${this.value}"`;
 
-  serialize = (): IStringSearchCriteria => {
+  serialize = (_: unknown, duplicate = false): IStringSearchCriteria => {
     return {
-      id: this.id,
+      id: duplicate ? generateId() : this.id,
       key: this.key,
       valueType: this.valueType,
       operator: this.operator as StringOperatorType,
@@ -294,7 +312,7 @@ export class ClientStringSearchCriteria extends ClientFileSearchCriteria {
   };
 
   toCondition = (): StringConditionDTO<FileDTO> => {
-    return this.serialize() as StringConditionDTO<FileDTO>;
+    return this.serialize(undefined) as StringConditionDTO<FileDTO>;
   };
 
   @action.bound setOperator(op: StringOperatorType): void {
@@ -324,9 +342,9 @@ export class ClientNumberSearchCriteria extends ClientFileSearchCriteria {
       NumberOperatorSymbols[this.operator as NumberOperatorType] || camelCaseToSpaced(this.operator)
     } ${this.value}`;
 
-  serialize = (): INumberSearchCriteria => {
+  serialize = (I: unknown, duplicate = false): INumberSearchCriteria => {
     return {
-      id: this.id,
+      id: duplicate ? generateId() : this.id,
       key: this.key,
       valueType: this.valueType,
       operator: this.operator as NumberOperatorType,
@@ -335,7 +353,7 @@ export class ClientNumberSearchCriteria extends ClientFileSearchCriteria {
   };
 
   toCondition = (): NumberConditionDTO<FileDTO> => {
-    return this.serialize() as NumberConditionDTO<FileDTO>;
+    return this.serialize(undefined) as NumberConditionDTO<FileDTO>;
   };
 
   @action.bound setOperator(op: NumberOperatorType): void {
@@ -367,9 +385,9 @@ export class ClientDateSearchCriteria extends ClientFileSearchCriteria {
       NumberOperatorSymbols[this.operator as NumberOperatorType] || camelCaseToSpaced(this.operator)
     } ${this.value.toLocaleDateString()}`;
 
-  serialize = (): IDateSearchCriteria => {
+  serialize = (_: unknown, duplicate = false): IDateSearchCriteria => {
     return {
-      id: this.id,
+      id: duplicate ? generateId() : this.id,
       key: this.key,
       valueType: this.valueType,
       operator: this.operator as NumberOperatorType,
@@ -378,7 +396,7 @@ export class ClientDateSearchCriteria extends ClientFileSearchCriteria {
   };
 
   toCondition = (): DateConditionDTO<FileDTO> => {
-    return this.serialize() as DateConditionDTO<FileDTO>;
+    return this.serialize(undefined) as DateConditionDTO<FileDTO>;
   };
 
   @action.bound setOperator(op: NumberOperatorType): void {

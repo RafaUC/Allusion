@@ -2,11 +2,10 @@
   display: flex;
   flex-direction: column;
   // changed from min-width since large tag names expand the dialog width which looks bad
-  width: min(95ch, 80vw);
+  width: min(100ch, 80vw);
   margin-inline: auto;
 
   .criteria-input,
-  .conjuction-input,
   [role='combobox'] {
     height: 1.75rem;
     width: 100%;
@@ -27,7 +26,7 @@
 
 #criteria-builder {
   display: grid;
-  grid-template-columns: 1.6rem max-content 3fr 3fr 4fr min-content;
+  grid-template-columns: 3.5rem 3fr 3fr 4fr min-content;
   gap: 0.25rem 0.5rem;
   align-items: center;
 
@@ -35,6 +34,7 @@
     text-transform: uppercase;
     font-size: smaller;
     padding-left: 1ch;
+    align-self: end;
   }
 }
 
@@ -50,9 +50,9 @@
   padding-block: 0.4rem;
 }
 
-#query-editor {
+.query-editor {
   display: grid;
-  grid-template-columns: 1.6rem max-content 3fr 3fr 4fr min-content;
+  grid-template-columns: 3.5rem 3fr 3fr 4fr min-content;
   gap: 0.25rem 0.5rem;
   align-items: center;
   width: 100%;
@@ -64,6 +64,15 @@
     width: 100%;
   }
 
+  .group-containter {
+    grid-column: 1 / -1;
+    padding: 0.5rem;
+    border: 1px dashed var(--background-color-selected);
+    border-radius: 0.25rem;
+  }
+
+  .separator-line,
+  .criteria-separator,
   .separator {
     grid-column: 1 / -1;
     display: flex;
@@ -77,8 +86,47 @@
       content: "";
       flex: 1;
       height: 1px;
-      background: var(--text-color-muted);
       margin: 0 8px;
+    }
+
+    .conjunction-input {
+      width: fit-content;
+      background: var(--background-color);
+    }
+  }
+
+  .separator-line {
+    &::before,
+    &::after {
+      background: var(--text-color-muted);
+    }
+  }
+
+  .criteria-separator {
+    margin: -2.5px;
+    font-size: 0.55rem;
+
+    .conjunction-input {
+      height: 0.78rem;
+      min-height: unset;
+    }
+  }
+
+  .group-controls {
+    display: contents;
+
+    .btn-icon,
+    .criteria-input {
+      height: 1.1rem !important;
+      min-height: unset !important;
+      margin-bottom: 2px;
+      overflow: visible;
+      color: var(--accent-color-orange);
+    }
+
+    // shiulw be 3 cell width
+    .group-name-input {
+      grid-column: 2 / 5;
     }
   }
 }
