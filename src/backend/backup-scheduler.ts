@@ -199,13 +199,13 @@ export default class BackupScheduler implements DataBackup {
     await fse.ensureFile(emptyDBPath);
     const db = new Backend();
     // Init the DB to apply the migrations but passing an empty string to not import data brom backup folder.
-    await db.init({
-      dbPath: emptyDBPath,
-      jsonToImport: '',
-      notifyChange: () => {},
-      restoreEmpty: async () => {},
-      mode: 'migrate',
-    });
+    await db.init(
+      emptyDBPath,
+      '',
+      () => {},
+      async () => {},
+      'migrate',
+    );
   }
 
   async peekFile(sourcePath: string): Promise<[numTags: number, numFiles: number]> {
@@ -225,13 +225,13 @@ export default class BackupScheduler implements DataBackup {
     if (ext === '.sqlite') {
       let db = null;
       db = new Backend();
-      await db.init({
-        dbPath: sourcePath,
-        jsonToImport: '',
-        notifyChange: () => {},
-        restoreEmpty: async () => {},
-        mode: 'readonly',
-      });
+      await db.init(
+        sourcePath,
+        '',
+        () => {},
+        async () => {},
+        'readonly',
+      );
       const tags = (await db.fetchTags()).length;
       const files = (await db.countFiles())[0];
       db = null;

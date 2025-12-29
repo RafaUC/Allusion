@@ -81,19 +81,13 @@ export default class Backend implements DataStorage {
     return USE_TIMING_PROXY ? createTimingProxy(this) : this;
   }
 
-  async init({
-    dbPath,
-    jsonToImport,
-    notifyChange,
-    restoreEmpty,
-    mode = 'default',
-  }: {
-    dbPath: string;
-    jsonToImport: string | undefined;
-    notifyChange: () => void;
-    restoreEmpty: () => Promise<void>;
-    mode?: 'default' | 'migrate' | 'readonly';
-  }): Promise<void> {
+  async init(
+    dbPath: string,
+    jsonToImport: string | undefined,
+    notifyChange: () => void,
+    restoreEmpty: () => Promise<void>,
+    mode?: 'default' | 'migrate' | 'readonly',
+  ): Promise<void> {
     console.info(`SQLite3: Initializing database "${dbPath}"...`);
     // For some reason, if initializing the better-sqlite3 db with readonly true, later when disposing the instance,
     // it does not remove the WAL files, which is bothersome to leave in the backup directory.

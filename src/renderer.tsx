@@ -62,6 +62,12 @@ async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Prom
     dbDirectory,
     defaultBackupDirectory,
   );
+  const notifyChange = () => {
+    backupScheduler.schedule();
+  };
+  const restoreEmpty = () => {
+    return backupScheduler.restoreEmpty();
+  };
 
   let backend: Backend;
   // If using worker mode and DB already exists, initialize backend in worker
@@ -69,11 +75,7 @@ async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Prom
   if (USE_BACKEND_AS_WORKER && dbExists && !tempJsonToImport) {
     const backendService = new BackendService();
     const [remoteBackend] = await Promise.all([
-      backendService.init(
-        dbPath,
-        () => backupScheduler.schedule(),
-        () => backupScheduler.restoreEmpty(),
-      ),
+      backendService.init(dbPath, notifyChange, restoreEmpty),
       fse.ensureDir(defaultBackupDirectory),
     ]);
     backend = remoteBackend as unknown as Backend;
@@ -82,12 +84,7 @@ async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Prom
     // initialize backend in the main thread to safely run migrations
     backend = new Backend();
     await Promise.all([
-      backend.init({
-        dbPath: dbPath,
-        jsonToImport: tempJsonToImport,
-        notifyChange: () => backupScheduler.schedule(),
-        restoreEmpty: () => backupScheduler.restoreEmpty(),
-      }),
+      backend.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
       fse.ensureDir(defaultBackupDirectory),
     ]);
     // remove temporal json to avoid infinite re import.
@@ -231,12 +228,12 @@ async function runPreviewApp(dbPath: string, root: Root): Promise<void> {
   //const backend = await Backend.init(dbPath, () => {});
   // TODO: create an apropiated initPreview mode
   const backend = new Backend();
-  await backend.init({
-    dbPath: dbPath,
-    jsonToImport: undefined,
-    notifyChange: () => {},
-    restoreEmpty: async () => {},
-  });
+  await backend.init(
+    dbPath,
+    undefined,
+    () => {},
+    async () => {},
+  );
   const rootStore = await RootStore.preview(backend, new BackupScheduler(dbPath, '', ''));
 
   RendererMessenger.initialized();
@@ -332,12 +329,7 @@ class BackendService {
     this.workerInstance = worker;
 
     console.log('BackendService: Initializing worker backend...');
-    await this.worker.init({
-      dbPath: dbPath,
-      jsonToImport: undefined,
-      notifyChange: proxy(notifyChange),
-      restoreEmpty: proxy(restoreEmpty),
-    });
+    await this.worker.init(dbPath, undefined, proxy(notifyChange), proxy(restoreEmpty));
 
     this.initialized = true;
     console.log('BackendService: Ready!');
