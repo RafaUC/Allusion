@@ -19,7 +19,6 @@ import {
   SubTags,
   SearchGroups,
 } from './schemaTypes';
-import { expose } from 'comlink';
 import SQLite from 'better-sqlite3';
 import {
   Kysely,
@@ -86,7 +85,7 @@ export default class Backend implements DataStorage {
     jsonToImport: string | undefined,
     notifyChange: () => void,
     restoreEmpty: () => Promise<void>,
-    mode?: 'default' | 'migrate' | 'readonly',
+    mode: 'default' | 'migrate' | 'readonly' = 'default',
   ): Promise<void> {
     console.info(`SQLite3: Initializing database "${dbPath}"...`);
     // For some reason, if initializing the better-sqlite3 db with readonly true, later when disposing the instance,
@@ -902,9 +901,6 @@ export default class Backend implements DataStorage {
     await this.#restoreEmpty();
   }
 }
-
-// https://lorefnon.tech/2019/03/24/using-comlink-with-typescript-and-worker-loader/
-expose(Backend, self);
 
 // Creates a proxy that wraps the Backend instance to log the execution time of its methods.
 function createTimingProxy(obj: Backend): Backend {

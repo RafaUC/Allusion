@@ -6,12 +6,10 @@
 // in the HTML file
 import './style.scss';
 
-import fse from 'fs-extra';
 import { autorun, reaction, runInAction } from 'mobx';
 import React from 'react';
 import { Root, createRoot } from 'react-dom/client';
 
-import { wrap, Remote, proxy } from 'comlink';
 import Backend from './backend/backend';
 
 import { IS_DEV } from 'common/process';
@@ -28,7 +26,11 @@ import RootStore from './frontend/stores/RootStore';
 import { PREFERENCES_STORAGE_KEY } from './frontend/stores/UiStore';
 import BackupScheduler from './backend/backup-scheduler';
 import path from 'path';
-import { DB_NAME, USE_BACKEND_AS_WORKER } from './backend/config';
+import { DB_NAME } from './backend/config';
+import fse from 'fs-extra';
+import { USE_BACKEND_AS_WORKER } from 'src/backend/config';
+import { BackendService } from 'src/frontend/workers/BackendService';
+import { BackupSchedulerService } from './frontend/workers/BackupSchedulerService';
 
 async function main(): Promise<void> {
   // Render our react components in the div with id 'app' in the html file
@@ -55,43 +57,27 @@ async function main(): Promise<void> {
 
 async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Promise<void> {
   // Check if the database file already exists
-  const dbExists = await fse.pathExists(dbPath);
   const defaultBackupDirectory = await RendererMessenger.getDefaultBackupDirectory();
-  const { backupScheduler, tempJsonToImport } = await BackupScheduler.init(
+  const { backupScheduler, tempJsonToImport } = await initBackupSchedulerOrWorker(
+    USE_BACKEND_AS_WORKER,
     dbPath,
     dbDirectory,
     defaultBackupDirectory,
   );
   const notifyChange = () => {
-    backupScheduler.schedule();
+    return backupScheduler.schedule();
   };
-  const restoreEmpty = () => {
+  const restoreEmpty = (): Promise<void> => {
     return backupScheduler.restoreEmpty();
   };
 
-  let backend: Backend;
-  // If using worker mode and DB already exists, initialize backend in worker
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (USE_BACKEND_AS_WORKER && dbExists && !tempJsonToImport) {
-    const backendService = new BackendService();
-    const [remoteBackend] = await Promise.all([
-      backendService.init(dbPath, notifyChange, restoreEmpty),
-      fse.ensureDir(defaultBackupDirectory),
-    ]);
-    backend = remoteBackend as unknown as Backend;
-  } else {
-    // If DB does not exist or worker mode is disabled,
-    // initialize backend in the main thread to safely run migrations
-    backend = new Backend();
-    await Promise.all([
-      backend.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
-      fse.ensureDir(defaultBackupDirectory),
-    ]);
-    // remove temporal json to avoid infinite re import.
-    if (tempJsonToImport) {
-      await fse.remove(tempJsonToImport);
-    }
-  }
+  const backend = await initBackendOrWorker(
+    USE_BACKEND_AS_WORKER,
+    dbPath,
+    tempJsonToImport,
+    notifyChange,
+    restoreEmpty,
+  );
 
   const rootStore = await RootStore.main(backend, backupScheduler);
 
@@ -225,6 +211,7 @@ async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Prom
 }
 
 async function runPreviewApp(dbPath: string, root: Root): Promise<void> {
+  return;
   //const backend = await Backend.init(dbPath, () => {});
   // TODO: create an apropiated initPreview mode
   const backend = new Backend();
@@ -234,7 +221,9 @@ async function runPreviewApp(dbPath: string, root: Root): Promise<void> {
     () => {},
     async () => {},
   );
-  const rootStore = await RootStore.preview(backend, new BackupScheduler(dbPath, '', ''));
+  const backupScheduler = new BackupScheduler();
+  await backupScheduler.init(dbPath, '', '');
+  const rootStore = await RootStore.preview(backend, backupScheduler);
 
   RendererMessenger.initialized();
 
@@ -303,39 +292,63 @@ async function runPreviewApp(dbPath: string, root: Root): Promise<void> {
   });
 }
 
-class BackendService {
-  worker?: Remote<Backend>;
-  workerInstance?: Worker;
-  private initialized = false;
-
-  async init(
-    dbPath: string,
-    notifyChange: () => void,
-    restoreEmpty: () => Promise<void>,
-  ): Promise<Remote<Backend> | undefined> {
-    if (this.initialized) {
-      console.warn('BackendService: Already initialized');
-      return this.worker;
-    }
-
-    console.log('BackendService: Creating worker...');
-
-    const worker = new Worker(new URL('src/backend/backend', import.meta.url), {
-      type: 'module',
-    });
-    const WorkerClass = wrap<typeof Backend>(worker);
-
-    this.worker = await new WorkerClass();
-    this.workerInstance = worker;
-
-    console.log('BackendService: Initializing worker backend...');
-    await this.worker.init(dbPath, undefined, proxy(notifyChange), proxy(restoreEmpty));
-
-    this.initialized = true;
-    console.log('BackendService: Ready!');
-
-    return this.worker;
+async function initBackupSchedulerOrWorker(
+  useWorker: boolean,
+  dbPath: string,
+  dbDirectory: string,
+  defaultBackupDirectory: string,
+): Promise<{ backupScheduler: BackupScheduler; tempJsonToImport: string | undefined }> {
+  if (useWorker) {
+    const backupService = new BackupSchedulerService();
+    const { backupScheduler, tempJsonToImport } = await backupService.init(
+      dbPath,
+      dbDirectory,
+      defaultBackupDirectory,
+    );
+    return { backupScheduler: backupScheduler as unknown as BackupScheduler, tempJsonToImport };
+  } else {
+    const backupScheduler = new BackupScheduler();
+    const tempJsonToImport = await backupScheduler.init(
+      dbPath,
+      dbDirectory,
+      defaultBackupDirectory,
+    );
+    return { backupScheduler, tempJsonToImport };
   }
+}
+
+async function initBackendOrWorker(
+  useWorker: boolean,
+  dbPath: string,
+  tempJsonToImport: string | undefined,
+  notifyChange: () => void,
+  restoreEmpty: () => Promise<void>,
+  defaultBackupDirectory?: string | undefined,
+): Promise<Backend> {
+  //const dbExists = await fse.pathExists(dbPath);
+  let backend: Backend;
+  // If using worker mode and DB already exists, initialize backend in worker
+  if (useWorker) {
+    const backendService = new BackendService();
+    const [remoteBackend] = await Promise.all([
+      backendService.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
+      defaultBackupDirectory ? fse.ensureDir(defaultBackupDirectory) : Promise.resolve(),
+    ]);
+    backend = remoteBackend as unknown as Backend;
+  } else {
+    // If DB does not exist or worker mode is disabled,
+    // initialize backend in the main thread to safely run migrations
+    backend = new Backend();
+    await Promise.all([
+      backend.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
+      defaultBackupDirectory ? fse.ensureDir(defaultBackupDirectory) : Promise.resolve(),
+    ]);
+  }
+  // remove temporal json to avoid infinite re import.
+  if (tempJsonToImport) {
+    await fse.remove(tempJsonToImport);
+  }
+  return backend;
 }
 
 main()
