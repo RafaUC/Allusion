@@ -144,6 +144,7 @@ type PersistentPreferenceFields =
   | 'importDirectory'
   | 'method'
   | 'thumbnailSize'
+  | 'thumbnailRadius'
   | 'largeThumbFullResThreshold'
   | 'masonryItemPadding'
   | 'thumbnailShape'
@@ -159,10 +160,13 @@ type PersistentPreferenceFields =
   | 'outlinerExpansion'
   | 'outlinerHeights'
   | 'inspectorWidth'
-  | 'isRememberSearchEnabled'
   | 'recentlyUsedTagsMaxLength'
   | 'recentlyUsedTags'
   | 'isClearTagSelectorsOnSelectEnabled'
+  // startup options
+  | 'isLoadFileCountsStartupEnabled'
+  | 'isRefreshLocationsStartupEnabled'
+  | 'isRememberSearchEnabled'
   // the following are only restored when isRememberSearchEnabled is enabled
   | 'isSlideMode'
   | 'firstItem'
@@ -203,11 +207,16 @@ class UiStore {
     'visible-when-inherited';
   @observable isThumbnailFilenameOverlayEnabled: boolean = false;
   @observable isThumbnailResolutionOverlayEnabled: boolean = false;
+  /** Load File Counts at startup */
+  @observable isLoadFileCountsStartupEnabled: boolean = true;
+  /** Refresh locations and detect file changes at startup  */
+  @observable isRefreshLocationsStartupEnabled: boolean = false;
   /** Whether to restore the last search query on start-up */
   @observable isRememberSearchEnabled: boolean = true;
   /** Cursor that represents the first item in the viewport. Also acts as the current item shown in slide mode */
   @observable firstItem: Cursor | undefined;
   @observable thumbnailSize: ThumbnailSize | number = 'medium';
+  @observable thumbnailRadius: number = 1;
   @observable largeThumbFullResThreshold: number = 3840;
   @observable masonryItemPadding: number = 8;
   @observable thumbnailShape: ThumbnailShape = 'square';
@@ -316,10 +325,13 @@ class UiStore {
     this.thumbnailSize = size;
   }
 
+  @action.bound setThumbnailRadius(size: number): void {
+    this.thumbnailRadius = clamp(size, 0, 50);
+  }
+
   @action.bound setMasonryItemPadding(size: number): void {
-    // constrain between 0 to 20
-    const limitedValue = Math.max(0, Math.min(20, size));
-    this.masonryItemPadding = limitedValue;
+    // constrain between 0 to 30
+    this.masonryItemPadding = clamp(size, 0, 30);
   }
 
   @action.bound setThumbnailShape(shape: ThumbnailShape): void {
@@ -482,6 +494,14 @@ class UiStore {
 
   @action.bound setLargeThumbFullResThreshold(value: number): void {
     this.largeThumbFullResThreshold = value;
+  }
+
+  @action.bound toggleRefreshLocationStartup(): void {
+    this.isRefreshLocationsStartupEnabled = !this.isRefreshLocationsStartupEnabled;
+  }
+
+  @action.bound toggleLoadFileCountsStartup(): void {
+    this.isLoadFileCountsStartupEnabled = !this.isLoadFileCountsStartupEnabled;
   }
 
   @action.bound toggleRememberSearchQuery(): void {
@@ -1420,6 +1440,9 @@ class UiStore {
         if (prefs.thumbnailSize) {
           this.setThumbnailSize(prefs.thumbnailSize);
         }
+        if (prefs.thumbnailRadius) {
+          this.setThumbnailRadius(prefs.thumbnailRadius);
+        }
         if ('largeThumbFullResThreshold' in prefs) {
           this.setLargeThumbFullResThreshold(prefs.largeThumbFullResThreshold);
         }
@@ -1468,6 +1491,8 @@ class UiStore {
           ([k, v]) => k in defaultHotkeyMap && (this.hotkeyMap[k as keyof IHotkeyMap] = v),
         );
 
+        this.isLoadFileCountsStartupEnabled = Boolean(prefs.isLoadFileCountsStartupEnabled ?? true);
+        this.isRefreshLocationsStartupEnabled = Boolean(prefs.isRefreshLocationsStartupEnabled ?? false); // eslint-disable-line prettier/prettier
         this.isRememberSearchEnabled = Boolean(prefs.isRememberSearchEnabled);
         if (this.isRememberSearchEnabled) {
           // If remember search criteria, restore the search criteria list...
@@ -1530,6 +1555,7 @@ class UiStore {
       importDirectory: this.importDirectory,
       method: this.method,
       thumbnailSize: this.thumbnailSize,
+      thumbnailRadius: this.thumbnailRadius,
       largeThumbFullResThreshold: this.largeThumbFullResThreshold,
       masonryItemPadding: this.masonryItemPadding,
       thumbnailShape: this.thumbnailShape,
@@ -1545,6 +1571,8 @@ class UiStore {
       outlinerHeights: this.outlinerHeights.slice(),
       outlinerWidth: this.outlinerWidth,
       inspectorWidth: this.inspectorWidth,
+      isLoadFileCountsStartupEnabled: this.isLoadFileCountsStartupEnabled,
+      isRefreshLocationsStartupEnabled: this.isRefreshLocationsStartupEnabled,
       isRememberSearchEnabled: this.isRememberSearchEnabled,
       isSlideMode: this.isSlideMode,
       firstItem: this.firstItem,

@@ -9,6 +9,7 @@ import RootStore from './RootStore';
 import { AppToaster, IToastProps } from '../components/Toaster';
 import { FileDTO } from 'src/api/file';
 import { normalizeBase } from 'common/core';
+import { OrderDirection } from 'src/api/data-storage-search';
 
 /**
  * Based on https://mobx.js.org/best/store.html
@@ -19,6 +20,7 @@ class TagStore {
 
   /** A lookup map to speedup finding entities */
   private readonly tagGraph = observable(new Map<ID, ClientTag>());
+  @observable fileCountsInitialized = false;
 
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
@@ -37,18 +39,18 @@ class TagStore {
     }
   }
 
-  fileCountsInitialized = false;
-  @action.bound async initializeFileCounts(files: FileDTO[]): Promise<void> {
+  @action.bound async initializeTagFileCounts(allDbFiles?: FileDTO[]): Promise<void> {
     if (this.fileCountsInitialized) {
       return;
     }
+    this.fileCountsInitialized = true;
+    const files = allDbFiles ?? (await this.backend.fetchFiles('id', OrderDirection.Asc, false));
     for (const file of files) {
       for (const tagID of file.tags) {
         const tag = this.get(tagID);
         tag?.incrementFileCount(file.id);
       }
     }
-    this.fileCountsInitialized = true;
   }
 
   @action get(tag: ID): ClientTag | undefined {

@@ -44,7 +44,7 @@ const VirtualizedRenderer = observer(
     padding,
   }: IRendererProps) => {
     const { uiStore, fileStore } = useStore();
-    const [, isMountedRef] = useMountState();
+    const [isMounted, isMountedRef] = useMountState();
     const wrapperRef = useRef<HTMLDivElement>(null);
     const scrollAnchor = useRef<HTMLDivElement>(null);
     const [startRenderIndex, setStartRenderIndex] = useState(0);
@@ -182,7 +182,7 @@ const VirtualizedRenderer = observer(
       //throttledRedetermine.current(numImages, overscan, false);
       loadingPage.current = null;
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [layoutUpdateDate]);
+    }, [layoutUpdateDate, isMounted]);
 
     // When selection changes, scroll to last selected image. Nice when using cursor keys for navigation
     const fileSelectionSize = uiStore.fileSelection.size;

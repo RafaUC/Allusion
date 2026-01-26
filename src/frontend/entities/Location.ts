@@ -93,7 +93,7 @@ export class ClientLocation {
   _worker?: Worker;
 
   // Whether the initial scan has been completed, and no watching setup is in process
-  @observable isSettingWatcher = false;
+  @observable isSettingWatcher;
   // whether initialization has started or has been completed
   @observable isInitialized = false;
   // whether sub-locations are being refreshed
@@ -135,6 +135,7 @@ export class ClientLocation {
     this.extensions = extensions;
     this.index = index;
     this.isWatchingFiles = isWatchingFiles;
+    this.isSettingWatcher = isWatchingFiles;
 
     this.subLocations = observable(
       subLocations
@@ -293,7 +294,6 @@ export class ClientLocation {
     // Trigger loading icon
     this.isRefreshing = true;
 
-    // TODO: Can also get this from watching
     let rootItem;
     if (rootDirectoryItem === undefined) {
       const directoryTree = await getDirectoryTree(this.path);
@@ -457,13 +457,13 @@ export class ClientLocation {
     return [filteredDiskFiles, rootItem];
   }
 
-  @action async watch(): Promise<FileStats[] | undefined> {
+  @action async watch(): Promise<boolean> {
     if (this.isBroken) {
       console.error(
         'Location watch error:',
         'Cannot watch a location because it is broken or not initialized.',
       );
-      return undefined;
+      return false;
     }
     this.setSettingWatcher(true);
     const directory = this.path;
@@ -524,15 +524,26 @@ export class ClientLocation {
     this._worker?.terminate();
     this._worker = worker;
     // Make a list of all files in this directory, which will be returned when all subdirs have been traversed
-    const initialFiles = await this.worker.watch(directory, this.extensions);
+    await fse.ensureDir(this.store.watcherSnapshotDirectory);
+    const snapshotFilePath = SysPath.join(
+      this.store.watcherSnapshotDirectory,
+      `${this.id}.snapshot.json`,
+    );
+    await this.worker.watch(
+      directory,
+      this.extensions,
+      snapshotFilePath,
+      this.store.PARCEL_WATCHER_BACKEND,
+    );
 
     this.setSettingWatcher(false);
-    // Filter out images from excluded sub-locations
-    // TODO: Could also put them in the chokidar ignore property
-    return initialFiles?.filter(
-      ({ absolutePath }) =>
-        !this.excludedPaths.some((subLoc) => absolutePath.startsWith(subLoc.path)),
-    );
+    return true;
+  }
+
+  // close and save snapshots of the watcher worker
+  @action async close(): Promise<void> {
+    await this.worker?.cancel();
+    await this.worker?.close();
   }
 }
 interface IDirectoryTreeItem {

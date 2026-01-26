@@ -673,7 +673,7 @@ class FileStore {
     file.setBroken(true);
     this.rootStore.uiStore.deselectFile(file);
     this.incrementNumMissingFiles();
-    if (file.tags.size === 0) {
+    if (file.tags.size === 0 && this.numUntaggedFiles > 0) {
       this.decrementNumUntaggedFiles();
     }
   }
@@ -924,11 +924,14 @@ class FileStore {
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      let promise = undefined;
       if (start === currentFetchId) {
-        return this.updateFromBackend(fetchedFiles);
+        promise = this.updateFromBackend(fetchedFiles);
       } else {
         console.debug('FETCH All ABORTED');
       }
+      this.rootStore.initStartupLoads(fetchedFiles);
+      return promise;
     } catch (err) {
       console.error('Could not load all files', err);
     }

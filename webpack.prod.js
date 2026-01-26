@@ -41,6 +41,9 @@ let mainConfig = {
       },
     ],
   },
+  externals: {
+    "@parcel/watcher": "require('@parcel/watcher')"
+  }
 };
 
 let rendererConfig = {
@@ -132,6 +135,9 @@ let rendererConfig = {
       chunkFilename: '[id].[contenthash].css',
     }),
   ],
+  externals: {
+    "@parcel/watcher": "require('@parcel/watcher')"
+  }
 };
 
 module.exports = [mainConfig, rendererConfig];
