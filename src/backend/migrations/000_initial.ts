@@ -91,7 +91,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('ino', 'text', (col) => col.notNull())
     .addColumn('location_id', 'text', (col) => col.notNull())
     .addColumn('relative_path', 'text', (col) => col.notNull())
-    .addColumn('absolute_path', 'text', (col) => col.notNull())
+    .addColumn('absolute_path', 'text', (col) => col.notNull().unique())
     .addColumn('tag_sorting', 'text', (col) => col.notNull())
     .addColumn('date_added', 'timestamp', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
     .addColumn('date_modified', 'timestamp')
@@ -104,7 +104,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('height', 'integer')
     .addColumn('date_created', 'timestamp')
     .addForeignKeyConstraint('fk_files_location', ['location_id'], 'locations', ['node_id'], (cb) => cb.onDelete('cascade'))
-    .addUniqueConstraint('uq_absolute_path', ['relative_path'])
     .execute();
 
   await db.schema

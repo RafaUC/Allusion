@@ -1,4 +1,4 @@
-import { action } from 'mobx';
+import { action, runInAction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from 'src/frontend/contexts/StoreContext';
@@ -72,10 +72,28 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
           }
         }
       } else if (e.key === 'Home') {
+        (async () => {
+          await fileStore.jumpToFirst();
+          setTimeout(() => {
+            uiStore.setFirstItem(0);
+            setLayoutTimestamp(new Date());
+          }, 200);
+        })();
+        return;
+      } else if (e.key === 'End') {
+        (async () => {
+          await fileStore.jumpToLast();
+          setTimeout(() => {
+            uiStore.setFirstItem(runInAction(() => fileStore.fileDimensions.length - 1));
+            setLayoutTimestamp(new Date());
+          }, 200);
+        })();
+        return;
+      } else if (e.key === 'PageUp') {
         uiStore.setFirstItem(0);
         setLayoutTimestamp(new Date()); // Force scroll with a new layout timestamp
         return;
-      } else if (e.key === 'End') {
+      } else if (e.key === 'PageDown') {
         uiStore.setFirstItem(numFiles - 1);
         setLayoutTimestamp(new Date()); // Force scroll with a new layout timestamp
         return;
@@ -148,7 +166,7 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [numImages, fileStore.fileListLayoutLastModified]);
+  }, [numImages, fileStore.fileListLastRefetch]);
 
   const handleResize = useRef(
     (() => {

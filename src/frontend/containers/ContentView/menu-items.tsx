@@ -32,7 +32,11 @@ export const MissingFileMenuItems = observer(() => {
         disabled={fileStore.showsMissingContent}
       />
       <MenuItem onClick={uiStore.copyTagsToClipboard} text="Copy Tags" icon={IconSet.TAG_GROUP} />
-      <MenuItem onClick={uiStore.openToolbarFileRemover} text="Delete" icon={IconSet.DELETE} />
+      <MenuItem
+        onClick={uiStore.openToolbarFileRemover}
+        text="Delete Missing File Data"
+        icon={IconSet.DELETE}
+      />
     </>
   );
 });
@@ -303,11 +307,13 @@ export const ExternalAppMenuItems = observer(({ file }: { file: ClientFile }) =>
         onClick={() => shell.showItemInFolder(file.absolutePath)}
         text="Reveal in File Browser"
         icon={IconSet.FOLDER_CLOSE}
+        disabled={file.isBroken}
       />
       <MenuItem
         onClick={uiStore.openMoveFilesToTrash}
         text={`Delete file${uiStore.fileSelection.size > 1 ? 's' : ''}`}
         icon={IconSet.DELETE}
+        disabled={file.isBroken}
       />
     </>
   );

@@ -11,6 +11,8 @@ import { MasonryCell } from '../GalleryItem';
 import { Layouter, findViewportEdge } from './layout-helpers';
 import { isFileExtensionVideo } from 'common/fs';
 
+const SCROLL_PAGE_THRESHOLD = 200;
+
 interface IRendererProps {
   containerHeight: number;
   containerWidth: number;
@@ -48,7 +50,7 @@ const VirtualizedRenderer = observer(
     const [startRenderIndex, setStartRenderIndex] = useState(0);
     const [endRenderIndex, setEndRenderIndex] = useState(0);
     const numImages = fileStore.fileDimensions.length;
-    const { isSlideMode, firstItem } = uiStore;
+    const { isSlideMode, firstItemIndex: firstItem } = uiStore;
 
     const determineRenderRegion = useCallback(
       (numImages: number, overdraw: number, setFirstItem = true) => {
@@ -92,17 +94,6 @@ const VirtualizedRenderer = observer(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numImages, containerWidth, containerHeight]);
 
-    const handleScroll = useCallback(
-      () =>
-        throttledRedetermine.current(
-          numImages,
-          overscan || 0,
-          // dont't scroll set first item while in slide mode due to scrolling, since it's controlled over there
-          !isSlideMode,
-        ),
-      [numImages, overscan, isSlideMode],
-    );
-
     const scrollToIndex = useCallback(
       (index: number, block: 'nearest' | 'start' | 'end' | 'center' = 'nearest') => {
         if (!scrollAnchor.current) {
@@ -126,6 +117,40 @@ const VirtualizedRenderer = observer(
       [layout, padding],
     );
 
+    const loadingPage = useRef<'after' | 'before' | null>(null);
+
+    const checkPagination = useCallback(() => {
+      const elem = wrapperRef.current;
+      if (!elem || hasRefreshed.current) {
+        return;
+      }
+      const { scrollTop, scrollHeight, clientHeight } = elem;
+      const needsLoadNext = scrollTop + clientHeight >= scrollHeight - SCROLL_PAGE_THRESHOLD;
+      const needsLoadPrev = scrollTop <= SCROLL_PAGE_THRESHOLD;
+      if (needsLoadNext && loadingPage.current !== 'after') {
+        //console.count('NEEDS NEXT PAGE');
+        loadingPage.current = 'after';
+        fileStore.fetchAfter();
+      }
+
+      if (needsLoadPrev && loadingPage.current !== 'before') {
+        //console.count('NEEDS PREV PAGE');
+        loadingPage.current = 'before';
+        fileStore.fetchBefore();
+      }
+    }, [fileStore]);
+
+    const handleScroll = useCallback(() => {
+      throttledRedetermine.current(
+        numImages,
+        overscan || 0,
+        // dont't scroll set first item while in slide mode due to scrolling, since it's controlled over there
+        // Also don't set it when loading pages
+        !isSlideMode && loadingPage.current === null,
+      );
+      checkPagination();
+    }, [numImages, overscan, isSlideMode, checkPagination]);
+
     // The index currently selected image, or the "last selected" image when a range is selected,
     const lastSelIndex = lastSelectionIndex.current
       ? Math.min(lastSelectionIndex.current, numImages - 1)
@@ -139,15 +164,23 @@ const VirtualizedRenderer = observer(
       }
     }, [isRefreshing]);
 
-    // When layout updates, scroll to firstImage (e.g. resize or thumbnail size changed)
+    // When layout updates, scroll to firstImage (e.g. pagination, resize or thumbnail size changed)
+    // and reset loadingPage state.
     // This also sets the initial scroll position on initial render, for when coming from another view mode
     useLayoutEffect(() => {
+      // If it has loaded the after pag, just reset loadingPage and return
+      if (loadingPage.current === 'after') {
+        loadingPage.current = null;
+        return;
+      }
       // If the gallery has been refreshed use nearest block behavior, otherwise keep the first item in view aligned at the start.
-      const block = hasRefreshed.current ? 'nearest' : 'start';
+      const block = hasRefreshed.current || loadingPage.current ? 'nearest' : 'start';
       hasRefreshed.current = false;
-      runInAction(() => scrollToIndex(uiStore.firstItem, block));
+      runInAction(() => scrollToIndex(uiStore.firstItemIndex, block));
       // Call throttledRedetermine in case no scroll has been applied.
-      throttledRedetermine.current(numImages, overscan, false);
+      determineRenderRegion(numImages, overscan, false);
+      //throttledRedetermine.current(numImages, overscan, false);
+      loadingPage.current = null;
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [layoutUpdateDate]);
 
@@ -156,7 +189,8 @@ const VirtualizedRenderer = observer(
     useLayoutEffect(() => {
       // But don't scroll when there are no files selected:
       // else you will scroll when the user deselects everything
-      if (lastSelIndex !== undefined && fileSelectionSize > 0) {
+      // also don't scroll when the user select all files
+      if (lastSelIndex !== undefined && fileSelectionSize > 0 && fileSelectionSize < numImages) {
         scrollToIndex(lastSelIndex);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps

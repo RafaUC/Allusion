@@ -18,12 +18,12 @@ const PreviewApp = observer(() => {
   useEffect(() => uiStore.enableSlideMode(), [uiStore]);
 
   const handleLeftButton = useCallback(
-    () => uiStore.setFirstItem(Math.max(0, uiStore.firstItem - 1)),
+    () => uiStore.setFirstItem(Math.max(0, uiStore.firstItemIndex - 1)),
     [uiStore],
   );
 
   const handleRightButton = useCallback(
-    () => uiStore.setFirstItem(Math.min(uiStore.firstItem + 1, fileStore.fileList.length - 1)),
+    () => uiStore.setFirstItem(Math.min(uiStore.firstItemIndex + 1, fileStore.fileList.length - 1)),
     [fileStore.fileList.length, uiStore],
   );
 
@@ -32,7 +32,7 @@ const PreviewApp = observer(() => {
   useEffect(() => {
     setIsInitializing(true);
     setTimeout(() => setIsInitializing(false), 1000);
-  }, [fileStore.fileListLayoutLastModified]);
+  }, [fileStore.fileListLastRefetch]);
 
   return (
     <div
@@ -47,13 +47,13 @@ const PreviewApp = observer(() => {
             icon={IconSet.ARROW_LEFT}
             text="Previous Image"
             onClick={handleLeftButton}
-            disabled={uiStore.firstItem === 0}
+            disabled={uiStore.firstItemIndex === 0}
           />
           <ToolbarButton
             icon={IconSet.ARROW_RIGHT}
             text="Next Image"
             onClick={handleRightButton}
-            disabled={uiStore.firstItem === fileStore.fileList.length - 1}
+            disabled={uiStore.firstItemIndex === fileStore.fileList.length - 1}
           />
           <Toggle onChange={uiStore.toggleSlideMode} checked={!uiStore.isSlideMode}>
             Full size

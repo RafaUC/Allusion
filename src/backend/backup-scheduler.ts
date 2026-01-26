@@ -208,7 +208,7 @@ export default class BackupScheduler implements DataBackup {
         'readonly',
       );
       const tags = (await db.fetchTags()).length;
-      const files = (await db.countFiles())[0];
+      const files = (await db.countFiles({ files: true }))[0] ?? 0;
       db = null;
       if (global.gc) {
         // Remove the backend instance to get rid of any WAL file.

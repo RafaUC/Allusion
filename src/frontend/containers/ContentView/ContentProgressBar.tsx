@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { observer } from 'mobx-react-lite';
 import ProgressBar from 'src/frontend/components/ProgressBar';
 import { useStore } from 'src/frontend/contexts/StoreContext';
@@ -36,7 +36,7 @@ const ContentProgressBar = observer(() => {
   } else {
     return null;
   }
-  let simulatedTotal = total / 2;
+  let simulatedTotal = 0;
   const AverageTime = fileStore.activeAverageFetchTime * 1.05;
   const current = numLoadedFiles;
 

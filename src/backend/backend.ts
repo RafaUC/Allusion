@@ -33,10 +33,10 @@ import {
   AnyColumn,
   Insertable,
   Expression,
+  RawBuilder,
 } from 'kysely';
 import { kyselyLogger, migrateToLatest, PAD_STRING_LENGTH } from './config';
 import { DataStorage } from 'src/api/data-storage';
-import { IndexableType } from '../api/data-storage';
 import {
   OrderBy,
   OrderDirection,
@@ -51,9 +51,12 @@ import {
   StringProperties,
   SearchConjunction,
   ConditionGroupDTO,
+  PaginationDirection,
+  Cursor,
+  IndexableType,
 } from 'src/api/data-storage-search';
 import { ExtraProperties, ExtraPropertyDTO } from 'src/api/extraProperty';
-import { FileDTO } from 'src/api/file';
+import { FileDTO, FileStats } from 'src/api/file';
 import { FileSearchDTO, SearchGroupDTO } from 'src/api/file-search';
 import { generateId, ID } from 'src/api/id';
 import { LocationDTO, SubLocationDTO } from 'src/api/location';
@@ -74,6 +77,8 @@ export default class Backend implements DataStorage {
   #restoreEmpty!: () => Promise<void>;
   /** State variable that indicates if we need to recompute preAggregateJSON */
   #isQueryDirty: boolean = true;
+  // Seed used to have deterministic order when order by random
+  #seed: number = generateSeed();
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -94,9 +99,8 @@ export default class Backend implements DataStorage {
     const database = new SQLite(dbPath, { timeout: 50000 }); //, readonly: isReadOnly });
 
     // HACK Use a padded string to do natural sorting
-    database.function('pad_string', { deterministic: true }, (str) => {
-      return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
-    });
+    database.function('pad_string', { deterministic: true }, PadString);
+    database.function('stable_hash', { deterministic: true }, stableHash);
 
     const dialect = new SqliteDialect({ database });
     const db = new Kysely<AllusionDB_SQL>({
@@ -153,6 +157,10 @@ export default class Backend implements DataStorage {
         .execute();
     }
     await this.preAggregateJSON();
+  }
+
+  async setSeed(seed?: number): Promise<void> {
+    this.#seed = seed ?? generateSeed();
   }
 
   async fetchTags(): Promise<TagDTO[]> {
@@ -244,11 +252,12 @@ export default class Backend implements DataStorage {
     this.#isQueryDirty = false;
   }
 
-  async queryFiles(
+  async queryFiles<Q extends SelectQueryBuilder<any, any, any>>(
     criteria: ConditionGroupDTO<FileDTO> = { conjunction: 'and', children: [] },
-    sortOptions: SortOptions,
-    keyInListOptions?: KeyInListOptions,
+    pagOptions: PaginationOptions,
+    modifyQuery?: (qb: Q) => Q,
   ): Promise<FileDTO[]> {
+    pagOptions.seed = this.#seed;
     if (this.#isQueryDirty) {
       await this.preAggregateJSON();
     }
@@ -270,90 +279,75 @@ export default class Backend implements DataStorage {
       .leftJoin('fileEpAggregatesTemp as fe', 'fe.fileId', 'files.id')
       .selectAll('files')
       .select(['ft.tags', 'fe.extraProperties']);
-    query = applyFileFilters(query, criteria as unknown as ConditionGroupDTO<Files>);
-    query = await applySortOrder(this.#db, query, sortOptions);
-    if (keyInListOptions) {
-      query = query.where(keyInListOptions.key, 'in', keyInListOptions.values);
+    query = applyFileFilters(query, criteria);
+    query = await applyPagination(this.#db, query, pagOptions);
+    if (modifyQuery) {
+      query = modifyQuery(query as any);
     }
 
-    const files = (await query.execute()).map((dbFile): FileDTO => {
-      // convert data into FileDTO format
-      const extraPropertyIDs: ID[] = [];
-      const extraProperties: ExtraProperties = {};
-      for (const ep of dbFile.extraProperties ?? []) {
-        extraPropertyIDs.push(ep.epId);
-        const val = ep.textValue ?? ep.numberValue; // ?? ep.timestampValue;
-        if (val) {
-          extraProperties[ep.epId] = val;
-        }
-      }
-      return {
-        id: dbFile.id,
-        ino: dbFile.ino,
-        locationId: dbFile.locationId,
-        relativePath: dbFile.relativePath,
-        absolutePath: dbFile.absolutePath,
-        tagSorting: dbFile.tagSorting,
-        dateAdded: deserializeDate(dbFile.dateAdded),
-        dateModified: deserializeDate(dbFile.dateModified),
-        dateModifiedOS: deserializeDate(dbFile.dateModifiedOS),
-        dateLastIndexed: deserializeDate(dbFile.dateLastIndexed),
-        dateCreated: deserializeDate(dbFile.dateCreated),
-        name: dbFile.name,
-        extension: dbFile.extension,
-        size: dbFile.size,
-        width: dbFile.width,
-        height: dbFile.height,
-        tags: dbFile.tags ?? [],
-        extraProperties: extraProperties,
-      };
-    });
-    return files;
+    const files = (await query.execute()).map(mapToDTO);
+    const shouldReverse = pagOptions.pagination === 'before' && pagOptions.cursor !== undefined;
+    return shouldReverse ? files.reverse() : files;
   }
 
   async fetchFiles(
     order: OrderBy<FileDTO>,
     fileOrder: OrderDirection,
     useNaturalOrdering: boolean,
+    limit?: number,
+    pagination?: PaginationDirection,
+    cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]> {
-    console.info('SQLite: Fetching all files...');
+    console.info('SQLite: Fetching all files...', cursor);
     return this.queryFiles(undefined, {
       order,
       direction: fileOrder,
       useNaturalOrdering,
+      limit,
+      pagination,
+      cursor,
       extraPropertyID,
     });
   }
 
   async searchFiles(
-    criteria: ConditionGroupDTO<FileDTO>,
+    criteria: ConditionGroupDTO<FileDTO> | undefined,
     order: OrderBy<FileDTO>,
     fileOrder: OrderDirection,
     useNaturalOrdering: boolean,
+    limit?: number,
+    pagination?: PaginationDirection,
+    cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]> {
-    console.info('SQLite: Searching files...', criteria);
+    console.info('SQLite: Searching files...', cursor, criteria);
     return this.queryFiles(criteria, {
       order,
       direction: fileOrder,
       useNaturalOrdering,
+      limit,
+      pagination,
+      cursor,
       extraPropertyID,
     });
   }
 
   async fetchFilesByID(ids: ID[]): Promise<FileDTO[]> {
     console.info('SQLite: Fetching files by ID...', ids);
-    return this.queryFiles(undefined, { order: 'dateAdded' }, { key: 'id', values: ids });
+    return this.queryFiles(undefined, { order: 'dateAdded' }, (query) =>
+      query.where('id', 'in', ids),
+    );
   }
 
-  async fetchFilesByKey(key: keyof FileDTO, value: IndexableType): Promise<FileDTO[]> {
+  async fetchFilesByKey(key: keyof FileDTO, values: IndexableType): Promise<FileDTO[]> {
     console.info('SQLite: Fetching files by key...');
-    if (!['tags', 'extraProperties', 'extraPropertyIDs'].includes(key) && Array.isArray(value)) {
-      return this.queryFiles(
-        undefined,
-        { order: 'dateAdded' },
-        { key: key as keyof Files, values: value },
+    if (!['tags', 'extraProperties', 'extraPropertyIDs'].includes(key)) {
+      if (!Array.isArray(values)) {
+        values = [values as string | number | Date];
+      }
+      return this.queryFiles(undefined, { order: 'dateAdded' }, (query) =>
+        query.where(key, 'in', values),
       );
     }
     console.error('fetchFilesByKey error: Key or values not supported.');
@@ -861,22 +855,236 @@ export default class Backend implements DataStorage {
     this.#notifyChange();
   }
 
-  async countFiles(): Promise<[fileCount: number, untaggedFileCount: number]> {
-    console.info('SQLite: Counting files...');
-    const totalResult = await this.#db
-      .selectFrom('files')
-      .select(({ fn }) => fn.count<number>('id').as('count'))
-      .executeTakeFirst();
-    const fileCount = totalResult?.count ?? 0;
+  async countFiles(
+    options?: { files?: boolean; untagged?: boolean },
+    criteria?: ConditionGroupDTO<FileDTO>,
+  ): Promise<[fileCount: number | undefined, untaggedFileCount: number | undefined]> {
+    console.info('SQLite: Counting files...', options, criteria);
+    const result: [number | undefined, number | undefined] = [undefined, undefined];
+    if (options?.files) {
+      let totalQuery = this.#db
+        .selectFrom('files')
+        .select(({ fn }) => fn.count<number>('id').as('count'));
+      totalQuery = criteria ? applyFileFilters(totalQuery, criteria) : totalQuery;
+      const totalResult = await totalQuery.executeTakeFirst();
+      result[0] = totalResult?.count ?? 0;
+    }
 
-    const untaggedResult = await this.#db
-      .selectFrom('files as f')
-      .leftJoin('fileTags as ft', 'ft.fileId', 'f.id')
-      .where('ft.fileId', 'is', null)
-      .select(({ fn }) => fn.count<number>('f.id').as('count'))
-      .executeTakeFirst();
-    const untaggedFileCount = untaggedResult?.count ?? 0;
-    return [fileCount, untaggedFileCount];
+    if (options?.untagged) {
+      let untaggedQuery = this.#db
+        .selectFrom('files')
+        .leftJoin('fileTags as ft', 'ft.fileId', 'files.id')
+        .where('ft.fileId', 'is', null)
+        .select(({ fn }) => fn.count<number>('files.id').as('count'));
+      untaggedQuery = criteria ? applyFileFilters(untaggedQuery, criteria) : untaggedQuery;
+      const untaggedResult = await untaggedQuery.executeTakeFirst();
+      result[1] = untaggedResult?.count ?? 0;
+    }
+    return result;
+  }
+
+  /** Compare the given disk files with the database files for the given location. */
+  async compareFiles(
+    locationId: ID,
+    diskFiles: FileStats[],
+  ): Promise<{ createdStats: FileStats[]; missingFiles: FileDTO[] }> {
+    const dbWithTemp = this.#db.withTables<{
+      tempDiskFiles: Omit<FileStats, 'dateModified' | 'dateCreated'> & {
+        dateModified: number;
+        dateCreated: number;
+      };
+    }>();
+    // first insert all missing files into a temp table for easier and db optimized querying
+    // use unique table name for concurrency
+    const tempSuffix = generateId();
+    const tempDiskFilesName = `temp_disk_files_${tempSuffix}`;
+    const tempDiskFiles = sql
+      .table(tempDiskFilesName)
+      .as('tempDiskFiles') as unknown as 'tempDiskFiles';
+
+    await sql`
+      CREATE TEMP TABLE ${sql.id(tempDiskFilesName)} (
+        absolute_path   TEXT PRIMARY KEY,
+        ino            TEXT NOT NULL,
+        size           INTEGER NOT NULL,
+        date_modified   INTEGER NOT NULL,
+        date_created    INTEGER NOT NULL
+      ) WITHOUT ROWID;
+    `.execute(this.#db);
+
+    const DISK_FILES_BATCH_SIZE = computeBatchSize(this.MAX_VARS, diskFiles[0]);
+    await dbWithTemp.transaction().execute(async (trx) => {
+      for (let i = 0; i < diskFiles.length; i += DISK_FILES_BATCH_SIZE) {
+        const batch = [];
+        const end = Math.min(i + DISK_FILES_BATCH_SIZE, diskFiles.length);
+        for (let j = i; j < end; j++) {
+          const f = diskFiles[j];
+          batch.push({
+            absolutePath: f.absolutePath,
+            ino: f.ino,
+            size: f.size,
+            dateModified: serializeDate(f.dateModified),
+            dateCreated: serializeDate(f.dateCreated),
+          });
+        }
+        await trx
+          .insertInto(tempDiskFilesName as 'tempDiskFiles')
+          .values(batch)
+          .execute();
+      }
+    });
+
+    // find created files, (the ones present in disk but not in db)
+    const createdStats: FileStats[] = (
+      await dbWithTemp
+        .selectFrom(tempDiskFiles)
+        .leftJoin('files', (join) =>
+          join
+            .onRef('files.absolutePath', '=', 'tempDiskFiles.absolutePath')
+            .on('files.locationId', '=', locationId),
+        )
+        .where('files.id', 'is', null)
+        .selectAll('tempDiskFiles')
+        .execute()
+    ).map((df) => ({
+      absolutePath: df.absolutePath,
+      ino: df.ino,
+      size: df.size,
+      dateModified: deserializeDate(df.dateModified),
+      dateCreated: deserializeDate(df.dateCreated),
+    }));
+
+    // find missing files, (the ones present in db but not in disk)
+    const missingFiles = await this.queryFiles(
+      undefined,
+      { order: 'id' },
+      (query: SelectQueryBuilder<AllusionDB_SQL & { tempDiskFiles: FileStats }, 'files', any>) => {
+        return query
+          .leftJoin(tempDiskFiles, (join) =>
+            join.onRef('tempDiskFiles.absolutePath', '=', 'files.absolutePath'),
+          )
+          .where('files.locationId', '=', locationId)
+          .where('tempDiskFiles.absolutePath', 'is', null);
+      },
+    );
+    // clean temp table
+    await sql`DROP TABLE IF EXISTS ${sql.id(tempDiskFilesName)}`.execute(this.#db);
+
+    return { createdStats, missingFiles };
+  }
+
+  /** Find possible matches in the database for the given missing files based on their metadata. */
+  async findMissingDBMatches(
+    missingFiles: FileDTO[],
+  ): Promise<Array<[missingFileId: ID, dbMatch: FileDTO]>> {
+    if (missingFiles.length === 0) {
+      return [];
+    }
+
+    const dbWithTemp = this.#db.withTables<{
+      tempMissingFiles: {
+        id: string;
+        name: string;
+        ino: string;
+        width: number | null;
+        height: number | null;
+        dateCreated: number;
+      };
+      fileTagAggregatesTemp: {
+        fileId: ID;
+        tags: ID[];
+      };
+      fileEpAggregatesTemp: {
+        fileId: ID;
+        extraProperties: EpValues[];
+      };
+    }>();
+
+    // first insert all missing files into a temp table for easier and db optimized querying
+    // use unique table name for concurrency
+    const tempMissingName = `temp_missing_files_${generateId()}`;
+    const tempMissingFiles = sql
+      .table(tempMissingName)
+      .as('tempMissingFiles') as unknown as 'tempMissingFiles';
+
+    await sql`
+      CREATE TEMP TABLE ${sql.id(tempMissingName)} (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        ino TEXT,
+        width INTEGER,
+        height INTEGER,
+        date_created INTEGER
+      ) WITHOUT ROWID;
+    `.execute(this.#db);
+
+    const BATCH_SIZE = computeBatchSize(this.MAX_VARS, missingFiles[0]);
+    await dbWithTemp.transaction().execute(async (trx) => {
+      for (let i = 0; i < missingFiles.length; i += BATCH_SIZE) {
+        const batch = [];
+        const end = Math.min(i + BATCH_SIZE, missingFiles.length);
+        for (let j = i; j < end; j++) {
+          const f = missingFiles[j];
+          batch.push({
+            id: f.id,
+            name: f.name,
+            ino: f.ino,
+            width: f.width,
+            height: f.height,
+            dateCreated: serializeDate(f.dateCreated),
+          });
+        }
+        await trx
+          .insertInto(tempMissingName as 'tempMissingFiles')
+          .values(batch)
+          .execute();
+      }
+    });
+
+    // Compare metadata of two files to determine whether the files are (likely to be) identical
+    // same logic as areFilesIdenticalBesidesName but in DB for optimization to trasverse all files.
+    const matches = await dbWithTemp
+      .selectFrom(tempMissingFiles)
+      .innerJoin('files', (join) =>
+        join
+          .onRef('files.id', '!=', 'tempMissingFiles.id')
+          .on((eb) =>
+            eb.or([
+              eb('files.ino', '=', eb.ref('tempMissingFiles.ino')),
+              eb.and([
+                eb('files.width', '=', eb.ref('tempMissingFiles.width')),
+                eb('files.height', '=', eb.ref('tempMissingFiles.height')),
+                eb('files.dateCreated', '=', eb.ref('tempMissingFiles.dateCreated')),
+              ]),
+            ]),
+          ),
+      )
+      .leftJoin('fileTagAggregatesTemp as ft', 'ft.fileId', 'files.id')
+      .leftJoin('fileEpAggregatesTemp as fe', 'fe.fileId', 'files.id')
+      .selectAll('files')
+      .select(['ft.tags', 'fe.extraProperties', 'tempMissingFiles.id as missingSourceId'])
+      // prioritize matches by name first, then by id to have a stable order
+      .orderBy('tempMissingFiles.id')
+      .orderBy(sql`CASE WHEN files.name = ${sql.ref('tempMissingFiles.name')} THEN 0 ELSE 1 END`)
+      .execute();
+
+    // clean temp table
+    await sql`DROP TABLE IF EXISTS ${sql.id(tempMissingName)}`.execute(this.#db);
+
+    // multiple matches can be found for the same missing file, keep the best one (first by name)
+    const uniqueMatches = new Map<ID, FileDTO>();
+    for (const row of matches) {
+      if (!uniqueMatches.has(row.missingSourceId as ID)) {
+        const { missingSourceId, ...fileData } = row;
+        uniqueMatches.set(missingSourceId as ID, mapToDTO(fileData));
+      }
+    }
+
+    // return entries for compatibility with worker mode.
+    return Array.from(uniqueMatches.entries()).map(([missingId, matchedFile]) => [
+      missingId,
+      matchedFile,
+    ]);
   }
 
   async clear(): Promise<void> {
@@ -925,6 +1133,39 @@ function createTimingProxy(obj: Backend): Backend {
   });
 }
 
+function mapToDTO(dbFile: FileDTO | { [x: string]: any }): FileDTO {
+  // convert data into FileDTO format
+  const extraPropertyIDs: ID[] = [];
+  const extraProperties: ExtraProperties = {};
+  for (const ep of dbFile.extraProperties ?? []) {
+    extraPropertyIDs.push(ep.epId);
+    const val = ep.textValue ?? ep.numberValue; // ?? ep.timestampValue;
+    if (val !== null) {
+      extraProperties[ep.epId] = val;
+    }
+  }
+  return {
+    id: dbFile.id,
+    ino: dbFile.ino,
+    locationId: dbFile.locationId,
+    relativePath: dbFile.relativePath,
+    absolutePath: dbFile.absolutePath,
+    tagSorting: dbFile.tagSorting,
+    dateAdded: deserializeDate(dbFile.dateAdded),
+    dateModified: deserializeDate(dbFile.dateModified),
+    dateModifiedOS: deserializeDate(dbFile.dateModifiedOS),
+    dateLastIndexed: deserializeDate(dbFile.dateLastIndexed),
+    dateCreated: deserializeDate(dbFile.dateCreated),
+    name: dbFile.name,
+    extension: dbFile.extension,
+    size: dbFile.size,
+    width: dbFile.width,
+    height: dbFile.height,
+    tags: dbFile.tags ?? [],
+    extraProperties: extraProperties,
+  };
+}
+
 export async function getSqliteMaxVariables(db: Kysely<AllusionDB_SQL>): Promise<number> {
   const rows = (await sql`PRAGMA compile_options`.execute(db)).rows;
   const opt: any = rows.find((r: any) => r.compileOptions?.includes('MAX_VARIABLE_NUMBER'));
@@ -942,6 +1183,34 @@ export function computeBatchSize(maxVars: number, sampleObject?: Record<string, 
   }
   const numCols = Object.keys(sampleObject).length;
   return Math.floor(maxVars / numCols);
+}
+
+function isValidCursor(cursor: any): cursor is Cursor {
+  if (typeof cursor === 'object' && 'orderValue' in cursor && 'id' in cursor) {
+    if (typeof cursor.id === 'string' && cursor.orderValue !== undefined) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function PadString(str: string): string {
+  return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
+}
+
+function stableHash(id: string, seed: number): number {
+  let h = seed | 0;
+
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(h ^ id.charCodeAt(i), 0x5bd1e995);
+    h ^= h >>> 15;
+  }
+
+  return h >>> 0;
+}
+
+function generateSeed() {
+  return Date.now() >>> 0;
 }
 
 ///////////////////
@@ -973,81 +1242,194 @@ function isFileDTOPropString(prop: PropertyKeys<FileDTO>): prop is StringPropert
   return typeof exampleFileDTO[prop] === 'string';
 }
 
-type SortOptions = {
+type PaginationOptions = {
   order: OrderBy<FileDTO>;
   direction?: OrderDirection;
   useNaturalOrdering?: boolean;
+  limit?: number;
+  pagination?: PaginationDirection;
+  cursor?: Cursor;
   extraPropertyID?: string;
+  seed?: number;
 };
 
 // Original implementation by Pianissi
-async function applySortOrder<O>(
+async function applyPagination<O>(
   db: Kysely<AllusionDB_SQL>,
   q: SelectQueryBuilder<AllusionDB_SQL, 'files', O>,
-  sortOptions: SortOptions,
+  pagOptions: PaginationOptions,
 ): Promise<SelectQueryBuilder<AllusionDB_SQL, 'files', O>> {
-  const { direction, useNaturalOrdering, extraPropertyID } = sortOptions;
-  let { order } = sortOptions;
+  const { direction, useNaturalOrdering, extraPropertyID } = pagOptions;
+  const { pagination, cursor, limit } = pagOptions;
+  const { order } = pagOptions;
 
-  const sqlDirection: OrderByDirection = direction === OrderDirection.Asc ? 'asc' : 'desc';
+  let sqlDirection: OrderByDirection = direction === OrderDirection.Asc ? 'asc' : 'desc';
+  let orderColumn: string | RawBuilder<unknown> =
+    order === 'extraProperty' ? 'sortValue' : `files.${order}`;
+  let type: 'text' | 'number' =
+    order !== 'extraProperty' && order !== 'random' && isFileDTOPropString(order)
+      ? 'text'
+      : 'number';
+  // Compute pagination consts
+  const isAfter = pagination === 'after';
+  const isAsc = sqlDirection === 'asc';
+  const operator = isAfter === isAsc ? '>' : '<';
+  const isValidPagination = isValidCursor(cursor) && pagination;
+  // alter sqlDirection only if a valid pagination applies
+  if (isValidPagination) {
+    // if pagination === 'before' invert direction to fetch adjacent elements, then after executing the query apply a reverse to the result data.
+    sqlDirection = !isAfter ? (isAsc ? 'desc' : 'asc') : sqlDirection;
+  }
+
+  /// add extraproperty optional value ///
   // because of how the joined table is returned as, we need to aggregate a sort value in the joined table which can be used as a key
   if (order === 'extraProperty') {
-    q = q.orderBy('sortValue' as any, sqlDirection);
-    order = 'dateAdded';
+    const extraProp = await db
+      .selectFrom('extraProperties' as any)
+      .select('type')
+      .where('id' as any, '=', extraPropertyID)
+      .executeTakeFirst();
+
+    if (!extraPropertyID || !extraProp) {
+      q = q.select(sql<null>`NULL`.as('sortValue'));
+    } else {
+      // maping value type to column
+      // TODO: add timestamp mapping when implementing that extra property
+      const valueColumn = extraProp.type === 'text' ? 'textValue' : 'numberValue';
+      type = extraProp.type === 'text' ? 'text' : 'number';
+      // Left join the corresponding extraProperty value and select it as sortValue
+      q = q
+        .leftJoin('epValues', (join) =>
+          join.onRef('epValues.fileId', '=', 'files.id').on('epValues.epId', '=', extraPropertyID),
+        )
+        .select(`epValues.${valueColumn} as sortValue` as any) as any;
+    }
   }
 
+  // convert columns to handle nulls in pagination this also applies the natural ordering formating
+  const { safeColumn, safeOrderValue } = getOrderColumnExpression(
+    orderColumn,
+    type,
+    cursor?.orderValue,
+    direction, // use original direction since sqlDirection can be altered for pagination
+    useNaturalOrdering,
+    order === 'extraProperty',
+  );
+  orderColumn = safeColumn;
+
+  // PAGINATION LOGIC
+  if (isValidPagination) {
+    const { id } = cursor;
+
+    if (order === 'random') {
+      // In random we use a pseudo random but stable hash value based on the cursor, this allow us to use pagination while order by random
+      const seed = pagOptions.seed ?? 0;
+      const cursorHash = stableHash(id, seed);
+      q = q.where((eb) =>
+        eb.or([
+          eb(sql`stable_hash(files.id, ${seed})`, operator, cursorHash),
+          eb.and([
+            eb(sql`stable_hash(files.id, ${seed})`, '=', cursorHash),
+            eb('files.id', operator, id),
+          ]),
+        ]),
+      );
+    } else {
+      // Standard pagination: (orderColumn, id) > (orderValue, id)
+      q = q.where((eb) =>
+        eb.or([
+          eb(orderColumn as any, operator, safeOrderValue),
+          eb.and([eb(orderColumn as any, '=', safeOrderValue), eb('files.id', operator, id)]),
+        ]),
+      );
+    }
+  }
+  //PAGINATION LOGIC END
+
+  // Apply Ordering
   if (order === 'random') {
-    q = q.orderBy(sql`RANDOM()`);
-  } else if (useNaturalOrdering && isFileDTOPropString(order)) {
-    q = q.orderBy(sql`PAD_STRING(files.${sql.ref(order)})`, sqlDirection);
+    const seed = pagOptions.seed ?? 0;
+    q = q.orderBy(sql`stable_hash(files.id, ${seed})`, sqlDirection);
   } else {
     // Default
-    q = q.orderBy(`files.${order}` as any, sqlDirection);
+    q = q.orderBy(orderColumn as any, sqlDirection);
   }
 
-  ///
-  /// extraproperty optional value ///
+  // Allways append order by some unique value, required for pagination
+  q = q.orderBy('files.id', sqlDirection);
 
-  if (!extraPropertyID) {
-    return q.select(sql<null>`NULL`.as('sortValue'));
+  // Apply limit
+  if (limit) {
+    q = q.limit(limit);
   }
-  const extraProp = await db
-    .selectFrom('extraProperties' as any)
-    .select('type')
-    .where('id' as any, '=', extraPropertyID)
-    .executeTakeFirst();
-  if (!extraProp) {
-    return q.select(sql<null>`NULL`.as('sortValue'));
+
+  return q;
+}
+
+/**
+ * Normalizes a column and its cursor value for consistent sorting.
+ * Handles natural ordering via padding and provides fallback values
+ * for null/undefined to ensure stable pagination.
+ */
+export function getOrderColumnExpression(
+  columnName: string,
+  type: 'text' | 'number',
+  orderValue: unknown,
+  direction?: OrderDirection,
+  useNaturalOrdering?: boolean,
+  useNullFallback?: boolean,
+): { safeColumn: RawBuilder<unknown>; safeOrderValue: unknown } {
+  const isAsc = direction === OrderDirection.Asc;
+  const isText = type === 'text';
+
+  // Set a fallback value per data type, Date is managed as number
+  let fallbackValue;
+  if (isText) {
+    fallbackValue = isAsc ? '\uffff\uffff\uffff' : '';
+  } else {
+    fallbackValue = isAsc ? Number.MAX_SAFE_INTEGER : -Number.MAX_SAFE_INTEGER;
   }
-  // maping value type to column
-  // TODO: add timestamp mapping when implementing
-  const valueColumn = extraProp.type === 'text' ? 'textValue' : 'numberValue';
-  // Left join the corresponding extraProperty value and select it as sortValue
-  return q
-    .leftJoin('epValues', (join) =>
-      join.onRef('epValues.fileId', '=', 'files.id').on('epValues.epId', '=', extraPropertyID),
-    )
-    .select(`epValues.${valueColumn} as sortValue` as any) as any;
+
+  let safeOrderValue =
+    useNullFallback && (orderValue === null || orderValue === undefined)
+      ? fallbackValue
+      : orderValue;
+  let colExpression = sql.ref(columnName);
+  // Add PAD_STRING if needed
+  if (isText && useNaturalOrdering) {
+    safeOrderValue = PadString(String(safeOrderValue));
+    colExpression = sql`PAD_STRING(${colExpression})`;
+  }
+  const safeColumn = useNullFallback
+    ? sql`COALESCE(${colExpression}, ${fallbackValue})`
+    : colExpression;
+
+  return { safeColumn, safeOrderValue };
 }
 
 ///////////////////////////
 ///////// FILTERS /////////
 ///////////////////////////
 
-type KeyInListOptions = { key: AnyColumn<AllusionDB_SQL, 'files'>; values: any[] };
+type MustIncludeFiles<T> = 'files' extends T ? T : never;
 
 export type ConditionWithConjunction<T> = ConditionDTO<T> & {
   conjunction?: SearchConjunction;
 };
 
-function applyFileFilters<O>(
-  q: SelectQueryBuilder<AllusionDB_SQL, 'files', O>,
-  criteria?: ConditionGroupDTO<Files>,
-): SelectQueryBuilder<AllusionDB_SQL, 'files', O> {
+function applyFileFilters<DB extends AllusionDB_SQL, TB extends MustIncludeFiles<keyof DB>, O>(
+  q: SelectQueryBuilder<DB, TB, O>,
+  criteria?: ConditionGroupDTO<FileDTO>,
+): SelectQueryBuilder<DB, TB, O> {
   if (!criteria || criteria.children.length === 0) {
     return q;
   }
-  return q.where((eb) => expressionFromNode(eb, criteria));
+  return q.where((eb) =>
+    expressionFromNode(
+      eb as ExpressionBuilder<AllusionDB_SQL, 'files'>,
+      criteria as unknown as ConditionGroupDTO<Files>,
+    ),
+  );
 }
 
 function expressionFromNode(

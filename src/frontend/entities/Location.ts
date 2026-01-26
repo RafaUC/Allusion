@@ -11,12 +11,12 @@ import {
 import SysPath from 'path';
 
 import { retainArray } from 'common/core';
-import { IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { generateId, ID } from '../../api/id';
 import { LocationDTO, SubLocationDTO } from '../../api/location';
 import { RendererMessenger } from '../../ipc/renderer';
 import { AppToaster } from '../components/Toaster';
-import LocationStore, { FileStats } from '../stores/LocationStore';
+import LocationStore from '../stores/LocationStore';
 import { FolderWatcherWorker } from '../workers/folderWatcher.worker';
 import { ClientTag } from './Tag';
 

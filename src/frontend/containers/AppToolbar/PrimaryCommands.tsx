@@ -87,7 +87,8 @@ export const SlideModeCommand = observer(() => {
 const FileSelectionCommand = observer(() => {
   const { uiStore, fileStore } = useStore();
   const selectionCount = uiStore.fileSelection.size;
-  const fileCount = fileStore.numLoadedFiles;
+  const fileCount = fileStore.numFilteredFiles;
+  const fileLoadedCount = fileStore.numLoadedFiles;
 
   const allFilesSelected = fileCount > 0 && selectionCount === fileCount;
   // If everything is selected, deselect all. Else, select all
@@ -102,7 +103,7 @@ const FileSelectionCommand = observer(() => {
       onClick={handleToggleSelect}
       pressed={allFilesSelected}
       text={fileCount == 0 ? '0' : selectionCount + ' / ' + fileCount}
-      tooltip="Selects or deselects all images"
+      tooltip={`Selects or deselects all images, (${fileLoadedCount} loaded files)`}
       disabled={fileCount === 0}
     />
   );

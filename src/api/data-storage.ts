@@ -1,12 +1,18 @@
-import { ConditionGroupDTO, OrderBy, OrderDirection } from './data-storage-search';
-import { FileDTO } from './file';
+import {
+  ConditionGroupDTO,
+  Cursor,
+  IndexableType,
+  OrderBy,
+  OrderDirection,
+  PaginationDirection,
+} from './data-storage-search';
+import { FileDTO, FileStats } from './file';
 import { FileSearchDTO } from './file-search';
 import { ID } from './id';
 import { LocationDTO } from './location';
 import { TagDTO } from './tag';
 import { ExtraPropertyDTO } from './extraProperty';
-
-export type IndexableType = number | string | Date | Array<number | string | Date> | Uint8Array;
+import { BatchFetcher } from 'common/promise';
 
 /**
  * The user generated persisted data edited or viewed by one or multiple actors (users, multiple devices etc.).
@@ -23,6 +29,9 @@ export interface DataStorage {
     order: OrderBy<FileDTO>,
     fileOrder: OrderDirection,
     useNaturalOrdering: boolean,
+    limit?: number,
+    pagination?: PaginationDirection,
+    cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]>;
   fetchFilesByID(ids: ID[]): Promise<FileDTO[]>;
@@ -31,10 +40,13 @@ export interface DataStorage {
   fetchSearches(): Promise<FileSearchDTO[]>;
   fetchExtraProperties(): Promise<ExtraPropertyDTO[]>;
   searchFiles(
-    criteria: ConditionGroupDTO<FileDTO>,
+    criteria: ConditionGroupDTO<FileDTO> | undefined,
     order: OrderBy<FileDTO>,
     fileOrder: OrderDirection,
     useNaturalOrdering: boolean,
+    limit?: number,
+    pagination?: PaginationDirection,
+    cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]>;
   createTag(tag: TagDTO): Promise<void>;
@@ -53,6 +65,33 @@ export interface DataStorage {
   removeLocation(location: ID): Promise<void>;
   removeSearch(search: ID): Promise<void>;
   removeExtraProperties(extraProperty: ID[]): Promise<void>;
-  countFiles(): Promise<[fileCount: number, untaggedFileCount: number]>;
+  countFiles(
+    options?: { files: boolean; untagged: boolean },
+    criteria?: ConditionGroupDTO<FileDTO>,
+  ): Promise<[fileCount: number | undefined, untaggedFileCount: number | undefined]>;
+  compareFiles(
+    locationId: ID,
+    diskFiles: FileStats[],
+  ): Promise<{ createdStats: FileStats[]; missingFiles: FileDTO[] }>;
+  findMissingDBMatches(
+    missingFiles: FileDTO[],
+  ): Promise<Array<[missingFileId: ID, dbMatch: FileDTO]>>;
   clear(): Promise<void>;
+  setSeed(seed?: number): Promise<void>;
+}
+
+export function makeFileBatchFetcher(
+  backend: DataStorage,
+  n: number,
+  filter?: ConditionGroupDTO<FileDTO>,
+): BatchFetcher<FileDTO, Cursor> {
+  return async (cursor?: Cursor) => {
+    // eslint-disable-next-line prettier/prettier
+    const items = await backend.searchFiles(filter, 'id', OrderDirection.Desc, false, n, 'after', cursor);
+    const cursorItem = items.at(-1);
+    return {
+      items,
+      nextOpts: cursorItem ? { id: cursorItem.id, orderValue: cursorItem.id } : undefined,
+    };
+  };
 }

@@ -10,11 +10,10 @@ import {
 } from 'mobx';
 import Path from 'path';
 
-import { FILE_TAGS_SORTING_TYPE, FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { FILE_TAGS_SORTING_TYPE, FileDTO, FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
 import ImageLoader from '../image/ImageLoader';
 import FileStore from '../stores/FileStore';
-import { FileStats } from '../stores/LocationStore';
 import { ClientTag } from './Tag';
 import { ClientExtraProperty } from './ExtraProperty';
 import {
@@ -91,11 +90,11 @@ export class ClientFile {
     this.dateAdded = fileProps.dateAdded;
     this.dateCreated = fileProps.dateCreated;
     this.dateModified = fileProps.dateModified;
-    this.dateModifiedOS = fileProps.dateModifiedOS || new Date('2000-01-01T00:00:00Z');
+    this.dateModifiedOS = fileProps.dateModifiedOS;
     this.dateLastIndexed = fileProps.dateLastIndexed;
     this.name = fileProps.name;
     this.extension = fileProps.extension;
-    this.tagSorting = fileProps.tagSorting || 'hierarchy';
+    this.tagSorting = fileProps.tagSorting;
 
     const location = store.getLocation(this.locationId);
     this.absolutePath = Path.join(location.path, this.relativePath);
@@ -283,6 +282,7 @@ export class ClientFile {
   }
 
   dispose(): void {
+    //console.count('Dispose File');
     this.autoSave = false;
     // clean up the observer
     this.saveHandler();

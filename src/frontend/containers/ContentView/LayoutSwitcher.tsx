@@ -69,16 +69,17 @@ const Layout = ({ contentRect }: LayoutProps) => {
   );
 
   // Reset selection range when number of items changes: Else you can get phantom files when continuing your selection
+  // This is no longer needed ?
   useEffect(() => {
     initialSelectionIndex.current = undefined;
     lastSelectionIndex.current = undefined;
-  }, [fileStore.fileList.length]);
+  }, []); //fileStore.fileList.length]);
 
   useEffect(() => {
     const onKeyDown = action((e: KeyboardEvent) => {
       let index = lastSelectionIndex.current;
       if (index === undefined) {
-        index = clamp(uiStore.firstItem, 0, fileStore.fileList.length - 1);
+        index = clamp(uiStore.firstItemIndex, 0, fileStore.fileList.length - 1);
       }
       if (uiStore.isSlideMode) {
         return;

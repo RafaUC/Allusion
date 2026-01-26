@@ -1,3 +1,5 @@
+import { ID } from './id';
+
 export type PropertyKeys<T> = {
   [K in keyof T]: K extends string ? K : never;
 }[keyof T];
@@ -12,6 +14,12 @@ export const enum OrderDirection {
   Asc,
   Desc,
 }
+
+export type IndexableType = number | string | Date | Array<number | string | Date> | Uint8Array;
+
+export type PaginationDirection = 'after' | 'before';
+
+export type Cursor = { id: ID; orderValue: number | string | bigint | null };
 
 // General search criteria for a database entity
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1

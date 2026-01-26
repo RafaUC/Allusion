@@ -18,7 +18,7 @@ import { ROOT_TAG_ID } from 'src/api/tag';
 import { AppToaster } from '../components/Toaster';
 import { ClientSearchGroup, isClientSearchGroup } from '../entities/SearchItem';
 import { SearchGroupDTO } from 'src/api/file-search';
-import { SearchConjunction } from 'src/api/data-storage-search';
+import { Cursor, SearchConjunction } from 'src/api/data-storage-search';
 
 export const enum ViewMethod {
   List,
@@ -205,11 +205,8 @@ class UiStore {
   @observable isThumbnailResolutionOverlayEnabled: boolean = false;
   /** Whether to restore the last search query on start-up */
   @observable isRememberSearchEnabled: boolean = true;
-  /** Index of the first item in the viewport. Also acts as the current item shown in slide mode */
-  // TODO: Might be better to store the ID to the file. I believe we were storing the index for performance, but we have instant conversion between index/ID now
-  // Reply: Keeping it as an index is still more performant and easier to manage since overviewElements and components callbacks work with indexes. Storing IDs would require
-  //   unnecessary conversions every time we set or read the value. Converting the index to an ID once per refetch is simpler and more efficient.
-  @observable firstItem: number = 0;
+  /** Cursor that represents the first item in the viewport. Also acts as the current item shown in slide mode */
+  @observable firstItem: Cursor | undefined;
   @observable thumbnailSize: ThumbnailSize | number = 'medium';
   @observable largeThumbFullResThreshold: number = 3840;
   @observable masonryItemPadding: number = 8;
@@ -248,7 +245,12 @@ class UiStore {
   readonly fileSelection = observable(new Set<ClientFile>());
   readonly tagSelection = observable(new Set<ClientTag>());
 
-  @observable searchRootGroup: ClientSearchGroup = new ClientSearchGroup(generateId(), '', 'and', []);  // eslint-disable-line prettier/prettier
+  @observable searchRootGroup: ClientSearchGroup = new ClientSearchGroup(
+    generateId(),
+    '',
+    'and',
+    [],
+  ); // eslint-disable-line prettier/prettier
 
   //// tag clipboard feature ////
   // No need to be observable because it's only used internally
@@ -388,14 +390,27 @@ class UiStore {
     await this.rootStore.locationStore.updateLocations();
   }
 
-  @action.bound setFirstItem(index: number = 0, validate: boolean = true): void {
-    if (!isFinite(index)) {
+  @action.bound clearFirstItem(): void {
+    this.firstItem = undefined;
+  }
+
+  @action.bound setFirstItem(
+    item: number | ClientFile | undefined = 0,
+    validate: boolean = true,
+  ): void {
+    if (item instanceof ClientFile) {
+      this.firstItem = this.rootStore.fileStore.toCursor(item);
+      return;
+    }
+    if (!isFinite(item)) {
       return;
     }
     const maxIndex = validate
       ? Math.max(0, this.rootStore.fileStore.fileList.length - 1)
       : Infinity;
-    this.firstItem = clamp(index, 0, maxIndex);
+    const index = clamp(item, 0, maxIndex);
+    const file = this.rootStore.fileStore.fileList[index];
+    this.firstItem = file ? this.rootStore.fileStore.toCursor(file) : undefined;
   }
 
   @action setMethod(method: ViewMethod): void {
@@ -1124,7 +1139,7 @@ class UiStore {
   @action.bound clearSearchCriteriaTree(): void {
     this.searchRootGroup.dispose();
     this.searchRootGroup.children.clear();
-    //this.viewAllContent();
+    this.viewAllContent();
   }
 
   @action.bound addSearchCriteria(query: Exclude<ClientFileSearchCriteria, 'key'>): void {
@@ -1562,11 +1577,17 @@ class UiStore {
     return undefined;
   }
 
-  /** Return {@link UiStore.firstItem}: first item visible in viewport, and the current item in SlideMode */
+  @computed get firstItemIndex(): number {
+    this.rootStore.fileStore.fileDimensions.length; // Touch fileDimencions to re-compute when number of files change.
+    if (this.firstItem) {
+      return this.rootStore.fileStore.getIndex(this.firstItem.id) ?? 0;
+    }
+    return 0;
+  }
+
+  /** Return {@link UiStore.firstItemIndex}: first item visible in viewport, and the current item in SlideMode */
   @computed get firstFileInView(): ClientFile | undefined {
-    return this.firstItem < this.rootStore.fileStore.fileList.length
-      ? this.rootStore.fileStore.fileList[this.firstItem]
-      : undefined;
+    return this.firstItem ? this.rootStore.fileStore.get(this.firstItem.id) : undefined;
   }
 
   @action private viewAllContent(): void {

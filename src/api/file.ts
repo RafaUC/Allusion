@@ -1,6 +1,18 @@
 import { ID } from './id';
 import { ExtraProperties } from './extraProperty';
 
+export type FileStats = {
+  absolutePath: string;
+  /** When file was last modified on disk */
+  dateModified: Date;
+  /** When file was created on disk */
+  dateCreated: Date;
+  /** Current size of the file in bytes */
+  size: number;
+  /** A unique identifier of the file created by the OS, stays identical even when renaming/moving files */
+  ino: string;
+};
+
 export type FileDTO = {
   id: ID;
   /** Identifier for a file that persists after renaming/moving (retrieved from fs.Stats.ino) */

@@ -64,7 +64,7 @@ class RootStore {
   static async main(backend: DataStorage, backup: DataBackup): Promise<RootStore> {
     const rootStore = new RootStore(backend, backup, (fileStore, uiStore) => {
       if (uiStore.isSlideMode && fileStore.fileList.length > 0) {
-        const activeFile = fileStore.fileList[uiStore.firstItem];
+        const activeFile = fileStore.fileList[uiStore.firstItemIndex];
         return `${activeFile?.filename}.${activeFile?.extension} - Allusion`; // eslint-disable-line @typescript-eslint/no-unnecessary-condition
       } else {
         return 'Allusion';
@@ -99,9 +99,6 @@ class RootStore {
       numCriterias === 0
         ? rootStore.fileStore.fetchAllFiles
         : async () => {
-            // When searching by criteria, the file counts won't be set (only when fetching all files),
-            // so fetch them manually
-            await rootStore.fileStore.refetchFileCounts().catch(console.error);
             return rootStore.fileStore.fetchFilesByQuery();
           };
 
@@ -135,7 +132,7 @@ class RootStore {
   static async preview(backend: DataStorage, backup: DataBackup): Promise<RootStore> {
     const rootStore = new RootStore(backend, backup, (fileStore, uiStore) => {
       const PREVIEW_WINDOW_BASENAME = 'Allusion Quick View';
-      const index = uiStore.firstItem;
+      const index = uiStore.firstItemIndex;
       if (index >= 0 && index < fileStore.fileList.length) {
         const file = fileStore.fileList[index];
         return `${file ? file.absolutePath : ''} • ${PREVIEW_WINDOW_BASENAME}`;
