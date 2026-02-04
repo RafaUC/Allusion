@@ -15,7 +15,7 @@ import {
 } from '../../api/data-storage-search';
 import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
-import { AppToaster } from '../components/Toaster';
+import { AppToaster, IToastProps } from '../components/Toaster';
 import { ClientFile, mergeMovedFile } from '../entities/File';
 import { ClientLocation } from '../entities/Location';
 import {
@@ -425,24 +425,31 @@ class FileStore {
     }
     this.isTaggingWithService = true;
     const taggingServiceURL = this.rootStore.uiStore.taggingServiceURL;
-    let files = Array.from(this.rootStore.uiStore.fileSelection);
-    const numFiles = files.length;
+    const isAllFilesSelected = this.rootStore.uiStore.isAllFilesSelected;
+    const selectedFiles = Array.from(this.rootStore.uiStore.fileSelection);
+    const selectedIndex = new Map(selectedFiles.map((f, i) => [f.id, i]));
+    const N = this.rootStore.uiStore.taggingServiceParallelRequests;
+    const batchSize = 25;
+    const numFiles = isAllFilesSelected ? this.numFilteredFiles : selectedFiles.length;
+    const toastKey = 'tagging-using-service';
     const isMulti = numFiles > 1;
+
+    let count = 0;
     let successCount = 0;
     let isServiceActive = false;
-    const toastKey = 'tagging-using-service';
     let isCancelled = false;
-    const clickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
-    const showProgressToaster = (progress: number) => {
+    const cancelled = () => isCancelled;
+    const failedClickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
+
+    // use local counters instead of using the progress argument of the callbacks
+    const showProgressToaster = () => {
       if (!isCancelled) {
-        const progressCount = Math.round(numFiles * progress);
+        const percentage = ((count / numFiles) * 100).toFixed(2);
         AppToaster.show(
           {
-            message: `Tagging ${numFiles} file${isMulti ? 's ' : ''}${
-              isMulti ? (progress * 100).toFixed(1) : ''
-            }${isMulti ? '%...' : '...'}  ${
-              successCount !== progressCount ? `(${progressCount - successCount} failures)` : ''
-            }`,
+            message: `Tagging ${numFiles} file${isMulti ? 's ' : ''}${isMulti ? percentage : ''}${
+              isMulti ? '%' : ''
+            } (${count})...  ${successCount !== count ? `(${count - successCount} failures)` : ''}`,
             timeout: 0,
             clickAction: {
               label: 'Cancel',
@@ -456,81 +463,107 @@ class FileStore {
       }
     };
 
-    showProgressToaster(0);
+    const showfinishToaster = () => {
+      if (successCount === 0) {
+        isCancelled = true;
+        const message = taggingServiceURL
+          ? 'Could not get tags from the tagging service: is it not running, or is the API/URL misconfigured?'
+          : 'No Local Tagging Service API configured, go to: Settings > Background Processes > Local Tagging Service API URL';
+        AppToaster.show(
+          {
+            type: 'error',
+            message: message,
+            timeout: 10000,
+            clickAction: taggingServiceURL ? failedClickAction : undefined,
+          },
+          toastKey,
+        );
+      } else {
+        const isSuccess = successCount === numFiles;
+        AppToaster.show(
+          {
+            type: isSuccess ? 'success' : 'warning',
+            message: `Successfully tagged ${successCount} of ${numFiles} files.  ${
+              !isSuccess ? `(${numFiles - successCount} failures)` : ''
+            }`,
+            timeout: 0,
+            clickAction: !isSuccess ? failedClickAction : undefined,
+          },
+          toastKey,
+        );
+      }
+    };
 
-    // Try to get the Allowed files, in case of the service API does some filtering to skip unnecessary requests
-    const allowedFiles = await this.getAllowedFilesFromTaggingService(
-      files.map((f) => f.absolutePath),
-    ).catch((e) => console.error(e));
-    files =
-      allowedFiles === undefined ? files : files.filter((f) => allowedFiles.has(f.absolutePath));
-    // Process files with only N jobs in parallel and a progress + cancel callback
-    const N = this.rootStore.uiStore.taggingServiceParallelRequests;
-    await promiseAllLimit(
-      files.map((file) => async () => {
-        const currentSuccessCount = successCount;
-        const generatedTagNames = await this.getTagNamesUsingTaggingService(file);
-        if (!isCancelled && generatedTagNames !== undefined && generatedTagNames.length > 0) {
-          try {
-            await this.tagFileUsingNamesOrAliases(file, generatedTagNames);
-            // Add a common tag to indicate that the file was auto-tagged, allowing the user to filter them.
-            await this.tagFileUsingNamesOrAliases(file, ['auto-tagged']);
-            // Save the file even if it has been disposed after a change of content view
-            if (!file.isAutoSaveEnabled) {
-              this.save(runInAction(() => file.serialize()));
-            }
-            successCount++;
-          } catch (error) {
-            console.error(error);
+    const processBatch = async (files: ClientFile[]) => {
+      // Try to get the Allowed files, in case of the service API does some filtering to skip unnecessary requests
+      const allowedFiles = await this.getAllowedFilesFromTaggingService(
+        files.map((f) => f.absolutePath),
+      ).catch((e) => console.error(e));
+      files =
+        allowedFiles === undefined ? files : files.filter((f) => allowedFiles.has(f.absolutePath));
+      // Process files with only N jobs in parallel and a progress + cancel callback
+      await promiseAllLimit(
+        files.map((file, batchIndex) => async () => {
+          // if the file was in the original selection use that instance instead
+          // and replace the file in the batch with it (because the whole batch gets saved at the end
+          // and if the unotuched instance gets saved, the changes made get lost)
+          const idx = selectedIndex.get(file.id);
+          if (idx !== undefined) {
+            file = selectedFiles[idx];
+            files[batchIndex] = file;
           }
-        }
-        // if not success, allways for the first one but do not spam if all are fails.
-        if (successCount === currentSuccessCount && (!isServiceActive || successCount > 0)) {
-          AppToaster.show(
-            {
-              type: 'error',
-              message: `Failed to get the tags for "${file.name}" from the tagging service`,
-              timeout: 8000,
-              clickAction: clickAction,
-            },
-            `${toastKey}-failed-${file.id}`,
-          );
-        }
-        isServiceActive = true;
-      }),
-      N,
-      showProgressToaster,
-      () => isCancelled,
-    ).catch((e) => console.error(e));
+          const currentSuccessCount = successCount;
+          const generatedTagNames = await this.getTagNamesUsingTaggingService(file);
+          if (!isCancelled && generatedTagNames !== undefined && generatedTagNames.length > 0) {
+            try {
+              await this.tagFileUsingNamesOrAliases(file, generatedTagNames);
+              // Add a common tag to indicate that the file was auto-tagged, allowing the user to filter them.
+              await this.tagFileUsingNamesOrAliases(file, ['auto-tagged']);
+              // Save the file even if it has been disposed after a change of content view
+              if (!file.isAutoSaveEnabled) {
+                this.save(runInAction(() => file.serialize()));
+              }
+              successCount++;
+            } catch (error) {
+              console.error(error);
+            }
+          }
+          // if not success, allways for the first one but do not spam if all are fails.
+          if (successCount === currentSuccessCount && (!isServiceActive || successCount > 0)) {
+            AppToaster.show(
+              {
+                type: 'error',
+                message: `Failed to get the tags for "${file.name}" from the tagging service`,
+                timeout: 8000,
+                clickAction: failedClickAction,
+              },
+              `${toastKey}-failed-${file.id}`,
+            );
+          }
+          count++;
+          isServiceActive = true;
+        }),
+        N,
+        showProgressToaster,
+        cancelled,
+      );
+    };
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (successCount === 0) {
-      const message = taggingServiceURL
-        ? 'Could not get tags from the tagging service: is it not running, or is the API/URL misconfigured?'
-        : 'No Local Tagging Service API configured, go to: Settings > Background Processes > Local Tagging Service API URL';
-      AppToaster.show(
-        {
-          type: 'error',
-          message: message,
-          timeout: 10000,
-          clickAction: taggingServiceURL ? clickAction : undefined,
-        },
-        toastKey,
+    showProgressToaster();
+
+    if (isAllFilesSelected) {
+      await this.dispatchToFilteredFiles(
+        processBatch,
+        () => {},
+        cancelled,
+        showfinishToaster,
+        batchSize,
       );
     } else {
-      const isSuccess = successCount === numFiles;
-      AppToaster.show(
-        {
-          type: isSuccess ? 'success' : 'warning',
-          message: `Successfully tagged ${successCount} of ${numFiles} files.  ${
-            !isSuccess ? `(${numFiles - successCount} failures)` : ''
-          }`,
-          timeout: 0,
-          clickAction: !isSuccess ? clickAction : undefined,
-        },
-        toastKey,
-      );
+      await processBatch(selectedFiles).catch((e) => console.error(e));
+      showfinishToaster();
     }
+
     this.isTaggingWithService = false;
   }
 
@@ -643,7 +676,14 @@ class FileStore {
         average,
       )}ms`,
       // eslint-disable-next-line prettier/prettier
-      color1, color2, color1, color2, color1, color2, color1, color2
+      color1,
+      color2,
+      color1,
+      color2,
+      color1,
+      color2,
+      color1,
+      color2,
     );
   }
 
@@ -900,16 +940,16 @@ class FileStore {
     // middle, avoids triggering multiple prepend/append operations on refetch,
     // which caused visual jumps.
 
-    // Fetch the bottom half first.
+    // Fetch the top half first.
     args[3] = Math.trunc(PAGE_SIZE / 2); // split page size
-    args[4] = 'after';
-    const bottomHalf = await this.backend.searchFiles(criterias, ...args);
-    // top half
     args[4] = 'before';
-    const topitem = bottomHalf.at(0);
+    const topHalf = await this.backend.searchFiles(criterias, ...args);
+    // bottom half
+    args[4] = 'after';
+    const bottomitem = topHalf.at(-1);
     // if no items returned by bottom half use the same cursor
-    args[5] = topitem ? this.toCursor(topitem) : args[5];
-    const topHalf = await runInAction(() => this.backend.searchFiles(criterias, ...args));
+    args[5] = bottomitem ? this.toCursor(bottomitem) : undefined;
+    const bottomHalf = await this.backend.searchFiles(criterias, ...args);
     return topHalf.concat(bottomHalf);
   }
 
@@ -924,14 +964,11 @@ class FileStore {
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
-      let promise = undefined;
       if (start === currentFetchId) {
-        promise = this.updateFromBackend(fetchedFiles);
+        return this.updateFromBackend(fetchedFiles);
       } else {
         console.debug('FETCH All ABORTED');
       }
-      this.rootStore.initStartupLoads(fetchedFiles);
-      return promise;
     } catch (err) {
       console.error('Could not load all files', err);
     }
@@ -1245,7 +1282,7 @@ class FileStore {
     // variables to compute progressbar's progress
     const total = this.numTotalFiles;
     const batchSize = 1000;
-    const step = Math.ceil(total / 50);
+    const step = Math.ceil(total / 100);
     let batchNum = 0;
 
     // flag to indicate whether we should update the numLoadedFiles during the fetch
@@ -1267,8 +1304,8 @@ class FileStore {
           cancelled = true;
         }
 
-        // For every new file coming in, either re-use the existing client file if it exists,
-        // or construct a new client file
+        // For every new file coming in create a new clientfile
+        // witout updating ovserbables and cancelling because this methos is sometimes in background
         const { newFiles, status } = await this.filesFromBackend(batch, false, true);
         if (status != Status.success) {
           cancelled = true;
@@ -1285,6 +1322,9 @@ class FileStore {
           return definedFiles.map((clientFile, i) => async () => {
             const exists = await fse.pathExists(clientFile.absolutePath);
             clientFile.setBroken(!exists);
+            if (exists) {
+              clientFile.dispose();
+            }
             if (isViewContent && ((batchStart + i) % step === 0 || i === total - 1)) {
               this.setNumLoadedFiles(batchStart + i);
             }
@@ -1320,6 +1360,9 @@ class FileStore {
     );
     // this error should always be catched
     if (isCancelled()) {
+      if (!count) {
+        (allMissingClientFiles as ClientFile[]).forEach((f) => f.dispose);
+      }
       throw new Error('FETCH MISSING ABORTED');
     }
     const end = performance.now();
@@ -1337,6 +1380,7 @@ class FileStore {
       this.rootStore.uiStore.clearFileSelection();
       this.fileListLastRefetch = new Date();
       this.fetchTaskIdPair[1] = 0;
+      this.updateFileCountsState();
       return this.clearFileList();
     }
 
@@ -1379,6 +1423,7 @@ class FileStore {
         this.replaceFileList(definedNewFiles);
         this.fileListLastRefetch = new Date();
         this.updateFileCountsState();
+        this.cleanFileSelection();
       }
     });
     // Run the existence check with at most N checks in parallel
@@ -1489,7 +1534,8 @@ class FileStore {
           const f = backendFiles[i];
           const idx = i;
           // Might already exist!
-          const eFileIndex = transitionIndex.get(f.id);
+          // if ignoreCancel allways create new files
+          const eFileIndex = !ignoreCancel ? transitionIndex.get(f.id) : undefined;
           const existingFile =
             eFileIndex !== undefined ? transitionFileList[eFileIndex] : undefined;
           if (existingFile) {
@@ -1676,9 +1722,155 @@ class FileStore {
   @action private incrementNumMissingFiles() {
     this.numMissingFiles++;
   }
+
+  /** Wrapper function that handles common saving status logic to filteredBackendfiles */
+  @action private async handleSavingToFilteredFiles<T>(
+    backendLambdaFN: (criterias: ConditionGroupDTO<FileDTO>) => Promise<T>,
+  ): Promise<T | null> {
+    const criterias = this.rootStore.uiStore.searchRootGroup.toCondition(this.rootStore);
+    this.setIsSaving(true);
+    this.incrementPendingSaves();
+    const result = await backendLambdaFN(criterias).catch((e) => {
+      console.error(e);
+      return null;
+    });
+    this.decrementPendingSaves();
+    if (this.pendingSaves === 0) {
+      this.setIsSaving(false);
+    }
+    return result;
+  }
+
+  /** Adds specified tags to files matching current filters. */
+  @action async addTagsToFilteredFiles(tags: ClientTag[]): Promise<void> {
+    const tagIds = tags.map((t) => {
+      this.addRecentlyUsedTag(t);
+      return t.id;
+    });
+    await this.handleSavingToFilteredFiles(
+      async (c) => await this.backend.addTagsToFiles(tagIds, c),
+    );
+  }
+
+  /** Removes specified tags to files matching current filters. */
+  @action async removeTagsFromFilteredFiles(tags: ClientTag[]): Promise<void> {
+    const tagIds = tags.map((t) => {
+      this.addRecentlyUsedTag(t);
+      return t.id;
+    });
+    await this.handleSavingToFilteredFiles(
+      async (c) => await this.backend.removeTagsFromFiles(tagIds, c),
+    );
+  }
+
+  private isDispatchingToBackend = false;
+
+  @action async dispatchToFilteredFiles(
+    dispatchClientFiles: (files: ClientFile[]) => Promise<void>,
+    showProgressToaster?: (progress: number) => void,
+    isCanceled?: () => boolean,
+    showFinishProgressToaster?: (total: number, succesCount: number, status: Status) => void,
+    batchSize = 250,
+  ): Promise<void> {
+    if (this.isDispatchingToBackend) {
+      AppToaster.show(
+        {
+          message: 'Saving to all selected files already in progress...',
+          timeout: 6000,
+          type: 'error',
+        },
+        'is-dispatching-to-backend',
+      );
+      return;
+    }
+    let _isCancelled = false;
+    const handleCancelled = () => {
+      _isCancelled = true;
+    };
+    const isCanceledWrap = () => Boolean(isCanceled?.() || _isCancelled);
+
+    const uiStore = this.rootStore.uiStore;
+    this.isDispatchingToBackend = true;
+    const total = this.numFilteredFiles;
+    let count = 0;
+    let status: Status = Status.success;
+
+    // if not pogresstoaster provided use a default one.
+    const definedShowProgressToaster =
+      showProgressToaster !== undefined
+        ? showProgressToaster
+        : (progress: number) =>
+            AppToaster.show(
+              {
+                message: `Saving ${total} Files ${(progress * 100).toFixed(1)}%...`,
+                timeout: 0,
+                clickAction: {
+                  label: 'Cancel',
+                  onClick: handleCancelled,
+                },
+              },
+              'is-dispatching-to-backend',
+            );
+
+    try {
+      definedShowProgressToaster(0);
+      const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
+      const modifiedFilesCount = await batchReducer(
+        makeFileBatchFetcher(this.backend, batchSize, criterias),
+        async (batch, acc) => {
+          const { newFiles } = await this.filesFromBackend(batch, false, true);
+          const clientFiles = newFiles.filter(
+            (clientFile): clientFile is ClientFile => !!clientFile,
+          );
+
+          // remove mobx observer
+          clientFiles.forEach((f) => f.dispose());
+          // apply changes
+          await dispatchClientFiles(clientFiles);
+          // save files
+          runInAction(() => {
+            clientFiles.forEach((f) => this.save(f.serialize()));
+          });
+          await this.saveFilesToSave();
+
+          acc = acc + clientFiles.length;
+          count = acc;
+          definedShowProgressToaster(acc / total);
+          return acc;
+        },
+        0,
+        isCanceledWrap,
+      );
+      count = modifiedFilesCount;
+    } catch (error) {
+      status = Status.error;
+      console.error('ERROR WHILE DISPATCHING TO BACKEND FILES', error);
+    }
+    if (isCanceledWrap() && status !== Status.error) {
+      status = Status.aborted;
+    }
+    if (showFinishProgressToaster) {
+      showFinishProgressToaster(total, count, status);
+    } else {
+      const strings = {
+        [Status.success]: ['Succesfuly saved', '', 'success'],
+        [Status.error]: ['Saved', ' with errors', 'error'],
+        [Status.aborted]: ['Saved', ' and cancelled', 'warning'],
+      }[status];
+      AppToaster.show(
+        {
+          message: `${strings[0]} ${count} files${strings[1]}.`,
+          timeout: 0,
+          type: strings[2] as IToastProps['type'],
+        },
+        'is-dispatching-to-backend',
+      );
+    }
+    this.isDispatchingToBackend = false;
+  }
 }
 
-enum Status {
+export enum Status {
   success = 'success',
   error = 'error',
   aborted = 'aborted',

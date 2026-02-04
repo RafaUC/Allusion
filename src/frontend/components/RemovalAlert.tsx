@@ -110,8 +110,10 @@ export const ExtraPropertyUnAssign = observer(
       extraProperty: ClientExtraProperty;
     }>,
   ) => {
-    const { extraPropertyStore } = useStore();
-    const fileCount = props.object.files.length;
+    const { extraPropertyStore, uiStore, fileStore } = useStore();
+    const fileCount = uiStore.isAllFilesSelected
+      ? fileStore.numFilteredFiles
+      : props.object.files.length;
     //If the file selection has less than 2 files auto confirm
     useEffect(() => {
       if (fileCount < 2) {
@@ -148,13 +150,15 @@ export const ExtraPropertyOverwrite = observer(
       value: ExtraPropertyValue;
     }>,
   ) => {
-    const { extraPropertyStore } = useStore();
-    const fileCount = props.object.files.length;
+    const { extraPropertyStore, uiStore, fileStore } = useStore();
+    const fileCount = uiStore.isAllFilesSelected
+      ? fileStore.numFilteredFiles
+      : props.object.files.length;
     //If the file selection has less than 2 files auto confirm
     useEffect(() => {
       if (fileCount < 2) {
         props.onClose();
-        extraPropertyStore.setOnFiles(
+        extraPropertyStore.dispatchOnFiles(
           props.object.files,
           props.object.extraProperty,
           props.object.value,
@@ -175,7 +179,7 @@ export const ExtraPropertyOverwrite = observer(
         onCancel={props.onClose}
         onConfirm={() => {
           props.onClose();
-          extraPropertyStore.setOnFiles(
+          extraPropertyStore.dispatchOnFiles(
             props.object.files,
             props.object.extraProperty,
             props.object.value,

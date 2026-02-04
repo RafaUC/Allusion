@@ -11,7 +11,7 @@ import { ClientExtraProperty } from '../entities/ExtraProperty';
 import { Grid, GridCell, Row, RowSeparator, useGridFocus } from 'widgets/combobox/Grid';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '../contexts/StoreContext';
-import { computed, runInAction } from 'mobx';
+import { computed } from 'mobx';
 import { IconSet } from 'widgets/icons';
 import { debounce } from 'common/timeout';
 import { useGalleryInputKeydownHandler } from '../hooks/useHandleInputKeydown';
@@ -261,7 +261,9 @@ const CreateOptions = ({ inputText, hasMatches, resetTextBox }: CreateOptionProp
   const createExtraProperty = useCallback(
     async (type: ExtraPropertyType) => {
       const newExtraProperty = await extraPropertyStore.createExtraProperty(inputText, type);
-      runInAction(() => uiStore.fileSelection.forEach((f) => f.setExtraProperty(newExtraProperty)));
+      uiStore.dispatchToFileSelection(async (files) =>
+        files.forEach((f) => f.setExtraProperty(newExtraProperty)),
+      );
       resetTextBox();
     },
     [extraPropertyStore, inputText, resetTextBox, uiStore],

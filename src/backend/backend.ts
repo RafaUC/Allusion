@@ -855,6 +855,56 @@ export default class Backend implements DataStorage {
     this.#notifyChange();
   }
 
+  async addTagsToFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
+    console.info('SQLite: Add tags to filtered files...', criteria, tagIds);
+    // Subquery tipado correctamente
+    let fileSubquery = this.#db.selectFrom('files').select('files.id as fileId');
+    fileSubquery = applyFileFilters(fileSubquery, criteria);
+
+    // Crear valores de tags como CTE o subquery
+    await this.#db
+      .insertInto('fileTags')
+      .columns(['fileId', 'tagId'])
+      .expression(() => {
+        // Usar raw SQL para el cross join con los valores
+        const tagValues = tagIds.map((id) => `SELECT '${id}' as tag_id`).join(' UNION ALL ');
+
+        return this.#db
+          .selectFrom(fileSubquery.as('matchedFiles'))
+          .crossJoin(sql`(${sql.raw(tagValues)})`.as('tagValues'))
+          .select(['matchedFiles.fileId', sql<number>`tag_values.tag_id`.as('tagId')])
+          .where(sql<SqlBool>`true`);
+      })
+      .onConflict((oc) => oc.doNothing())
+      .execute();
+
+    this.#isQueryDirty = true;
+  }
+
+  async removeTagsFromFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
+    console.info('SQLite: Remove tags from filtered files...', criteria, tagIds);
+
+    let fileSubquery = this.#db.selectFrom('files').select('files.id');
+    fileSubquery = applyFileFilters(fileSubquery, criteria);
+
+    await this.#db
+      .deleteFrom('fileTags')
+      .where('fileId', 'in', fileSubquery)
+      .where('tagId', 'in', tagIds)
+      .execute();
+
+    this.#isQueryDirty = true;
+  }
+
+  async clearTagsFromFiles(criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
+    let fileSubquery = this.#db.selectFrom('files').select('files.id');
+    fileSubquery = applyFileFilters(fileSubquery, criteria);
+
+    await this.#db.deleteFrom('fileTags').where('fileId', 'in', fileSubquery).execute();
+
+    this.#isQueryDirty = true;
+  }
+
   async countFiles(
     options?: { files?: boolean; untagged?: boolean },
     criteria?: ConditionGroupDTO<FileDTO>,
@@ -864,7 +914,7 @@ export default class Backend implements DataStorage {
     if (options?.files) {
       let totalQuery = this.#db
         .selectFrom('files')
-        .select(({ fn }) => fn.count<number>('id').as('count'));
+        .select(({ fn }) => fn.count<number>('files.id').as('count'));
       totalQuery = criteria ? applyFileFilters(totalQuery, criteria) : totalQuery;
       const totalResult = await totalQuery.executeTakeFirst();
       result[0] = totalResult?.count ?? 0;
@@ -1667,7 +1717,7 @@ function applyExtraPropertyCondition(
           subquery = subquery.where('epValues.textValue', '=', innerValue);
           break;
         case 'equalsIgnoreCase':
-          subquery = subquery.where(sql`LOWER(epValues.textValue)`, '=', innerValue.toLowerCase());
+          subquery = subquery.where(sql`LOWER(${sql.ref('epValues.textValue')})`, '=', innerValue.toLowerCase());
           break;
         case 'notEqual':
           subquery = subquery.where('epValues.textValue', '=', innerValue);
@@ -1685,7 +1735,7 @@ function applyExtraPropertyCondition(
           subquery = subquery.where('epValues.textValue', 'not like', `${innerValue}%`);
           break;
         case 'startsWithIgnoreCase':
-          subquery = subquery.where(sql`LOWER(epValues.textValue)`, 'like', `${innerValue.toLowerCase()}%`);
+          subquery = subquery.where(sql`LOWER(${sql.ref('epValues.textValue')})`, 'like', `${innerValue.toLowerCase()}%`);
           break;
         default:
           const _exhaustiveCheck: never = operator;

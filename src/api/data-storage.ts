@@ -65,6 +65,9 @@ export interface DataStorage {
   removeLocation(location: ID): Promise<void>;
   removeSearch(search: ID): Promise<void>;
   removeExtraProperties(extraProperty: ID[]): Promise<void>;
+  addTagsToFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;
+  removeTagsFromFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;
+  clearTagsFromFiles(criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;
   countFiles(
     options?: { files: boolean; untagged: boolean },
     criteria?: ConditionGroupDTO<FileDTO>,
@@ -87,11 +90,11 @@ export function makeFileBatchFetcher(
 ): BatchFetcher<FileDTO, Cursor> {
   return async (cursor?: Cursor) => {
     // eslint-disable-next-line prettier/prettier
-    const items = await backend.searchFiles(filter, 'id', OrderDirection.Desc, false, n, 'after', cursor);
+    const items = await backend.searchFiles(filter, 'absolutePath', OrderDirection.Desc, false, n, 'after', cursor);
     const cursorItem = items.at(-1);
     return {
       items,
-      nextOpts: cursorItem ? { id: cursorItem.id, orderValue: cursorItem.id } : undefined,
+      nextOpts: cursorItem ? { id: cursorItem.id, orderValue: cursorItem.absolutePath } : undefined,
     };
   };
 }

@@ -278,12 +278,11 @@ export function useCommandHandler(
         const ctx = uiStore.getTagContextItems(dndData.source.id);
 
         // Tag all selected files - unless the file that is being tagged is not selected
-        const filesToTag = uiStore.fileSelection.has(dropFile) ? uiStore.fileSelection : [dropFile];
-
-        for (const tag of ctx) {
-          for (const file of filesToTag) {
-            file.addTag(tag);
-          }
+        const tagToSelection = uiStore.fileSelection.has(dropFile);
+        if (tagToSelection) {
+          uiStore.addTagsToSelectedFiles(ctx);
+        } else {
+          dropFile.addTags(ctx);
         }
       }
     });

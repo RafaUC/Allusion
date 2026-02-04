@@ -86,14 +86,14 @@ export const SlideModeCommand = observer(() => {
 
 const FileSelectionCommand = observer(() => {
   const { uiStore, fileStore } = useStore();
-  const selectionCount = uiStore.fileSelection.size;
-  const fileCount = fileStore.numFilteredFiles;
   const fileLoadedCount = fileStore.numLoadedFiles;
+  const fileCount = fileStore.showsMissingContent ? fileLoadedCount : fileStore.numFilteredFiles;
+  const allFilesSelected = uiStore.isAllFilesSelected;
+  const selectionCount = allFilesSelected ? fileCount : uiStore.fileSelection.size;
 
-  const allFilesSelected = fileCount > 0 && selectionCount === fileCount;
   // If everything is selected, deselect all. Else, select all
   const handleToggleSelect = () => {
-    selectionCount === fileCount ? uiStore.clearFileSelection() : uiStore.selectAllFiles();
+    allFilesSelected ? uiStore.clearFileSelection() : uiStore.selectAllFiles();
   };
 
   return (

@@ -252,6 +252,7 @@ class UiStore {
   // Observable arrays recommended like this here https://github.com/mobxjs/mobx/issues/669#issuecomment-269119270.
   // However, sets are more suitable because they have quicker lookup performance.
   readonly fileSelection = observable(new Set<ClientFile>());
+  @observable isAllFilesSelected = false;
   readonly tagSelection = observable(new Set<ClientTag>());
 
   @observable searchRootGroup: ClientSearchGroup = new ClientSearchGroup(
@@ -295,6 +296,19 @@ class UiStore {
       (isOpen) => {
         if (isOpen) {
           this.isFileTagsEditorOpen = false;
+        }
+      },
+    );
+
+    // Deselect isAllFilesSelected when file selection changes;
+    reaction(
+      () => ({
+        listLength: this.rootStore.fileStore.fileList.length,
+        selectionSize: this.fileSelection.size,
+      }),
+      (sizes) => {
+        if (sizes.listLength !== sizes.selectionSize) {
+          this.isAllFilesSelected = false;
         }
       },
     );
@@ -906,7 +920,7 @@ class UiStore {
     const clipboard = this.tagClipboard.slice();
     // If the file selection has the same size as the amount of tag groups copied,
     // Copy each tag group into their parallel file.
-    if (this.fileSelection.size === clipboard.length) {
+    if (!this.isAllFilesSelected && this.fileSelection.size === clipboard.length) {
       let index = 0;
       this.fileSelection.forEach((file) => {
         file.addTags(clipboard[index]);
@@ -920,11 +934,41 @@ class UiStore {
           allTags.add(clipboard[i][j]);
         }
       }
-      this.fileSelection.forEach((file) => file.addTags(allTags));
+      this.addTagsToSelectedFiles(Array.from(allTags));
     }
   }
 
   /////////////////// Selection actions ///////////////////
+
+  // General Dispatch to selected files function. This should be used instead of
+  // processing the file selection directly.
+  // If we want to manipulate file selection's tags, use the tag optimized methods below.
+  @action.bound async dispatchToFileSelection(
+    dispatchClientFiles: (files: ClientFile[]) => Promise<void>,
+  ): Promise<void> {
+    const isAllFilesSelected = this.isAllFilesSelected;
+    await dispatchClientFiles(Array.from(this.fileSelection));
+    if (isAllFilesSelected) {
+      await this.rootStore.fileStore.dispatchToFilteredFiles(dispatchClientFiles);
+    }
+  }
+
+  /** Adds tags to selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async addTagsToSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.addTagsToFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => f.addTags(tags));
+  }
+
+  /** Removes tags from selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async removeTagsFromSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.removeTagsFromFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => tags.forEach((t) => f.removeTag(t)));
+  }
+
   @action.bound selectFile(file?: ClientFile, clear?: boolean): void {
     if (clear === true) {
       this.clearFileSelection();
@@ -969,6 +1013,7 @@ class UiStore {
 
   @action.bound selectAllFiles(): void {
     this.fileSelection.replace(this.rootStore.fileStore.definedFiles);
+    this.isAllFilesSelected = true;
   }
 
   @action.bound clearFileSelection(): void {

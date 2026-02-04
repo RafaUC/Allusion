@@ -39,7 +39,7 @@ interface FileExtraPropertiesEditorProps {
 
 export const FileExtraPropertiesEditor = observer(
   ({ id, file, addButtonContainerID, menuPlacement }: FileExtraPropertiesEditorProps) => {
-    const { uiStore, fileStore } = useStore();
+    const { uiStore, fileStore, extraPropertyStore } = useStore();
     const [deletableExtraProperty, setDeletableExtraProperty] = useState<ClientExtraProperty>();
     const [removableExtraProperty, setRemovableExtraProperty] = useState<{
       files: ClientFile[];
@@ -80,15 +80,12 @@ export const FileExtraPropertiesEditor = observer(
     // Create a copy of the selected files to ensure that callbacks
     // retain the original file selection if it changes between call and execution/confirmation.
     const files = Array.from(uiStore.fileSelection);
+
     const onSelect = useCallback(
       (extraProperty: ClientExtraProperty) => {
-        files.forEach((f) => {
-          if (!f.extraProperties.has(extraProperty)) {
-            f.setExtraProperty(extraProperty);
-          }
-        });
+        extraPropertyStore.dispatchOnFiles(files, extraProperty, undefined, false);
       },
-      [files],
+      [extraPropertyStore, files],
     );
     const onUpdate = useCallback(
       (extraProperty: ClientExtraProperty, value: ExtraPropertyValue) => {
@@ -233,7 +230,11 @@ export const FileExtraPropertiesEditor = observer(
           </div>
         </PortalButtonWrapper>
         {uiStore.fileSelection.size === 0 && (
-        <div><i><b>No files selected</b></i></div> // eslint-disable-line prettier/prettier
+          <div>
+            <i>
+              <b>No files selected</b>
+            </i>
+          </div> // eslint-disable-line prettier/prettier
         )}
         <ExtraPropertyListEditor
           editorState={editorState}
@@ -422,9 +423,11 @@ interface ExtraPropertyListEditorProps {
 
 const ExtraPropertyListEditor = observer(
   ({ editorState, dispatch, counter, onUpdate, onContextMenu }: ExtraPropertyListEditorProps) => {
-    const { uiStore } = useStore();
+    const { uiStore, fileStore } = useStore();
     const extraProperties = Array.from(counter.get()).sort(compareByExtraPropertyName);
-    const SelectionSize = uiStore.fileSelection.size;
+    const selectionSize = uiStore.fileSelection.size;
+    const filteredCount = fileStore.numFilteredFiles;
+    const isAllFilesSelected = uiStore.isAllFilesSelected && selectionSize !== filteredCount;
     const handleKeyDown = useGalleryInputKeydownHandler();
     const handleRename = useCallback(
       (extraProperty: ClientExtraProperty) => dispatch(Factory.enableEditing(extraProperty.id)),
@@ -439,7 +442,13 @@ const ExtraPropertyListEditor = observer(
           <ExtraPropertyListOption
             key={extraProperty.id}
             extraProperty={extraProperty}
-            count={SelectionSize > 1 ? `${count}/${SelectionSize}` : ''}
+            count={
+              selectionSize > 1
+                ? `${isAllFilesSelected ? '?' : count}/${
+                    isAllFilesSelected ? filteredCount : selectionSize
+                  }`
+                : ''
+            }
             value={val}
             onUpdate={onUpdate}
             isEditingName={editorState.editableNode === extraProperty.id}

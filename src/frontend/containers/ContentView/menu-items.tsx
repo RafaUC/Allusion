@@ -49,7 +49,7 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
     // ToDo: add a confirm dialog?
     uiStore.copyTagsToClipboard();
     runInAction(() => {
-      uiStore.fileSelection.forEach((f) => f.clearTags());
+      uiStore.dispatchToFileSelection(async (files) => files.forEach((f) => f.clearTags()));
     });
   };
 

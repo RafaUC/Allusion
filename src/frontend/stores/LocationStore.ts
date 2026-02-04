@@ -387,6 +387,7 @@ class LocationStore {
     } else {
       this.showLocationProcessToast('hide', 'update');
     }
+    this.rootStore.fileStore.refetchFileCounts();
     return foundNewFiles;
   }
 
