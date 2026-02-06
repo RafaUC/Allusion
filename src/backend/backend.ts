@@ -153,6 +153,8 @@ export default class Backend implements DataStorage {
           isVisibleInherited: serializeBoolean(false),
           description: '',
           isHeader: serializeBoolean(false),
+          fileCount: 0,
+          isFileCountDirty: serializeBoolean(true),
         })
         .execute();
     }
@@ -205,6 +207,8 @@ export default class Backend implements DataStorage {
         isHeader: deserializeBoolean(dbTag.isHeader),
         aliases: dbTag.aliases.map((a) => a.alias),
         description: dbTag.description,
+        fileCount: dbTag.fileCount,
+        isFileCountDirty: deserializeBoolean(dbTag.isFileCountDirty),
       }));
     return tags;
   }
@@ -590,15 +594,15 @@ export default class Backend implements DataStorage {
       await trx.deleteFrom('subTags').where('tagId', 'in', tagIds).execute();
       await trx.deleteFrom('tagImplications').where('tagId', 'in', tagIds).execute();
       await trx.deleteFrom('tagAliases').where('tagId', 'in', tagIds).execute();
-      await upsertTable(trx, 'tags', tags, ['id'], ['dateAdded']);
+      await upsertTable(this.MAX_VARS, trx, 'tags', tags, ['id'], ['dateAdded']);
       if (subTags.length > 0) {
-        await upsertTable(trx, 'subTags', subTags, ['tagId', 'subTagId']);
+        await upsertTable(this.MAX_VARS, trx, 'subTags', subTags, ['tagId', 'subTagId']);
       }
       if (tagImplications.length > 0) {
-        await upsertTable(trx, 'tagImplications', tagImplications, ['tagId', 'impliedTagId']);
+        await upsertTable(this.MAX_VARS, trx, 'tagImplications', tagImplications, ['tagId', 'impliedTagId']); // eslint-disable-line prettier/prettier
       }
       if (tagAliases.length > 0) {
-        await upsertTable(trx, 'tagAliases', tagAliases, ['tagId', 'alias']);
+        await upsertTable(this.MAX_VARS, trx, 'tagAliases', tagAliases, ['tagId', 'alias']);
       }
     });
     this.#notifyChange();
@@ -675,6 +679,7 @@ export default class Backend implements DataStorage {
         // Transfer from temp tables
         // Upsert FILES
         upsertTable(
+          this.MAX_VARS,
           trx,
           'files',
           sql`SELECT * FROM ${sql.id(tempFiles)} WHERE true`,
@@ -723,15 +728,15 @@ export default class Backend implements DataStorage {
     await this.#db.transaction().execute(async (trx) => {
       await trx.deleteFrom('locationTags').where('nodeId', 'in', nodeIds).execute();
       await trx.deleteFrom('locationNodes').where('parentId', 'in', nodeIds).execute();
-      await upsertTable(trx, 'locationNodes', locationNodes, ['id']);
+      await upsertTable(this.MAX_VARS, trx, 'locationNodes', locationNodes, ['id']);
       if (locations.length > 0) {
-        await upsertTable(trx, 'locations', locations, ['nodeId'], ['dateAdded']);
+        await upsertTable(this.MAX_VARS, trx, 'locations', locations, ['nodeId'], ['dateAdded']);
       }
       if (subLocations.length > 0) {
-        await upsertTable(trx, 'subLocations', subLocations, ['nodeId']);
+        await upsertTable(this.MAX_VARS, trx, 'subLocations', subLocations, ['nodeId']);
       }
       if (locationTags.length > 0) {
-        await upsertTable(trx, 'locationTags', locationTags, ['nodeId', 'tagId']);
+        await upsertTable(this.MAX_VARS, trx, 'locationTags', locationTags, ['nodeId', 'tagId']);
       }
     });
     this.#notifyChange();
@@ -750,12 +755,12 @@ export default class Backend implements DataStorage {
     }
     await this.#db.transaction().execute(async (trx) => {
       await trx.deleteFrom('searchGroups').where('savedSearchId', 'in', savedSearchesIds).execute();
-      await upsertTable(trx, 'savedSearches', savedSearches, ['id']);
+      await upsertTable(this.MAX_VARS, trx, 'savedSearches', savedSearches, ['id']);
       if (searchGroups.length > 0) {
-        await upsertTable(trx, 'searchGroups', searchGroups, ['id']);
+        await upsertTable(this.MAX_VARS, trx, 'searchGroups', searchGroups, ['id']);
       }
       if (searchCriteria.length > 0) {
-        await upsertTable(trx, 'searchCriteria', searchCriteria, ['id']);
+        await upsertTable(this.MAX_VARS, trx, 'searchCriteria', searchCriteria, ['id']);
       }
     });
     this.#notifyChange();
@@ -774,7 +779,7 @@ export default class Backend implements DataStorage {
       dateAdded: serializeDate(ep.dateAdded),
     }));
     await this.#db.transaction().execute(async (trx) => {
-      await upsertTable(trx, 'extraProperties', extraProperties, ['id'], ['dateAdded']);
+      await upsertTable(this.MAX_VARS, trx, 'extraProperties', extraProperties, ['id'], ['dateAdded']); // eslint-disable-line prettier/prettier
     });
     this.#notifyChange();
   }
@@ -1756,6 +1761,7 @@ async function upsertTable<
   Table extends keyof AllusionDB_SQL,
   Columns extends ReadonlyArray<AnyColumn<AllusionDB_SQL, Table>>,
 >(
+  maxVars: number,
   db: Kysely<AllusionDB_SQL>,
   table: Table,
   values: Insertable<AllusionDB_SQL[Table]>[] | Expression<any>,
@@ -1769,26 +1775,20 @@ async function upsertTable<
   }
 
   // Infer Columns
-  let columnsToUpdate: string[];
-  if (isExpression) {
-    if (!sampleObject) {
-      throw new Error(
-        `sampleObject is required when using SQL expressions for table ${String(table)}`,
-      );
-    }
-    columnsToUpdate = Object.keys(sampleObject).filter(
-      (key) =>
-        !conflictColumns.includes(key as any) &&
-        (!excludeFromUpdate || !excludeFromUpdate.includes(key as any)),
-    );
-  } else {
-    const firstRow = (sampleObject || values[0]) as Record<string, unknown>;
-    columnsToUpdate = Object.keys(firstRow).filter(
-      (key) =>
-        !conflictColumns.includes(key as any) &&
-        (!excludeFromUpdate || !excludeFromUpdate.includes(key as any)),
+  const referenceRow = (isExpression ? sampleObject : sampleObject || values[0]) as Record<
+    string,
+    unknown
+  >;
+  if (isExpression && !sampleObject) {
+    throw new Error(
+      `sampleObject is required when using SQL expressions for table ${String(table)}`,
     );
   }
+  const columnsToUpdate = Object.keys(referenceRow).filter(
+    (key) =>
+      !conflictColumns.includes(key as any) &&
+      (!excludeFromUpdate || !excludeFromUpdate.includes(key as any)),
+  );
   const updateSet = columnsToUpdate.reduce((acc, column) => {
     acc[column] = (eb: any) => eb.ref(`excluded.${column}`);
     return acc;
@@ -1798,7 +1798,7 @@ async function upsertTable<
   if (isExpression) {
     query = db.insertInto(table as keyof AllusionDB_SQL & string).expression(values as any);
   } else {
-    query = db.insertInto(table as keyof AllusionDB_SQL & string).values(values as any);
+    query = db.insertInto(table as keyof AllusionDB_SQL & string);
   }
 
   if (columnsToUpdate.length === 0) {
@@ -1809,7 +1809,21 @@ async function upsertTable<
     );
   }
 
-  return query.execute();
+  if (isExpression) {
+    return query.execute();
+  }
+
+  // batching logic for arrays
+  const batchSize = computeBatchSize(maxVars, referenceRow);
+  const results = [];
+
+  for (let i = 0; i < values.length; i += batchSize) {
+    const batch = values.slice(i, i + batchSize);
+    const batchQuery = query.values(batch as any);
+    results.push(await batchQuery.execute());
+  }
+
+  return results;
 }
 
 function normalizeTags(tags: TagDTO[]) {
@@ -1842,6 +1856,8 @@ function normalizeTags(tags: TagDTO[]) {
     isHeader: serializeBoolean(tag.isHeader),
     description: tag.description,
     dateAdded: serializeDate(tag.dateAdded),
+    fileCount: tag.fileCount,
+    isFileCountDirty: serializeBoolean(tag.isFileCountDirty),
   }));
 
   return { tagIds, tags: normalizedTags, subTags, tagImplications, tagAliases };

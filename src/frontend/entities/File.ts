@@ -181,7 +181,7 @@ export class ClientFile {
     if (!hasTag) {
       this.tags.add(tag);
       this.store.addRecentlyUsedTag(tag);
-      tag.incrementFileCount(this.id);
+      tag.incrementFileCount();
 
       if (this.tags.size === 1 && !this.isBroken) {
         this.store.decrementNumUntaggedFiles();
@@ -196,7 +196,7 @@ export class ClientFile {
       if (!this.tags.has(tag)) {
         this.tags.add(tag);
         this.store.addRecentlyUsedTag(tag);
-        tag.incrementFileCount(this.id);
+        tag.incrementFileCount();
       }
     });
 
@@ -217,7 +217,7 @@ export class ClientFile {
   @action.bound removeTag(tag: ClientTag): void {
     const hadTag = this.tags.delete(tag);
     if (hadTag) {
-      tag.decrementFileCount(this.id);
+      tag.decrementFileCount();
       this.store.addRecentlyUsedTag(tag);
 
       if (this.tags.size === 0) {
@@ -233,7 +233,7 @@ export class ClientFile {
   @action.bound clearTags(): void {
     if (this.tags.size > 0) {
       this.store.incrementNumUntaggedFiles();
-      this.tags.forEach((tag) => tag.decrementFileCount(this.id));
+      this.tags.forEach((tag) => tag.decrementFileCount());
       this.tags.clear();
     }
   }

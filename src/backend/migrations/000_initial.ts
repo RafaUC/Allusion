@@ -19,6 +19,8 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('is_visible_inherited', 'boolean', (col) => col.notNull().defaultTo(1))
     .addColumn('is_header', 'boolean', (col) => col.notNull().defaultTo(0))
     .addColumn('description', 'text')
+    .addColumn('file_count', 'integer', (col) => col.notNull().defaultTo(0))
+    .addColumn('is_file_count_dirty', 'boolean', (col) => col.notNull().defaultTo(1))
     .execute();
 
   await db.schema

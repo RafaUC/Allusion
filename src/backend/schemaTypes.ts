@@ -56,6 +56,8 @@ export type Tags = {
   isVisibleInherited: BooleanAsNumber;
   isHeader: BooleanAsNumber;
   description: string;
+  fileCount: number;
+  isFileCountDirty: BooleanAsNumber;
 };
 
 export type SubTags = {

@@ -135,6 +135,11 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         icon={IconSet.EDIT}
       />
       <MenuItem
+        icon={IconSet.RELOAD_COMPACT}
+        text="Update File Counts"
+        onClick={() => tagStore.updateTagSubTreeFileCounts(tag)}
+      />
+      <MenuItem
         icon={!tag.isHidden ? IconSet.HIDDEN : IconSet.PREVIEW}
         text="Hide Tagged Images"
         onClick={tag.toggleHidden}

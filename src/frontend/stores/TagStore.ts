@@ -1,6 +1,6 @@
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
 
-import { DataStorage } from '../../api/data-storage';
+import { DataStorage, makeFileBatchFetcher } from '../../api/data-storage';
 import { generateId, ID } from '../../api/id';
 import { ROOT_TAG_ID, TagDTO } from '../../api/tag';
 import { ClientTagSearchCriteria } from '../entities/SearchCriteria';
@@ -9,7 +9,9 @@ import RootStore from './RootStore';
 import { AppToaster, IToastProps } from '../components/Toaster';
 import { FileDTO } from 'src/api/file';
 import { normalizeBase } from 'common/core';
-import { OrderDirection } from 'src/api/data-storage-search';
+import { ConditionGroupDTO } from 'src/api/data-storage-search';
+import { debounce } from 'common/timeout';
+import { batchReducer } from 'common/promise';
 
 /**
  * Based on https://mobx.js.org/best/store.html
@@ -19,14 +21,21 @@ class TagStore {
   private readonly rootStore: RootStore;
 
   /** A lookup map to speedup finding entities */
+  private dirtyTags = new Set<ClientTag>();
   private readonly tagGraph = observable(new Map<ID, ClientTag>());
   @observable fileCountsInitialized = false;
+
+  debouncedSetDirtyTagsFileCountDirty: () => void;
 
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
     this.rootStore = rootStore;
 
     makeObservable(this);
+
+    this.debouncedSetDirtyTagsFileCountDirty = debounce(this.setDirtyTagsFileCountDirty, 1000).bind(
+      this,
+    );
   }
 
   async init(): Promise<void> {
@@ -39,18 +48,142 @@ class TagStore {
     }
   }
 
-  @action.bound async initializeTagFileCounts(allDbFiles?: FileDTO[]): Promise<void> {
-    if (this.fileCountsInitialized) {
+  setFileCountDirty(tag: ClientTag): void {
+    this.dirtyTags.add(tag);
+    this.debouncedSetDirtyTagsFileCountDirty();
+  }
+
+  /** Marks the dirtyTags and their implied ancestors as dirty. */
+  @action.bound private setDirtyTagsFileCountDirty() {
+    const visited = new Set<ClientTag>();
+    for (const tag of this.dirtyTags) {
+      if (tag.id === ROOT_TAG_ID) {
+        return;
+      }
+      for (const impliedAncestor of tag.getImpliedAncestors(visited)) {
+        impliedAncestor.setIsFileCountDirty(true);
+      }
+      tag.setIsFileCountDirty(true);
+    }
+    this.dirtyTags.clear();
+  }
+
+  private isUpdatingCounts = false;
+  @action.bound async updateTagSubTreeFileCounts(tag: ClientTag): Promise<void> {
+    if (this.isUpdatingCounts) {
       return;
     }
-    this.fileCountsInitialized = true;
-    const files = allDbFiles ?? (await this.backend.fetchFiles('id', OrderDirection.Asc, false));
-    for (const file of files) {
-      for (const tagID of file.tags) {
-        const tag = this.get(tagID);
-        tag?.incrementFileCount(file.id);
+    this.isUpdatingCounts = true;
+    const toastID = 'updateFilecounts';
+    const totalStep = 4;
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+    const showProgressToast = (step: number, totalTags: number, processed: number) => {
+      AppToaster.show(
+        {
+          message: `Updating file counts for ${totalTags} tags: step ${step}/${totalStep}${
+            processed > 0 ? ` - ${((processed / totalTags) * 100).toFixed(1)}%...` : '...'
+          }`,
+          clickAction: { label: 'Cancel', onClick: () => (cancelled = true) },
+          type: 'info',
+          timeout: 5000,
+        },
+        toastID,
+      );
+    };
+
+    showProgressToast(1, 1, 0);
+    const criteria: ConditionGroupDTO<FileDTO> = {
+      conjunction: 'and',
+      children: [
+        new ClientTagSearchCriteria(undefined, 'tags', tag.id, 'containsRecursively').toCondition(
+          this.rootStore,
+        ),
+      ],
+    };
+
+    // Initialize tagfile sets, we will only compute counts for the implied sub tree of the initial tag
+    const tagFileSets = new Map<string, Set<string>>();
+    for (const impliedsubTag of tag.getImpliedSubTree()) {
+      tagFileSets.set(impliedsubTag.id, new Set<string>());
+    }
+
+    showProgressToast(2, tagFileSets.size, 0);
+    // fetch and add each file id to their respective assigned tag file sets in batches
+    const batchSize = 1000;
+    let batchCount = 0;
+    await batchReducer(
+      makeFileBatchFetcher(this.backend, batchSize, criteria),
+      async (batch) => {
+        batchCount++;
+        batch.forEach((file) => {
+          for (const tagId of file.tags) {
+            tagFileSets.get(tagId)?.add(file.id);
+          }
+        });
+        showProgressToast(2, tagFileSets.size, batchCount);
+        return undefined;
+      },
+      undefined,
+      isCancelled,
+    );
+
+    showProgressToast(3, tagFileSets.size, 0);
+    if (!isCancelled()) {
+      // compute merged sets
+      const visited = new Set<string>();
+      this.computeMergedTagFileSets(tag.id, tagFileSets, visited);
+    }
+
+    // update counts
+    let count = 0;
+    for (const [tagId, fileSet] of tagFileSets) {
+      if (isCancelled()) {
+        break;
+      }
+      count++;
+      showProgressToast(4, tagFileSets.size, count);
+      await runInAction(async () => {
+        const clientTag = this.tagGraph.get(tagId);
+        if (clientTag) {
+          clientTag.setFileCount(fileSet.size);
+          clientTag.setIsFileCountDirty(false);
+          // Although client files save themselves, await a save anyway to prevent filling the stack with promises.
+          // but this has very poor performance, although this operation will not be used too often.
+          // TODO: Create a bulk tag save method.
+          await this.save(clientTag.serialize());
+        }
+      });
+    }
+    // Hide toast
+    AppToaster.show({ message: '', timeout: 1 }, toastID);
+    this.isUpdatingCounts = false;
+  }
+
+  @action private computeMergedTagFileSets(
+    tagId: string,
+    tagFileSets: Map<string, Set<string>>,
+    visited: Set<string>,
+  ): Set<string> {
+    const currentTag = this.tagGraph.get(tagId);
+    const currentSet = tagFileSets.get(tagId);
+    // avoid cicles
+    if (visited.has(tagId) || !currentSet || !currentTag) {
+      return currentSet || new Set();
+    }
+    visited.add(tagId);
+
+    // Merge the sum of the subtags sets of the processing tag into its set recursively.
+    for (const subtag of [...currentTag.subTags, ...currentTag.impliedByTags]) {
+      if (tagFileSets.has(subtag.id)) {
+        const subtagSet = this.computeMergedTagFileSets(subtag.id, tagFileSets, visited);
+        for (const fileId of subtagSet) {
+          currentSet.add(fileId);
+        }
       }
     }
+
+    return currentSet;
   }
 
   @action get(tag: ID): ClientTag | undefined {
@@ -129,6 +262,8 @@ class TagStore {
       isVisibleInherited: true,
       impliedTags: [],
       subTags: [],
+      fileCount: 0,
+      isFileCountDirty: true,
     });
     this.tagGraph.set(tag.id, tag);
     tag.setParent(parent);
@@ -248,8 +383,8 @@ class TagStore {
     this.rootStore.fileStore.refetch();
   }
 
-  save(tag: TagDTO): void {
-    this.backend.saveTag(tag);
+  async save(tag: TagDTO): Promise<void> {
+    await this.backend.saveTag(tag);
   }
 
   @action private createTagGraph(backendTags: TagDTO[]) {

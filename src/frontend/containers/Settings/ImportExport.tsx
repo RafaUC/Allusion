@@ -162,6 +162,9 @@ export const ImportExport = observer(() => {
                 timeout: 0,
               });
               try {
+                fileStore.setDirtyMissingFiles(true);
+                fileStore.setDirtyTotalFiles(true);
+                fileStore.setDirtyUntaggedFiles(true);
                 await rootStore.restoreDatabaseFromFile(isConfirmingFileImport.path);
                 RendererMessenger.reload();
               } catch (e) {

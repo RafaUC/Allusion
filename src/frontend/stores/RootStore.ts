@@ -14,8 +14,6 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import SearchStore from './SearchStore';
 import ExtraPropertyStore from './ExtraPropertyStore';
 import { AppToaster } from '../components/Toaster';
-import { FileDTO } from 'src/api/file';
-import { OrderDirection } from 'src/api/data-storage-search';
 
 // This will throw exceptions whenever we try to modify the state directly without an action
 // Actions will batch state modifications -> better for performance
@@ -105,7 +103,6 @@ class RootStore {
             // When searching by criteria, the file counts and startup Loads won't be set (only when fetching all files),
             // so fetch them manually
             await rootStore.fileStore.fetchFilesByQuery();
-            return rootStore.initStartupLoads().catch(console.error);
           };
 
     // Load the files already in the database so user instantly sees their images
@@ -128,6 +125,7 @@ class RootStore {
 
     // look for any new or removed images, handled by parcel/watcher
     rootStore.locationStore.watchLocations();
+    rootStore.initStartupLoads().catch(console.error);
 
     return rootStore;
   }
@@ -169,18 +167,13 @@ class RootStore {
   }
 
   isStartupLoadsInitialized = false;
-  async initStartupLoads(allDbFiles?: FileDTO[]): Promise<void> {
+  async initStartupLoads(): Promise<void> {
     if (this.isStartupLoadsInitialized) {
       return;
     }
     this.isStartupLoadsInitialized = true;
     runInAction(async () => {
-      const doInitFileCounts = this.uiStore.isLoadFileCountsStartupEnabled;
       const doRefreshLocations = this.uiStore.isRefreshLocationsStartupEnabled;
-      const files = allDbFiles ?? (await this.#backend.fetchFiles('id', OrderDirection.Asc, false));
-      if (doInitFileCounts) {
-        await this.tagStore.initializeTagFileCounts(files);
-      }
       if (doRefreshLocations) {
         await this.locationStore.updateLocations();
       }

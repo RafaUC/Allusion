@@ -36,11 +36,6 @@ export default (context: { jsonToImport?: string }) => ({
   },
 });
 
-const fallbackIds = {
-  locationNode: 'fallback_location_node',
-  extraProperty: 'fallback_ep',
-};
-
 export async function restoreFromOldJsonFormat(
   db: Kysely<AllusionDB_SQL>,
   backupFilePath: string | undefined,
@@ -113,41 +108,6 @@ export async function restoreFromOldJsonFormat(
 
   // Disable foreign key constraints
   await sql`PRAGMA foreign_keys = OFF;`.execute(db);
-
-  // Create fallback references for missing foreign keys
-  // Ensure fallback base records exist
-
-  await db
-    .insertInto('locationNodes')
-    .values({
-      id: fallbackIds.locationNode,
-      parentId: fallbackIds.locationNode,
-      path: 'fallback',
-    })
-    .onConflict((oc) => oc.doNothing())
-    .execute();
-
-  await db
-    .insertInto('locations')
-    .values({
-      nodeId: fallbackIds.locationNode,
-      idx: 0,
-      isWatchingFiles: serializeBoolean(false),
-      dateAdded: serializeDate(new Date()),
-    })
-    .onConflict((oc) => oc.doNothing())
-    .execute();
-
-  await db
-    .insertInto('extraProperties')
-    .values({
-      id: fallbackIds.extraProperty,
-      name: 'Fallback Property',
-      type: ExtraPropertyType.text,
-      dateAdded: serializeDate(new Date()),
-    })
-    .onConflict((oc) => oc.doNothing())
-    .execute();
 
   /// IMPORTING DATA ///
 
@@ -243,6 +203,8 @@ function normalizeTags(tags: any[]) {
     isHeader: serializeBoolean(!!tag.isHeader),
     description: tag.description ?? '',
     dateAdded: serializeDate(tag.dateAdded ? new Date(tag.dateAdded) : new Date()),
+    fileCount: tag.fileCount ?? 0,
+    isFileCountDirty: serializeBoolean(tag.isFileCountDirty ?? true),
   }));
 
   return { tags: normalizedTags, subTags, tagImplications, tagAliases };
@@ -311,7 +273,7 @@ function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraPro
     files.push({
       id: fileId,
       ino: file.ino ?? '',
-      locationId: file.locationId ?? fallbackIds.locationNode,
+      locationId: file.locationId,
       relativePath: file.relativePath ?? '',
       absolutePath: file.absolutePath ?? '',
       tagSorting: file.tagsSorting ?? 'none',

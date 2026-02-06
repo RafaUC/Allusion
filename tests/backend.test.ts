@@ -27,6 +27,8 @@ describe('Backend', () => {
     aliases: [],
     description: '',
     isHeader: false,
+    fileCount: 0,
+    isFileCountDirty: true,
   };
 
   const mockLocationPath = 'c:/test';

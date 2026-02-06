@@ -13,6 +13,7 @@ import { Alert, DialogButton } from 'widgets/popovers';
 export const ClearDbButton = () => {
   const [isOpen, setIsOpen] = useState(false);
   const rootStore = useStore();
+  const { fileStore } = rootStore;
 
   return (
     <>
@@ -31,6 +32,9 @@ export const ClearDbButton = () => {
           if (button === DialogButton.CloseButton) {
             setIsOpen(false);
           } else {
+            fileStore.setDirtyMissingFiles(true);
+            fileStore.setDirtyTotalFiles(true);
+            fileStore.setDirtyUntaggedFiles(true);
             await rootStore.clearDatabase();
             rootStore.uiStore.closeSettings();
           }

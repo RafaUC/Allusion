@@ -25,12 +25,6 @@ export const StartupBehavior = observer(() => {
         Restore and query last submitted search query
       </Toggle>
       <Toggle
-        checked={uiStore.isLoadFileCountsStartupEnabled}
-        onChange={uiStore.toggleLoadFileCountsStartup}
-      >
-        Load Tag File Counts
-      </Toggle>
-      <Toggle
         checked={uiStore.isRefreshLocationsStartupEnabled}
         onChange={uiStore.toggleRefreshLocationStartup}
       >

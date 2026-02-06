@@ -1142,6 +1142,7 @@ class FileStore {
 
   addRecentlyUsedTag(tag: ClientTag): void {
     this.rootStore.uiStore.addRecentlyUsedTag(tag);
+    this.rootStore.tagStore.setFileCountDirty(tag);
   }
 
   getExtraProperties(

@@ -164,7 +164,6 @@ type PersistentPreferenceFields =
   | 'recentlyUsedTags'
   | 'isClearTagSelectorsOnSelectEnabled'
   // startup options
-  | 'isLoadFileCountsStartupEnabled'
   | 'isRefreshLocationsStartupEnabled'
   | 'isRememberSearchEnabled'
   // the following are only restored when isRememberSearchEnabled is enabled
@@ -207,8 +206,6 @@ class UiStore {
     'visible-when-inherited';
   @observable isThumbnailFilenameOverlayEnabled: boolean = false;
   @observable isThumbnailResolutionOverlayEnabled: boolean = false;
-  /** Load File Counts at startup */
-  @observable isLoadFileCountsStartupEnabled: boolean = true;
   /** Refresh locations and detect file changes at startup  */
   @observable isRefreshLocationsStartupEnabled: boolean = false;
   /** Whether to restore the last search query on start-up */
@@ -512,10 +509,6 @@ class UiStore {
 
   @action.bound toggleRefreshLocationStartup(): void {
     this.isRefreshLocationsStartupEnabled = !this.isRefreshLocationsStartupEnabled;
-  }
-
-  @action.bound toggleLoadFileCountsStartup(): void {
-    this.isLoadFileCountsStartupEnabled = !this.isLoadFileCountsStartupEnabled;
   }
 
   @action.bound toggleRememberSearchQuery(): void {
@@ -1536,7 +1529,6 @@ class UiStore {
           ([k, v]) => k in defaultHotkeyMap && (this.hotkeyMap[k as keyof IHotkeyMap] = v),
         );
 
-        this.isLoadFileCountsStartupEnabled = Boolean(prefs.isLoadFileCountsStartupEnabled ?? true);
         this.isRefreshLocationsStartupEnabled = Boolean(prefs.isRefreshLocationsStartupEnabled ?? false); // eslint-disable-line prettier/prettier
         this.isRememberSearchEnabled = Boolean(prefs.isRememberSearchEnabled);
         if (this.isRememberSearchEnabled) {
@@ -1616,7 +1608,6 @@ class UiStore {
       outlinerHeights: this.outlinerHeights.slice(),
       outlinerWidth: this.outlinerWidth,
       inspectorWidth: this.inspectorWidth,
-      isLoadFileCountsStartupEnabled: this.isLoadFileCountsStartupEnabled,
       isRefreshLocationsStartupEnabled: this.isRefreshLocationsStartupEnabled,
       isRememberSearchEnabled: this.isRememberSearchEnabled,
       isSlideMode: this.isSlideMode,
