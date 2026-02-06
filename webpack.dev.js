@@ -44,7 +44,7 @@ let mainConfig = {
   },
   externals: {
     fsevents: "require('fsevents')",
-    'better-sqlite3': 'commonjs better-sqlite3',
+    "better-sqlite3": "require('better-sqlite3')",
     "@parcel/watcher": "require('@parcel/watcher')"
   }
 };
@@ -126,7 +126,7 @@ let rendererConfig = {
   ],
   externals: {
     fsevents: "require('fsevents')",
-    'better-sqlite3': 'commonjs better-sqlite3',
+    "better-sqlite3": "require('better-sqlite3')",
     "@parcel/watcher": "require('@parcel/watcher')"
   }
 };

@@ -42,6 +42,7 @@ let mainConfig = {
     ],
   },
   externals: {
+    "better-sqlite3": "require('better-sqlite3')",
     "@parcel/watcher": "require('@parcel/watcher')"
   }
 };
@@ -136,6 +137,7 @@ let rendererConfig = {
     }),
   ],
   externals: {
+    "better-sqlite3": "require('better-sqlite3')",
     "@parcel/watcher": "require('@parcel/watcher')"
   }
 };

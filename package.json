@@ -78,6 +78,11 @@
       "node_modules/picomatch/**/*",
       "node_modules/node-addon-api/**/*",
       "node_modules/is-extglob/**/*",
+
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/bindings/**/*",
+      "node_modules/file-uri-to-path/**/*",
+
       "build/**/*",
       "package.json"
     ],
