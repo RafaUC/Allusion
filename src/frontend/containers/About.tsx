@@ -31,12 +31,12 @@ const About = observer(() => {
         </span>
         <ul>
           <li>General information</li>
-          <li>Download the latest version</li>
         </ul>
-        <ExternalLink url="https://github.com/allusion-app/Allusion">
-          github.com/allusion-app/Allusion
+        <ExternalLink url="https://github.com/RafaUC/Allusion">
+          github.com/RafaUC/Allusion
         </ExternalLink>
         <ul>
+          <li>Download the latest version</li>
           <li>🤓 View the source code</li>
           <li>🐛 Provide feedback and report bugs</li>
           <li>👥 Learn about contributing</li>

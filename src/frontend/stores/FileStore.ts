@@ -836,7 +836,7 @@ class FileStore {
           AppToaster.show(
             {
               message: `${direction === 'after' ? 'End' : 'Top'} of results reached`,
-              timeout: direction === 'after' ? 5000 : 3000,
+              timeout: direction === 'after' ? 5000 : 2000,
             },
             'results-edge-reached',
           );
