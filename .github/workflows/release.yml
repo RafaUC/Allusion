@@ -27,7 +27,7 @@ jobs:
 
       - name: Install setuptools (fix for distutils error)
         if: matrix.os == 'macos-latest'
-        run: pip3 install setuptools
+        run: pip3 install setuptools --break-system-packages
 
       - name: Build/release Electron app
         uses: samuelmeuli/action-electron-builder@v1
