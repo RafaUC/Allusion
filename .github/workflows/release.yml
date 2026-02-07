@@ -26,8 +26,7 @@ jobs:
           node-version: 22
 
       - name: Install setuptools (fix for distutils error)
-        if: matrix.os == 'macos-latest'
-        run: pip3 install setuptools --break-system-packages
+        run: python -m pip install setuptools --break-system-packages || python -m pip install setuptools
 
       - name: Build/release Electron app
         uses: samuelmeuli/action-electron-builder@v1
