@@ -2,6 +2,7 @@
 name: Build/release
 
 on:
+  workflow_dispatch:
   # Create a release for tag pushes starting with 'v'
   push:
     tags:
