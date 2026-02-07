@@ -1,3 +1,5 @@
+import { ID } from './id';
+
 export type PropertyKeys<T> = {
   [K in keyof T]: K extends string ? K : never;
 }[keyof T];
@@ -13,8 +15,18 @@ export const enum OrderDirection {
   Desc,
 }
 
+export type IndexableType = number | string | Date | Array<number | string | Date> | Uint8Array;
+
+export type PaginationDirection = 'after' | 'before';
+
+export type Cursor = { id: ID; orderValue: number | string | bigint | null };
+
 // General search criteria for a database entity
 // FFR: Boolean keys are not supported in IndexedDB/Dexie - must store booleans as 0/1
+export type ConditionGroupDTO<T> = {
+  conjunction: SearchConjunction;
+  children: Array<ConditionGroupDTO<T> | ConditionDTO<T>>;
+};
 
 export type ConditionDTO<T> =
   | ArrayConditionDTO<T, any>
@@ -52,6 +64,9 @@ export type ExtractKeyByValue<T, V> = {
 export type BaseIndexSignature = { [key: string]: any };
 
 // Trick for converting array to type https://stackoverflow.com/a/49529930/2350481
+
+export const SearchConjunctions = ['and', 'or'] as const;
+export type SearchConjunction = (typeof SearchConjunctions)[number];
 
 export const NumberOperators = [
   'equals',

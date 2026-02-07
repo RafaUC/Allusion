@@ -1,4 +1,4 @@
-import { action, computed, IComputedValue, runInAction } from 'mobx';
+import { action, computed, IComputedValue } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React, {
   ForwardedRef,
@@ -29,7 +29,6 @@ import {
   useTabTagAutocomplete,
 } from './TagSelector';
 import { useStore } from '../contexts/StoreContext';
-import { ClientFile } from '../entities/File';
 import { ClientTag } from '../entities/Tag';
 import { useAction, useAutorun, useComputed } from '../hooks/mobx';
 import { Menu, useContextMenu } from 'widgets/menus';
@@ -60,7 +59,7 @@ export const FileTagsEditor = observer(() => {
 
   const counter = useComputed(() => {
     const fileSelection = Array.from(uiStore.fileSelection);
-    const isTooMany = fileSelection.length > 1000;
+    const isTooMany = uiStore.isAllFilesSelected || fileSelection.length > 1000;
     // Count how often tags are used // Aded last bool value indicating if is an explicit tag -> should show delete button;
     const counter = new Map<ClientTag, [number, boolean]>();
     for (const file of fileSelection) {
@@ -206,10 +205,8 @@ export const FileTagsEditor = observer(() => {
     }
   }, [clearInputOnSelect]);
 
-  const removeTag = useAction((tag: ClientTag) => {
-    for (const f of uiStore.fileSelection) {
-      f.removeTag(tag);
-    }
+  const removeTag = useAction(async (tag: ClientTag) => {
+    await uiStore.removeTagsFromSelectedFiles([tag]);
     inputRef.current?.focus();
   });
 
@@ -345,28 +342,46 @@ const MatchingTagsList = observer(
       }
     }, [getTabMatchTagRef, matches]);
 
+    // When selecting all filles there's no way to know the true selected statos so instead
+    // we use a map to track the checked status.
+    // reset it using usingmemo each time isAllFilesSelected changes
+    const allSelectedToggleStatus = useMemo(() => {
+      if (uiStore.isAllFilesSelected) {
+        return new Map<string, boolean>();
+      } else {
+        return undefined;
+      }
+    }, [uiStore.isAllFilesSelected]);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const toggleSelection = useCallback(
-      action((isSelected: boolean, tag: ClientTag) => {
-        const operation = isSelected
-          ? (f: ClientFile) => f.removeTag(tag)
-          : (f: ClientFile) => f.addTag(tag);
-        uiStore.fileSelection.forEach(operation);
+      action(async (isSelected: boolean, tag: ClientTag) => {
+        if (isSelected) {
+          await uiStore.removeTagsFromSelectedFiles([tag]);
+          allSelectedToggleStatus?.set(tag.id, false);
+        } else {
+          await uiStore.addTagsToSelectedFiles([tag]);
+          allSelectedToggleStatus?.set(tag.id, true);
+        }
         resetTextBox();
       }),
-      [resetTextBox],
+      [resetTextBox, allSelectedToggleStatus],
     );
 
     const isSelected: isTagSelected = useCallback(
-      // If all selected files have the tag mark it as selected,
-      // else if partially in selected files return undefined, else mark it as not selected.
+      // define the selected satus:
+      // - if any file has it, mark it as explicit
+      // - if not all selected files have the tag or is selecting all filtered
+      //   files and its allSelectedToggleStatus is false, mark it as partial
       (tag: ClientTag) => {
         const tagRecord = counter.get().get(tag);
         const isExplicit = tagRecord?.[1] ?? false;
-        const isPartial = tagRecord?.[0] !== uiStore.fileSelection.size;
+        const isPartial =
+          tagRecord?.[0] !== uiStore.fileSelection.size ||
+          (allSelectedToggleStatus && !allSelectedToggleStatus.get(tag.id));
         return [tagRecord !== undefined && !isPartial, isExplicit];
       },
-      [counter, uiStore],
+      [allSelectedToggleStatus, counter, uiStore],
     );
     const VirtualizableTagOption = useMemo(
       () =>
@@ -439,11 +454,7 @@ const CreateOption = ({ inputText, hasMatches, resetTextBox, style, index }: Cre
 
   const createTag = useCallback(async () => {
     const newTag = await tagStore.create(tagStore.root, inputText);
-    runInAction(() => {
-      for (const f of uiStore.fileSelection) {
-        f.addTag(newTag);
-      }
-    });
+    await uiStore.addTagsToSelectedFiles([newTag]);
     resetTextBox();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, resetTextBox]);
@@ -508,8 +519,9 @@ interface IncrementalTagItemsProps {
 }
 
 export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) => {
-  const { uiStore } = useStore();
+  const { uiStore, fileStore } = useStore();
   const isMultiSelection = uiStore.fileSelection.size > 1;
+  const isAllFilesSelected = uiStore.isAllFilesSelected;
   const { tags, counter, removeTag, onContextMenu, chunkSize = 5 } = props;
 
   const [visibleTags, setVisibleTags] = useState<ClientTag[]>([]);
@@ -542,12 +554,16 @@ export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tags]);
 
+  const isAllfilesText =
+    isAllFilesSelected && uiStore.fileSelection.size !== fileStore.numFilteredFiles;
+  const isMultiText = counter && isMultiSelection;
+
   const RenderTag = useMemo(
     () =>
       observer(({ tag }: { tag: ClientTag }) => (
         <Tag
           text={`${tag.name}${
-            counter && isMultiSelection ? ` (${counter.get().get(tag)?.[0]})` : ''
+            isAllfilesText ? ' (?)' : isMultiText ? ` (${counter.get().get(tag)?.[0]})` : ''
           }`}
           color={tag.viewColor}
           isHeader={tag.isHeader}
@@ -560,7 +576,7 @@ export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) =>
           onContextMenu={onContextMenu ? (e) => onContextMenu(e, tag) : undefined}
         />
       )),
-    [counter, isMultiSelection, onContextMenu, removeTag],
+    [counter, isAllfilesText, isMultiText, onContextMenu, removeTag],
   );
 
   return (

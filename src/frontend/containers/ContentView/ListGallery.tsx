@@ -69,7 +69,7 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
   }, [index, fileSelectionSize]);
 
   // While in slide mode, scroll to last shown image if not in view, for transition back to gallery
-  const { isSlideMode, firstItem } = uiStore;
+  const { isSlideMode, firstItemIndex: firstItem } = uiStore;
   useLayoutEffect(() => {
     if (isSlideMode) {
       ref.current?.scrollToItem(firstItem, 'smart');
@@ -112,7 +112,7 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
       itemKey={getItemKey}
       children={Row}
       onScroll={handleScroll}
-      initialScrollOffset={uiStore.firstItem * cellSize}
+      initialScrollOffset={uiStore.firstItemIndex * cellSize}
       ref={ref}
       outerElementType={Table}
       innerElementType={Body}

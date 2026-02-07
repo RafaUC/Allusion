@@ -1,8 +1,8 @@
 import { OrderDirection } from '../src/api/data-storage-search';
 import { FileDTO } from '../src/api/file';
 import { ROOT_TAG_ID, TagDTO } from '../src/api/tag';
-import Backend from '../src/backend/backend';
-import { dbInit } from '../src/backend/config';
+import Backend from '../src/backend/_deprecated/backend';
+import { dbInit } from '../src/backend/_deprecated/config';
 
 describe('Backend', () => {
   let TEST_DATABASE_ID_COUNTER = 0;
@@ -27,6 +27,8 @@ describe('Backend', () => {
     aliases: [],
     description: '',
     isHeader: false,
+    fileCount: 0,
+    isFileCountDirty: true,
   };
 
   const mockLocationPath = 'c:/test';
@@ -40,19 +42,19 @@ describe('Backend', () => {
         relativePath: `test (${index}).jpg`,
         locationId: 'Default location',
         name: `test (${index}).jpg`,
+        tagSorting: 'hierarchy',
         size: 42,
         width: 640,
         height: 480,
         dateAdded: new Date(),
         dateModified: new Date(),
         dateCreated: new Date(),
-        OrigDateModified: new Date(),
+        dateModifiedOS: new Date(),
         dateLastIndexed: new Date(),
         extension: 'jpg',
         ino: index.toString(),
         id: index.toString(),
         tags: [],
-        extraPropertyIDs: [],
         extraProperties: {},
       });
     }

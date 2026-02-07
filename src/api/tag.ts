@@ -16,4 +16,6 @@ export type TagDTO = {
   isHeader: boolean;
   aliases: string[];
   description: string;
+  fileCount: number;
+  isFileCountDirty: boolean;
 };

@@ -128,7 +128,7 @@ const toggleQuery = (nodeData: ClientTag, uiStore: UiStore) => {
       );
     }
   } else {
-    uiStore.addSearchCriteria(new ClientTagSearchCriteria('tags', nodeData.id));
+    uiStore.addSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags', nodeData.id));
   }
 };
 
@@ -136,7 +136,7 @@ const DnDHelper = createDragReorderHelper('tag-dnd-preview', DnDTagType);
 
 const TagItem = observer((props: ITagItemProps) => {
   const { nodeData, dispatch, expansion, isEditing, submit, pos, select } = props;
-  const { uiStore, tagStore } = useStore();
+  const { uiStore } = useStore();
   const dndData = useTagDnD();
 
   const show = useContextMenu();
@@ -287,7 +287,12 @@ const TagItem = observer((props: ITagItemProps) => {
           }
         } else {
           // otherwise, search it
-          const query = new ClientTagSearchCriteria('tags', nodeData.id, 'containsRecursively');
+          const query = new ClientTagSearchCriteria(
+            undefined,
+            'tags',
+            nodeData.id,
+            'containsRecursively',
+          );
           if (event.ctrlKey || event.metaKey) {
             uiStore.addSearchCriteria(query);
           } else {
@@ -327,7 +332,9 @@ const TagItem = observer((props: ITagItemProps) => {
         onSubmit={submit}
         tooltip={`${nodeData.path
           .map((v) => (v.startsWith('#') ? '&nbsp;<b>' + v.slice(1) + '</b>&nbsp;' : v))
-          .join(' › ')}${tagStore.fileCountsInitialized ? ` (${nodeData.fileCount})` : ''}`}
+          .join(' › ')}${` (${nodeData.isFileCountDirty ? '~' : ''}${
+          nodeData.fileCount === 0 && nodeData.isFileCountDirty ? '?' : nodeData.fileCount
+        })`}`}
       />
       {!isEditing && (
         <SearchButton
@@ -803,9 +810,9 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
           {!tagStore.fileCountsInitialized && (
             <ToolbarButton
               icon={IconSet.RELOAD_COMPACT}
-              text="Load Tag File Counts"
-              onClick={() => tagStore.initializeTagFileCounts()}
-              tooltip={'Load Tag File Counts'}
+              text="Update Tag File Counts"
+              onClick={() => tagStore.updateTagSubTreeFileCounts(root)}
+              tooltip={'Update Tag File Counts'}
             />
           )}
           {uiStore.tagSelection.size > 0 ? (

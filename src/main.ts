@@ -30,7 +30,6 @@ const basePath = app.getPath('userData');
 
 const preferencesFilePath = path.join(basePath, 'preferences.json');
 const windowStateFilePath = path.join(basePath, 'windowState.json');
-const logFilePath = path.join(basePath, 'app.log');
 
 type PreferencesFile = {
   checkForUpdatesOnStartup?: boolean;
@@ -76,7 +75,13 @@ function initialize() {
   });
 
   createWindow();
-  createPreviewWindow();
+  // TODO: During DB backup import, initializing a second window at the same time
+  // will access the database and prevent the DB file from being removed when
+  // importing a backup at startup. In the future, we could implement a preview
+  // initialization that doesn't cause this conflict.
+  // The preview window can safely be initialized at any time after the main
+  // window initialization has completed.
+  //createPreviewWindow();
 
   // Initialize preferences file and its consequences
   try {
@@ -453,6 +458,8 @@ if (!HAS_INSTANCE_LOCK) {
       mainWindow.focus();
     }
   });
+  // Enable manual garbage collector
+  app.commandLine.appendSwitch('js-flags', '--expose-gc');
 
   // Only initialize window if no other instance is already running:
   // This method will be called when Electron has finished
@@ -504,8 +511,9 @@ autoUpdater.on('update-available', async (info: UpdateInfo) => {
     return;
   }
 
-  const message = `Update available: ${info.releaseName || info.version
-    }:\nDo you wish to update now?`;
+  const message = `Update available: ${
+    info.releaseName || info.version
+  }:\nDo you wish to update now?`;
   // info.releaseNotes attribute is HTML, could show that in renderer at some point
 
   const dialogResult = await dialog.showMessageBox(mainWindow, {
@@ -565,8 +573,9 @@ autoUpdater.on('download-progress', (progressObj: { percent: number }) => {
 process.on('uncaughtException', async (error) => {
   console.error('Uncaught exception', error);
 
-  const errorMessage = `An unexpected error occurred. Please file a bug report if you think this needs fixing!\n${error.stack?.includes(error.message) ? '' : `${error.name}: ${error.message.slice(0, 200)}\n`
-    }\n${error.stack?.slice(0, 300)}`;
+  const errorMessage = `An unexpected error occurred. Please file a bug report if you think this needs fixing!\n${
+    error.stack?.includes(error.message) ? '' : `${error.name}: ${error.message.slice(0, 200)}\n`
+  }\n${error.stack?.slice(0, 300)}`;
 
   try {
     if (mainWindow != null && !mainWindow.isDestroyed()) {

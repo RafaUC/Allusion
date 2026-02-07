@@ -2,6 +2,8 @@
   justify-content: stretch;
 
   .toolbar-button {
+    flex-shrink: 0;
+
     &[aria-pressed='true'],
     &[aria-checked='true'] {
       color: var(--text-color-strong);

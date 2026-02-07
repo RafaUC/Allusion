@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   // changed from min-width since large tag names expand the dialog width which looks bad
-  width: min(85ch, 80vw);
+  width: min(100ch, 80vw);
   margin-inline: auto;
 
   .criteria-input,
@@ -19,46 +19,114 @@
   }
 }
 
+#criteria-builder-label {
+  display: flex;
+  padding-bottom: 0.4rem;
+}
+
 #criteria-builder {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr min-content;
+  grid-template-columns: 3.5rem 3fr 3fr 4fr min-content;
   gap: 0.25rem 0.5rem;
   align-items: center;
 
   label {
     text-transform: uppercase;
     font-size: smaller;
+    padding-left: 1ch;
+    align-self: end;
   }
 }
 
 #query-editor-container {
   overflow: hidden auto;
-  padding: 2px 0;
+  padding: 2px;
   // dialog height - height of basically everything except the container
   max-height: calc(80vh - 17.25rem);
 }
 
-#query-editor {
+#query-editor-container-label {
+  display: flex;
+  padding-block: 0.4rem;
+}
+
+.query-editor {
+  display: grid;
+  grid-template-columns: 3.5rem 3fr 3fr 4fr min-content;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
   width: 100%;
   border-spacing: 0;
 
-  tr {
-    margin-bottom: 0.25rem;
-  }
-
-  td,
-  th {
-    padding: 0;
-    padding-bottom: 0.25rem;
-  }
-
-  td {
-    padding-inline-start: 0.5rem;
-  }
-
   .criteria-input,
   [role='combobox'] {
-    min-width: 175px;
+    //min-width: 175px;
     width: 100%;
+  }
+
+  .group-containter {
+    grid-column: 1 / -1;
+    padding: 0.5rem;
+    border: 1px dashed var(--background-color-selected);
+    border-radius: 0.25rem;
+  }
+
+  .separator-line,
+  .criteria-separator,
+  .separator {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: var(--text-color-muted);
+    opacity: 0.5;
+
+    &::before,
+    &::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      margin: 0 8px;
+    }
+
+    .conjunction-input {
+      width: fit-content;
+      background: var(--background-color);
+    }
+  }
+
+  .separator-line {
+    &::before,
+    &::after {
+      background: var(--text-color-muted);
+    }
+  }
+
+  .criteria-separator {
+    margin: -2.5px;
+    font-size: 0.55rem;
+
+    .conjunction-input {
+      height: 0.78rem;
+      min-height: unset;
+    }
+  }
+
+  .group-controls {
+    display: contents;
+
+    .btn-icon,
+    .criteria-input {
+      height: 1.1rem !important;
+      min-height: unset !important;
+      margin-bottom: 2px;
+      overflow: visible;
+      color: var(--accent-color-orange);
+    }
+
+    // shiulw be 3 cell width
+    .group-name-input {
+      grid-column: 2 / 5;
+    }
   }
 }

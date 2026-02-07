@@ -90,12 +90,24 @@ class ExtraPropertyStore {
     files.forEach((f) => f.removeExtraProperty(extraProperty));
   }
 
-  @action.bound setOnFiles(
+  @action.bound async dispatchOnFiles(
     files: ClientFile[],
     extraProperty: ClientExtraProperty,
-    value: ExtraPropertyValue,
-  ): void {
-    files.forEach((f) => f.setExtraProperty(extraProperty, value));
+    value?: ExtraPropertyValue,
+    overwrite: boolean = true,
+  ): Promise<void> {
+    const dispatch = async (batchFiles: ClientFile[]) => {
+      batchFiles.forEach((f) => {
+        if (overwrite || !f.extraProperties.has(extraProperty)) {
+          f.setExtraProperty(extraProperty, value);
+        }
+      });
+    };
+    const isAllFilesSelected = this.rootStore.uiStore.isAllFilesSelected;
+    await dispatch(Array.from(files));
+    if (isAllFilesSelected) {
+      await this.rootStore.fileStore.dispatchToFilteredFiles(dispatch);
+    }
   }
 
   save(extraProperty: ExtraPropertyDTO): void {

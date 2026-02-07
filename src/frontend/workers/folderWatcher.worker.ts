@@ -1,8 +1,7 @@
 import { expose } from 'comlink';
 import { statSync } from 'fs';
 import SysPath from 'path';
-import { IMG_EXTENSIONS_TYPE } from 'src/api/file';
-import { FileStats } from '../stores/LocationStore';
+import { FileStats, IMG_EXTENSIONS_TYPE } from 'src/api/file';
 import * as parcelWatcher from '@parcel/watcher';
 
 const ctx: Worker = self as any;

@@ -66,3 +66,25 @@ export class TimingManager {
     this.timings.clear();
   }
 }
+
+export const debugShallowCompare = <T extends Record<string, any>>(
+  componentName = 'MemoComponent',
+) => {
+  return (prev: T, next: T): boolean => {
+    let areEqual = true;
+
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+
+    for (const key of keys) {
+      if (!Object.is(prev[key], next[key])) {
+        areEqual = false;
+        console.log(`[${componentName}] prop changed → "${key}"`, {
+          from: prev[key],
+          to: next[key],
+        });
+      }
+    }
+
+    return areEqual;
+  };
+};

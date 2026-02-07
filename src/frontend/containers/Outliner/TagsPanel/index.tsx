@@ -36,7 +36,7 @@ export const OutlinerActionBar = observer(() => {
     if (maybeUntaggedCrit) {
       uiStore.removeSearchCriteria(maybeUntaggedCrit);
     } else {
-      uiStore.addSearchCriteria(new ClientTagSearchCriteria('tags'));
+      uiStore.addSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags'));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,294 +1,69 @@
-import Dexie, { Transaction } from 'dexie';
-import fse from 'fs-extra';
+import { Kysely, Migrator, Migration, MigrationProvider, Logger, LogEvent } from 'kysely';
+import { AllusionDB_SQL } from './schemaTypes';
 
-import { FileDTO } from '../api/file';
-import { TagDTO } from 'src/api/tag';
-import { ID } from '../api/id';
-import { ExtraProperties, ExtraPropertyType } from 'src/api/extraProperty';
-import { LocationDTO, SubLocationDTO } from 'src/api/location';
-
-// The name of the IndexedDB
 export const DB_NAME = 'Allusion';
+
+export const DB_TO_IMPORT_NAME = 'DB_TO_IMPORT';
 
 export const NUM_AUTO_BACKUPS = 6;
 
 export const AUTO_BACKUP_TIMEOUT = 1000 * 60 * 10; // 10 minutes
 
-// Schema based on https://dexie.org/docs/Version/Version.stores()#schema-syntax
-// Only for the indexes of the DB, not all fields
-// Versions help with upgrading DB to new configurations:
-// https://dexie.org/docs/Tutorial/Design#database-versioning
-const dbConfig: DBVersioningConfig[] = [
-  {
-    // Version 4, 19-9-20: Added system created date
-    version: 4,
-    collections: [
-      {
-        name: 'files',
-        schema:
-          '++id, locationId, *tags, relativePath, &absolutePath, name, extension, size, width, height, dateAdded, dateModified, dateCreated',
-      },
-      {
-        name: 'tags',
-        schema: '++id',
-      },
-      {
-        name: 'locations',
-        schema: '++id, dateAdded',
-      },
-    ],
-  },
-  {
-    // Version 5, 29-5-21: Added sub-locations
-    version: 5,
-    collections: [],
-    upgrade: (tx: Transaction): void => {
-      tx.table('locations')
-        .toCollection()
-        .modify((location: any) => {
-          location.subLocations = [];
-          return location;
-        });
-    },
-  },
-  {
-    // Version 6, 13-11-21: Added lastIndexed date to File for recreating thumbnails
-    version: 6,
-    collections: [],
-    upgrade: (tx: Transaction): void => {
-      tx.table('files')
-        .toCollection()
-        .modify((file: FileDTO) => {
-          file.dateLastIndexed = file.dateAdded;
-          return file;
-        });
-    },
-  },
-  {
-    // Version 7, 4-1-22: Added saved searches
-    version: 7,
-    collections: [
-      {
-        name: 'searches',
-        schema: '++id',
-      },
-    ],
-  },
-  {
-    // Version 8, 9-1-22: Added ino to file for detecting added/removed files as a single rename/move event
-    version: 8,
-    collections: [
-      {
-        name: 'files',
-        schema:
-          '++id, ino, locationId, *tags, relativePath, &absolutePath, name, extension, size, width, height, dateAdded, dateModified, dateCreated',
-      },
-    ],
-    upgrade: (tx: Transaction): void => {
-      tx.table('files')
-        .toCollection()
-        .modify((file: FileDTO) => {
-          try {
-            // apparently you can't do async stuff here, even though it is typed to return a PromiseLike :/
-            const stats = fse.statSync(file.absolutePath);
-            // fallback to random value so that it won't be recognized as identical file to others where no ino could be found
-            file.ino = stats.ino.toString() || Math.random().toString();
-          } catch (e) {
-            console.warn(`Could not get ino for ${file.absolutePath}`);
-          }
-          return file;
-        });
-    },
-  },
-  {
-    version: 9,
-    collections: [
-      {
-        name: 'tags',
-        schema: '++id',
-      },
-    ],
-    upgrade: (tx: Transaction): void => {
-      tx.table('tags')
-        .toCollection()
-        .modify((tag: TagDTO) => {
-          tag.impliedTags = [];
-          return tag;
-        });
-    },
-  },
-  {
-    // Version 10, 6-3-25: Added scores and .scores to file
-    version: 10,
-    collections: [
-      {
-        name: 'scores',
-        schema: '++id, name, dateCreated, dateModified',
-      },
-      {
-        name: 'files',
-        schema:
-          '++id, ino, locationId, *tags, scores, relativePath, &absolutePath, name, extension, size, width, height, dateAdded, dateModified, dateCreated',
-      },
-    ],
-    upgrade: (tx: Transaction): void => {
-      tx.table('files')
-        .toCollection()
-        .modify((file: any) => {
-          file.scores = new Map<ID, number>();
-          return file;
-        });
-    },
-  },
-  {
-    // Version 11, Added OrigDateModified date to File for recreating thumbnails and metadata
-    version: 11,
-    collections: [],
-    upgrade: (tx: Transaction): void => {
-      tx.table('files')
-        .toCollection()
-        .modify((file: FileDTO) => {
-          file.OrigDateModified = file.dateAdded;
-          return file;
-        });
-    },
-  },
-  {
-    // Version 12 29-5-25: Rename table Scores to extraProperties, redefine scores in files to extraProperties, add isVisibleInherited: bool to tags and add tags to locations.
-    version: 12,
-    collections: [
-      {
-        name: 'extraProperties',
-        schema: '++id, name',
-      },
-      {
-        name: 'files',
-        schema:
-          '++id, ino, locationId, *tags, *extraPropertyIDs, relativePath, &absolutePath, name, extension, size, width, height, dateAdded, dateModified, dateCreated, OrigDateModified',
-      },
-    ],
-    upgrade: (tx: Transaction): void => {
-      // Migrate "scores" to "extraProperties"
-      const oldScores = tx.table('scores');
-      const extraProperties = tx.table('extraProperties');
+export const USE_BACKEND_AS_WORKER = true; // easier to debug when false
 
-      oldScores.toArray().then((records) => {
-        const transformed = records.map((oldRecord: any) => {
-          return {
-            ...oldRecord,
-            type: ExtraPropertyType.number,
-            dateAdded: oldRecord.dateCreated,
-            dateCreated: undefined,
-            dateModified: undefined,
-          };
-        });
-        const cleaned = transformed.map((r) => {
-          delete r.dateCreated;
-          delete r.dateModified;
-          return r;
-        });
+export const PAD_STRING_LENGTH = 10;
 
-        return extraProperties.bulkAdd(cleaned);
-      });
+//Register the migrations here.
+class InlineMigrationProvider implements MigrationProvider {
+  #context: Record<string, any>;
 
-      // Migrate property "scores" in files to "extraProperties"
-      tx.table('files')
-        .toCollection()
-        .modify((file: any) => {
-          if (file.scores instanceof Map) {
-            file.extraPropertyIDs = Array.from(file.scores.keys());
-            file.extraProperties = Object.fromEntries(file.scores) as ExtraProperties;
-          } else {
-            file.extraPropertyIDs = [];
-            file.extraProperties = {};
-          }
-          delete file.scores;
-          return file;
-        });
+  constructor(context: Record<string, any> = {}) {
+    this.#context = context;
+  }
+  async getMigrations(): Promise<Record<string, Migration>> {
+    const context = this.#context;
+    return {
+      '000_initial': await import('./migrations/000_initial'),
+      '001_migrateJSON': (await import('./migrations/001_migrateJSON')).default(context),
+    };
+  }
+}
 
-      // Add isVisibleInherited to tags
-      tx.table('tags')
-        .toCollection()
-        .modify((tag: any) => {
-          tag.isVisibleInherited = true;
-          return tag;
-        });
+export async function migrateToLatest(
+  db: Kysely<AllusionDB_SQL>,
+  context: { jsonToImport: string | undefined },
+): Promise<void> {
+  const migrator = new Migrator({
+    db,
+    provider: new InlineMigrationProvider(context),
+  });
 
-      // Add tags to locations and sublocations
-      function addTagsRecursively(location: any): any {
-        location.tags = [];
-        if (Array.isArray(location.subLocations)) {
-          location.subLocations = location.subLocations.map((sublocation: any) =>
-            addTagsRecursively({ ...sublocation }),
-          );
-        }
-        return location;
-      }
+  const { error, results } = await migrator.migrateToLatest();
 
-      tx.table('locations')
-        .toCollection()
-        .modify((location: any) => {
-          return addTagsRecursively(location);
-        });
-    },
-  },
-  {
-    // Version 13 29-5-25: Drop table scores
-    version: 13,
-    collections: [
-      {
-        name: 'scores',
-        schema: null,
-      },
-    ],
-  },
-  {
-    // Version 14 05-08-25: Added isHeader, aliases and description to tags.
-    version: 14,
-    collections: [],
-    upgrade: (tx: Transaction): void => {
-      tx.table('tags')
-        .toCollection()
-        .modify((tag: TagDTO) => {
-          tag.isHeader = false;
-          tag.aliases = [];
-          tag.description = '';
-          return tag;
-        });
-      // Add
-      tx.table('locations')
-        .toCollection()
-        .modify((location: LocationDTO) => {
-          location.isWatchingFiles = true;
-          return location;
-        });
-    },
-  },
-];
-
-type DBVersioningConfig = {
-  version: number;
-  collections: Array<{ name: string; schema: string | null }>;
-  upgrade?: (tx: Transaction) => void | Promise<void>;
-};
-
-/**
- * A function that should be called before using the database.
- * It initializes the object stores
- */
-export function dbInit(dbName: string): Dexie {
-  const db = new Dexie(dbName);
-
-  // Initialize for each DB version: https://dexie.org/docs/Tutorial/Design#database-versioning
-  for (const config of dbConfig) {
-    const { version, collections, upgrade } = config;
-    const dbSchema: { [key: string]: string | null } = {};
-    collections.forEach(({ name, schema }) => (dbSchema[name] = schema));
-    const stores = db.version(version).stores(dbSchema);
-    if (upgrade) {
-      stores.upgrade(upgrade);
+  results?.forEach((it) => {
+    if (it.status === 'Success') {
+      console.log(`migration "${it.migrationName}" was executed successfully`);
+    } else if (it.status === 'Error') {
+      console.error(`failed to execute migration "${it.migrationName}"`);
     }
+  });
+
+  if (error) {
+    console.error('failed to migrate');
+    console.error(error);
+  }
+}
+
+export const kyselyLogger: Logger = (event: LogEvent): void => {
+  if (event.level === 'query') {
+    console.log('SQL:', event.query.sql);
+    console.log('Parameters:', event.query.parameters);
+    console.log('Duration:', event.queryDurationMillis, 'ms');
   }
 
-  return db;
-}
+  if (event.level === 'error') {
+    console.error('SQL Error:', event.error);
+    console.error('Failed Query:', event.query.sql);
+    console.error('Parameters:', event.query.parameters);
+  }
+};

@@ -47,8 +47,8 @@ const SlideView = observer(({ width, height }: SlideViewProps) => {
   const { uiStore, fileStore, imageLoader } = useStore();
   const file = uiStore.firstFileInView;
   const eventManager = useMemo(() => (file ? new CommandDispatcher(file) : undefined), [file]);
-  const isFirst = useComputed(() => uiStore.firstItem === 0);
-  const isLast = useComputed(() => uiStore.firstItem === fileStore.fileList.length - 1);
+  const isFirst = useComputed(() => uiStore.firstItemIndex === 0);
+  const isLast = useComputed(() => uiStore.firstItemIndex === fileStore.fileList.length - 1);
 
   // Go to the first selected image on load
   useEffect(() => {
@@ -82,14 +82,14 @@ const SlideView = observer(({ width, height }: SlideViewProps) => {
   }, [uiStore]);
 
   const decrImgIndex = useAction(() => {
-    const index = Math.max(0, uiStore.firstItem - 1);
+    const index = Math.max(0, uiStore.firstItemIndex - 1);
     uiStore.setFirstItem(index);
 
     // Select only this file: TagEditor overlay shows tags on selected images
     uiStore.selectFile(fileStore.fileList[index], true);
   });
   const incrImgIndex = useAction(() => {
-    const index = Math.min(uiStore.firstItem + 1, fileStore.fileList.length - 1);
+    const index = Math.min(uiStore.firstItemIndex + 1, fileStore.fileList.length - 1);
     uiStore.setFirstItem(index);
     uiStore.selectFile(fileStore.fileList[index], true);
   });
@@ -121,8 +121,8 @@ const SlideView = observer(({ width, height }: SlideViewProps) => {
   useEffect(() => {
     let isEffectRunning = true;
     const dispose = autorun(() => {
-      if (!isLast.get() && uiStore.firstItem + 1 < fileStore.fileList.length) {
-        const nextFile = fileStore.fileList[uiStore.firstItem + 1];
+      if (!isLast.get() && uiStore.firstItemIndex + 1 < fileStore.fileList.length) {
+        const nextFile = fileStore.fileList[uiStore.firstItemIndex + 1];
         let nextImg: any;
         if (nextFile && isFileExtensionVideo(nextFile.extension)) {
           nextImg = document.createElement('video');
@@ -136,7 +136,7 @@ const SlideView = observer(({ width, height }: SlideViewProps) => {
         }
       }
       if (!isFirst.get() && fileStore.fileList.length > 0) {
-        const prevFile = fileStore.fileList[uiStore.firstItem - 1];
+        const prevFile = fileStore.fileList[uiStore.firstItemIndex - 1];
         let prevImg: any;
         if (prevFile && isFileExtensionVideo(prevFile.extension)) {
           prevImg = document.createElement('video');

@@ -29,6 +29,9 @@ export class ClientTag {
   @observable private readonly _impliedTags = observable<ClientTag>([]);
   @observable isHeader: boolean;
   @observable description: string;
+  /** The amount of files that have this tag implicitly assigned to them. */
+  @observable fileCount: number;
+  @observable isFileCountDirty: boolean;
   readonly aliases = observable<string>([]);
   /** Index of the latest matched alias.
    * It cannot be observable because currently we update it while rendering tag selectors */
@@ -38,33 +41,7 @@ export class ClientTag {
   // Gets recalculated when TagStore.tagList is recomputed.
   flatIndex: number = 0;
 
-  // icon, (fileCount?)
-
-  /** The amount of files that have this tag implicitly assigned to them.
-   *
-   * Note: we are using a computed to automatically calculate this value recursively whenever
-   * any part of this tag's sub hierarchy or assignments changes. This could get really
-   * expensive really quickly, but since we are only reading this value in the tagsTree labels
-   * (which is virtualized), we get great benefits from it because only visible tags need to calculate this.
-   *
-   * However, if in the future we need to read a tag's fileCount or impliedAssignedFiles continuously
-   * in a large set of tags, we might need to refactor this if it doesn't perform well enough.
-   */
-  @computed get fileCount(): number {
-    return this.impliedAssignedFiles.size;
-  }
-  /** Set of the file IDs that have explicitly assigned this tag */
-  readonly assignedFiles = observable(new Set<ID>());
-  /** Set of the file IDs that have implicitly assigned this tag */
-  @computed get impliedAssignedFiles(): Set<ID> {
-    const impliedAssignedFiles = new Set<ID>(this.assignedFiles);
-    for (const subTag of this.getImpliedSubTree()) {
-      for (const fileId of subTag.assignedFiles) {
-        impliedAssignedFiles.add(fileId);
-      }
-    }
-    return impliedAssignedFiles;
-  }
+  // icon?
 
   constructor(store: TagStore, tagProps: TagDTO) {
     this.store = store;
@@ -76,6 +53,8 @@ export class ClientTag {
     this.isVisibleInherited = tagProps.isVisibleInherited;
     this.isHeader = tagProps.isHeader;
     this.description = tagProps.description;
+    this.fileCount = tagProps.fileCount;
+    this.isFileCountDirty = tagProps.isFileCountDirty;
     this.aliases.replace(tagProps.aliases);
 
     // observe normalizedAliases and normalizedName in a reaction to keep alive the computed cache.
@@ -147,7 +126,7 @@ export class ClientTag {
       visited = new Set<ClientTag>(),
       path = new Set<ClientTag>(),
     ): Generator<ClientTag> {
-      if (path.has(tag)) {
+      if (path.has(tag) && tag.id !== ROOT_TAG_ID) {
         tag.store.showTagToast(
           tag,
           'has circular relations with other tags',
@@ -172,14 +151,14 @@ export class ClientTag {
   }
 
   /** Returns this tag and all of its "implied By" sub-tags and their sub-tags ordered depth-first */
-  @action getImpliedSubTree(): Generator<ClientTag> {
+  @action getImpliedSubTree(visited?: Set<ClientTag>): Generator<ClientTag> {
     function* tree(
       tag: ClientTag,
       depth: number,
       visited = new Set<ClientTag>(),
       path = new Set<ClientTag>(),
     ): Generator<ClientTag> {
-      if (path.has(tag)) {
+      if (path.has(tag) && tag.id !== ROOT_TAG_ID) {
         tag.store.showTagToast(
           tag,
           'has circular implied relations with other tags',
@@ -202,7 +181,7 @@ export class ClientTag {
         path.delete(tag);
       }
     }
-    return tree(this, 0);
+    return tree(this, 0, visited);
   }
 
   /**
@@ -558,24 +537,20 @@ export class ClientTag {
     tag.removeImpliedTag(this);
   }
 
-  @action.bound incrementFileCount(files: ID | ID[]): void {
-    if (Array.isArray(files)) {
-      for (let i = 0; i < files.length; i++) {
-        this.assignedFiles.add(files[i]);
-      }
-    } else {
-      this.assignedFiles.add(files);
-    }
+  @action.bound incrementFileCount(): void {
+    this.fileCount++;
   }
 
-  @action.bound decrementFileCount(files: ID | ID[]): void {
-    if (Array.isArray(files)) {
-      for (let i = 0; i < files.length; i++) {
-        this.assignedFiles.delete(files[i]);
-      }
-    } else {
-      this.assignedFiles.delete(files);
-    }
+  @action.bound decrementFileCount(): void {
+    this.fileCount--;
+  }
+
+  @action.bound setFileCount(val: number): void {
+    this.fileCount = val;
+  }
+
+  @action.bound setIsFileCountDirty(value: boolean): void {
+    this.isFileCountDirty = value;
   }
 
   @action.bound toggleHidden(): void {
@@ -611,6 +586,8 @@ export class ClientTag {
       isVisibleInherited: this.isVisibleInherited,
       aliases: this.aliases.slice(),
       description: this.description,
+      fileCount: this.fileCount,
+      isFileCountDirty: this.isFileCountDirty,
       isHeader: this.isHeader,
     };
   }

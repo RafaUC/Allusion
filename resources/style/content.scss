@@ -83,11 +83,14 @@
     background-color: var(--accent-color-yellow);
 
     :is(img, video) {
-      clip-path: inset(0.175rem round calc(var(--thumbnail-radius) - 0.175rem));
+      clip-path: inset(0.2rem round calc(var(--thumbnail-radius) - 0.2rem));
     }
   }
   [aria-selected=true] > & > :is(img, video, .image-error){
-    clip-path: inset(0.175rem round calc(var(--thumbnail-radius) - 0.175rem));
+    clip-path: inset(0.2rem round calc(var(--thumbnail-radius) - 0.2rem));
+  }
+  :not([aria-selected=true]) > & > :is(img, video, .image-error){
+    transition: all 0ms;
   }
 }
 

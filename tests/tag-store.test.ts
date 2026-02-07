@@ -1,5 +1,5 @@
-import Backend from '../src/backend/backend';
-import { dbInit } from '../src/backend/config';
+import Backend from '../src/backend/_deprecated/backend';
+import { dbInit } from '../src/backend/_deprecated/config';
 import TagStore from '../src/frontend/stores/TagStore';
 
 describe('TagStore', () => {
@@ -9,7 +9,7 @@ describe('TagStore', () => {
     it(name, async () => {
       const db = dbInit(`Test_${TEST_DATABASE_ID_COUNTER++}`);
       const backend = await Backend.init(db, () => {});
-      const store = new TagStore(backend, {} as any);
+      const store = new TagStore(backend as any, {} as any);
       await store.init();
       await test(store);
       // FIXME: That is kind of our fault for automatically making backend calls in MobX reactions.

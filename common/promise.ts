@@ -87,3 +87,52 @@ export function promiseAllLimit<T>(
 
   return pendingPromise;
 }
+
+export type BatchFetcher<T, NextOpts> = (opts?: NextOpts) => Promise<{
+  items: T[];
+  nextOpts?: NextOpts;
+}>;
+
+export type BatchProcessor<T, Acc> = (batch: T[], acc: Acc) => Promise<Acc> | Acc;
+
+/**
+ * Iterates over paginated resources and applies a processing function to each batch.
+ * @template T - The type of items retrieved.
+ * @template NextOpts - The type of the cursor for pagination or any options to compute the next batch.
+ * @template Acc - The type of the result accumulator.
+ * @param fetchBatch - Function to retrieve the next batch of data.
+ * @param processBatch - Function to apply logic to the current batch and update the accumulator.
+ * @param initialAcc - The starting value for the accumulation.
+ * @param cancel - Optional callback to abort the process prematurely.
+ * @returns A promise that resolves to the final accumulated value.
+ */
+export async function batchReducer<T, NextOpts, Acc>(
+  fetchBatch: BatchFetcher<T, NextOpts>,
+  processBatch: BatchProcessor<T, Acc>,
+  initialAcc: Acc,
+  cancel?: () => boolean,
+): Promise<Acc> {
+  let opts: NextOpts | undefined;
+  let acc = initialAcc;
+
+  while (true) {
+    if (cancel?.()) {
+      console.log('CANCELLING!');
+      break;
+    }
+    const { items, nextOpts } = await fetchBatch(opts);
+
+    if (!items.length) {
+      break;
+    }
+
+    acc = await processBatch(items, acc);
+
+    if (!nextOpts) {
+      break;
+    }
+    opts = nextOpts;
+  }
+
+  return acc;
+}

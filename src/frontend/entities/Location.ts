@@ -11,12 +11,12 @@ import {
 import SysPath from 'path';
 
 import { retainArray } from 'common/core';
-import { IMG_EXTENSIONS_TYPE } from '../../api/file';
-import { ID } from '../../api/id';
+import { FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { generateId, ID } from '../../api/id';
 import { LocationDTO, SubLocationDTO } from '../../api/location';
 import { RendererMessenger } from '../../ipc/renderer';
 import { AppToaster } from '../components/Toaster';
-import LocationStore, { FileStats } from '../stores/LocationStore';
+import LocationStore from '../stores/LocationStore';
 import { FolderWatcherWorker } from '../workers/folderWatcher.worker';
 import { ClientTag } from './Tag';
 
@@ -25,6 +25,7 @@ const sort = (a: SubLocationDTO | ClientSubLocation, b: SubLocationDTO | ClientS
   a.name.localeCompare(b.name, undefined, { numeric: true });
 
 export class ClientSubLocation {
+  id: ID;
   @observable
   name: string;
   @observable
@@ -36,11 +37,13 @@ export class ClientSubLocation {
     store: LocationStore,
     public location: ClientLocation,
     public path: string,
+    id: ID,
     name: string,
     excluded: boolean,
     subLocations: SubLocationDTO[],
     tags: ID[],
   ) {
+    this.id = id;
     this.name = name;
     this.isExcluded = excluded;
     this.subLocations = observable(
@@ -52,6 +55,7 @@ export class ClientSubLocation {
               store,
               this.location,
               SysPath.join(path, subLoc.name),
+              subLoc.id,
               subLoc.name,
               subLoc.isExcluded,
               subLoc.subLocations,
@@ -73,6 +77,7 @@ export class ClientSubLocation {
   @action.bound
   serialize(): SubLocationDTO {
     return {
+      id: this.id,
       name: this.name.toString(),
       isExcluded: Boolean(this.isExcluded),
       subLocations: this.subLocations.map((subLoc) => subLoc.serialize()),
@@ -141,6 +146,7 @@ export class ClientLocation {
               this.store,
               this,
               SysPath.join(this.path, subLoc.name),
+              subLoc.id,
               subLoc.name,
               subLoc.isExcluded,
               subLoc.subLocations,
@@ -312,6 +318,7 @@ export class ClientLocation {
               this.store,
               this,
               item.fullPath,
+              generateId(),
               item.name,
               item.name.startsWith('.'),
               [],

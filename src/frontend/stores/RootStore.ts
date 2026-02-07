@@ -14,8 +14,6 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import SearchStore from './SearchStore';
 import ExtraPropertyStore from './ExtraPropertyStore';
 import { AppToaster } from '../components/Toaster';
-import { FileDTO } from 'src/api/file';
-import { OrderDirection } from 'src/api/data-storage-search';
 
 // This will throw exceptions whenever we try to modify the state directly without an action
 // Actions will batch state modifications -> better for performance
@@ -67,7 +65,7 @@ class RootStore {
   static async main(backend: DataStorage, backup: DataBackup): Promise<RootStore> {
     const rootStore = new RootStore(backend, backup, (fileStore, uiStore) => {
       if (uiStore.isSlideMode && fileStore.fileList.length > 0) {
-        const activeFile = fileStore.fileList[uiStore.firstItem];
+        const activeFile = fileStore.fileList[uiStore.firstItemIndex];
         return `${activeFile?.filename}.${activeFile?.extension} - Allusion`; // eslint-disable-line @typescript-eslint/no-unnecessary-condition
       } else {
         return 'Allusion';
@@ -95,7 +93,7 @@ class RootStore {
     rootStore.fileStore.recoverPersistentPreferences();
     const isSlideMode = runInAction(() => rootStore.uiStore.isSlideMode);
 
-    const numCriterias = runInAction(() => rootStore.uiStore.searchCriteriaList.length);
+    const numCriterias = runInAction(() => rootStore.uiStore.searchRootGroup.children.length);
 
     // There may already be a search already present, recovered from a previous session
     const fileStoreInit =
@@ -104,9 +102,7 @@ class RootStore {
         : async () => {
             // When searching by criteria, the file counts and startup Loads won't be set (only when fetching all files),
             // so fetch them manually
-            await rootStore.fileStore.refetchFileCounts().catch(console.error);
             await rootStore.fileStore.fetchFilesByQuery();
-            return rootStore.initStartupLoads().catch(console.error);
           };
 
     // Load the files already in the database so user instantly sees their images
@@ -129,6 +125,7 @@ class RootStore {
 
     // look for any new or removed images, handled by parcel/watcher
     rootStore.locationStore.watchLocations();
+    rootStore.initStartupLoads().catch(console.error);
 
     return rootStore;
   }
@@ -136,7 +133,7 @@ class RootStore {
   static async preview(backend: DataStorage, backup: DataBackup): Promise<RootStore> {
     const rootStore = new RootStore(backend, backup, (fileStore, uiStore) => {
       const PREVIEW_WINDOW_BASENAME = 'Allusion Quick View';
-      const index = uiStore.firstItem;
+      const index = uiStore.firstItemIndex;
       if (index >= 0 && index < fileStore.fileList.length) {
         const file = fileStore.fileList[index];
         return `${file ? file.absolutePath : ''} • ${PREVIEW_WINDOW_BASENAME}`;
@@ -170,20 +167,15 @@ class RootStore {
   }
 
   isStartupLoadsInitialized = false;
-  async initStartupLoads(allDbFiles?: FileDTO[]): Promise<void> {
+  async initStartupLoads(): Promise<void> {
     if (this.isStartupLoadsInitialized) {
       return;
     }
     this.isStartupLoadsInitialized = true;
     runInAction(async () => {
-      const doInitFileCounts = this.uiStore.isLoadFileCountsStartupEnabled;
       const doRefreshLocations = this.uiStore.isRefreshLocationsStartupEnabled;
-      const files = allDbFiles ?? (await this.#backend.fetchFiles('id', OrderDirection.Asc, false));
-      if (doInitFileCounts) {
-        await this.tagStore.initializeTagFileCounts(files);
-      }
       if (doRefreshLocations) {
-        await this.locationStore.updateLocations(undefined, files);
+        await this.locationStore.updateLocations();
       }
     });
   }

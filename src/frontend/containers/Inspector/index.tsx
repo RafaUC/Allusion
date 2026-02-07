@@ -12,7 +12,7 @@ import FileExtraPropertiesEditor from '../../components/FileExtraPropertiesEdito
 const Inspector = observer(() => {
   const { uiStore, fileStore } = useStore();
 
-  if (uiStore.firstItem >= fileStore.fileList.length || !uiStore.isInspectorOpen) {
+  if (uiStore.firstItemIndex >= fileStore.fileList.length || !uiStore.isInspectorOpen) {
     return (
       <aside id="inspector">
         <Placeholder />
@@ -20,7 +20,7 @@ const Inspector = observer(() => {
     );
   }
 
-  const first = fileStore.fileList[uiStore.firstItem];
+  const first = fileStore.fileList[uiStore.firstItemIndex];
   const path = first ? first.absolutePath : '...';
 
   return (

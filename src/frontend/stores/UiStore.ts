@@ -3,9 +3,9 @@ import fse from 'fs-extra';
 import { action, computed, makeObservable, observable, reaction } from 'mobx';
 
 import { maxNumberOfExternalFilesBeforeWarning } from 'common/config';
-import { clamp, notEmpty } from 'common/core';
+import { clamp } from 'common/core';
 import { encodeFilePath, isNativeImageCompatible } from 'common/fs';
-import { ID } from '../../api/id';
+import { generateId, ID } from '../../api/id';
 import { SearchCriteria } from '../../api/search-criteria';
 import { RendererMessenger } from '../../ipc/renderer';
 import { ClientFile } from '../entities/File';
@@ -16,6 +16,9 @@ import RootStore from './RootStore';
 import { IExpansionState } from '../containers/types';
 import { ROOT_TAG_ID } from 'src/api/tag';
 import { AppToaster } from '../components/Toaster';
+import { ClientSearchGroup, isClientSearchGroup } from '../entities/SearchItem';
+import { SearchGroupDTO } from 'src/api/file-search';
+import { Cursor, SearchConjunction } from 'src/api/data-storage-search';
 
 export const enum ViewMethod {
   List,
@@ -161,14 +164,12 @@ type PersistentPreferenceFields =
   | 'recentlyUsedTags'
   | 'isClearTagSelectorsOnSelectEnabled'
   // startup options
-  | 'isLoadFileCountsStartupEnabled'
   | 'isRefreshLocationsStartupEnabled'
   | 'isRememberSearchEnabled'
   // the following are only restored when isRememberSearchEnabled is enabled
   | 'isSlideMode'
   | 'firstItem'
-  | 'searchMatchAny'
-  | 'searchCriteriaList';
+  | 'searchRootGroup';
 
 class UiStore {
   static MIN_OUTLINER_WIDTH = 192; // default of 12 rem
@@ -192,7 +193,6 @@ class UiStore {
   @observable isLocationRecoveryOpen: ID | null = null;
   @observable isPreviewOpen: boolean = false;
   @observable isAdvancedSearchOpen: boolean = false;
-  @observable searchMatchAny = false;
   @observable method: ViewMethod = ViewMethod.Grid;
   @observable isSlideMode: boolean = false;
   @observable isFullScreen: boolean = false;
@@ -206,17 +206,12 @@ class UiStore {
     'visible-when-inherited';
   @observable isThumbnailFilenameOverlayEnabled: boolean = false;
   @observable isThumbnailResolutionOverlayEnabled: boolean = false;
-  /** Load File Counts at startup */
-  @observable isLoadFileCountsStartupEnabled: boolean = true;
   /** Refresh locations and detect file changes at startup  */
   @observable isRefreshLocationsStartupEnabled: boolean = false;
   /** Whether to restore the last search query on start-up */
   @observable isRememberSearchEnabled: boolean = true;
-  /** Index of the first item in the viewport. Also acts as the current item shown in slide mode */
-  // TODO: Might be better to store the ID to the file. I believe we were storing the index for performance, but we have instant conversion between index/ID now
-  // Reply: Keeping it as an index is still more performant and easier to manage since overviewElements and components callbacks work with indexes. Storing IDs would require
-  //   unnecessary conversions every time we set or read the value. Converting the index to an ID once per refetch is simpler and more efficient.
-  @observable firstItem: number = 0;
+  /** Cursor that represents the first item in the viewport. Also acts as the current item shown in slide mode */
+  @observable firstItem: Cursor | undefined;
   @observable thumbnailSize: ThumbnailSize | number = 'medium';
   @observable thumbnailRadius: number = 1;
   @observable largeThumbFullResThreshold: number = 3840;
@@ -254,9 +249,15 @@ class UiStore {
   // Observable arrays recommended like this here https://github.com/mobxjs/mobx/issues/669#issuecomment-269119270.
   // However, sets are more suitable because they have quicker lookup performance.
   readonly fileSelection = observable(new Set<ClientFile>());
+  @observable isAllFilesSelected = false;
   readonly tagSelection = observable(new Set<ClientTag>());
 
-  readonly searchCriteriaList = observable<ClientFileSearchCriteria>([]);
+  @observable searchRootGroup: ClientSearchGroup = new ClientSearchGroup(
+    generateId(),
+    '',
+    'and',
+    [],
+  ); // eslint-disable-line prettier/prettier
 
   //// tag clipboard feature ////
   // No need to be observable because it's only used internally
@@ -292,6 +293,19 @@ class UiStore {
       (isOpen) => {
         if (isOpen) {
           this.isFileTagsEditorOpen = false;
+        }
+      },
+    );
+
+    // Deselect isAllFilesSelected when file selection changes;
+    reaction(
+      () => ({
+        listLength: this.rootStore.fileStore.fileList.length,
+        selectionSize: this.fileSelection.size,
+      }),
+      (sizes) => {
+        if (sizes.listLength !== sizes.selectionSize) {
+          this.isAllFilesSelected = false;
         }
       },
     );
@@ -399,14 +413,27 @@ class UiStore {
     await this.rootStore.locationStore.updateLocations();
   }
 
-  @action.bound setFirstItem(index: number = 0, validate: boolean = true): void {
-    if (!isFinite(index)) {
+  @action.bound clearFirstItem(): void {
+    this.firstItem = undefined;
+  }
+
+  @action.bound setFirstItem(
+    item: number | ClientFile | undefined = 0,
+    validate: boolean = true,
+  ): void {
+    if (item instanceof ClientFile) {
+      this.firstItem = this.rootStore.fileStore.toCursor(item);
+      return;
+    }
+    if (!isFinite(item)) {
       return;
     }
     const maxIndex = validate
       ? Math.max(0, this.rootStore.fileStore.fileList.length - 1)
       : Infinity;
-    this.firstItem = clamp(index, 0, maxIndex);
+    const index = clamp(item, 0, maxIndex);
+    const file = this.rootStore.fileStore.fileList[index];
+    this.firstItem = file ? this.rootStore.fileStore.toCursor(file) : undefined;
   }
 
   @action setMethod(method: ViewMethod): void {
@@ -482,10 +509,6 @@ class UiStore {
 
   @action.bound toggleRefreshLocationStartup(): void {
     this.isRefreshLocationsStartupEnabled = !this.isRefreshLocationsStartupEnabled;
-  }
-
-  @action.bound toggleLoadFileCountsStartup(): void {
-    this.isLoadFileCountsStartupEnabled = !this.isLoadFileCountsStartupEnabled;
   }
 
   @action.bound toggleRememberSearchQuery(): void {
@@ -801,7 +824,17 @@ class UiStore {
   }
 
   @action.bound toggleSearchMatchAny(): void {
-    this.searchMatchAny = !this.searchMatchAny;
+    this.searchRootGroup.conjunction = this.searchRootGroup.conjunction === 'and' ? 'or' : 'and';
+  }
+
+  @computed get searchMatchAny(): boolean {
+    return this.searchRootGroup.conjunction === 'or';
+  }
+
+  @computed get searchCriteriaList(): ClientFileSearchCriteria[] {
+    return this.searchRootGroup.children.filter(
+      (c) => c instanceof ClientFileSearchCriteria,
+    ) as ClientFileSearchCriteria[];
   }
 
   /////////////////// Usage preferences actions //////////////////
@@ -880,7 +913,7 @@ class UiStore {
     const clipboard = this.tagClipboard.slice();
     // If the file selection has the same size as the amount of tag groups copied,
     // Copy each tag group into their parallel file.
-    if (this.fileSelection.size === clipboard.length) {
+    if (!this.isAllFilesSelected && this.fileSelection.size === clipboard.length) {
       let index = 0;
       this.fileSelection.forEach((file) => {
         file.addTags(clipboard[index]);
@@ -894,11 +927,41 @@ class UiStore {
           allTags.add(clipboard[i][j]);
         }
       }
-      this.fileSelection.forEach((file) => file.addTags(allTags));
+      this.addTagsToSelectedFiles(Array.from(allTags));
     }
   }
 
   /////////////////// Selection actions ///////////////////
+
+  // General Dispatch to selected files function. This should be used instead of
+  // processing the file selection directly.
+  // If we want to manipulate file selection's tags, use the tag optimized methods below.
+  @action.bound async dispatchToFileSelection(
+    dispatchClientFiles: (files: ClientFile[]) => Promise<void>,
+  ): Promise<void> {
+    const isAllFilesSelected = this.isAllFilesSelected;
+    await dispatchClientFiles(Array.from(this.fileSelection));
+    if (isAllFilesSelected) {
+      await this.rootStore.fileStore.dispatchToFilteredFiles(dispatchClientFiles);
+    }
+  }
+
+  /** Adds tags to selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async addTagsToSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.addTagsToFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => f.addTags(tags));
+  }
+
+  /** Removes tags from selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async removeTagsFromSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.removeTagsFromFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => tags.forEach((t) => f.removeTag(t)));
+  }
+
   @action.bound selectFile(file?: ClientFile, clear?: boolean): void {
     if (clear === true) {
       this.clearFileSelection();
@@ -943,6 +1006,7 @@ class UiStore {
 
   @action.bound selectAllFiles(): void {
     this.fileSelection.replace(this.rootStore.fileStore.definedFiles);
+    this.isAllFilesSelected = true;
   }
 
   @action.bound clearFileSelection(): void {
@@ -1128,16 +1192,16 @@ class UiStore {
   }
 
   /////////////////// Search Actions ///////////////////
-  @action.bound clearSearchCriteriaList(): void {
-    if (this.searchCriteriaList.length > 0) {
-      this.searchCriteriaList.forEach((c) => c.dispose());
-      this.searchCriteriaList.clear();
-      //this.viewAllContent();
-    }
+  // These actions just apply not nested conjunctions into the searchRootGroup children.
+
+  @action.bound clearSearchCriteriaTree(): void {
+    this.searchRootGroup.dispose();
+    this.searchRootGroup.children.clear();
+    this.viewAllContent();
   }
 
   @action.bound addSearchCriteria(query: Exclude<ClientFileSearchCriteria, 'key'>): void {
-    this.searchCriteriaList.push(query);
+    this.searchRootGroup.children.push(query);
     // if is a TagSearchCriteria add its tag to recent used tags
     if (query instanceof ClientTagSearchCriteria) {
       this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
@@ -1145,47 +1209,52 @@ class UiStore {
     this.viewQueryContent();
   }
 
-  @action.bound addSearchCriterias(queries: Exclude<ClientFileSearchCriteria[], 'key'>): void {
-    this.searchCriteriaList.push(...queries);
-    for (const query of queries) {
-      if (query instanceof ClientTagSearchCriteria) {
-        this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
+  @action.bound addSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    if (queries instanceof ClientSearchGroup) {
+      this.searchRootGroup.children.push(
+        ClientSearchGroup.deserialize(queries.serialize(this.rootStore)),
+      );
+    } else {
+      this.searchRootGroup.children.push(...queries);
+      for (const query of queries) {
+        if (query instanceof ClientTagSearchCriteria) {
+          this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
+        }
       }
     }
     this.viewQueryContent();
   }
 
-  @action.bound toggleSearchCriterias(queries: Exclude<ClientFileSearchCriteria[], 'key'>): void {
-    // TODO: can be improved
-    const deepEqual = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
-
-    // With control, add or remove the criteria based on whether they're already being searched with
-    const existingMatchingCriterias = queries.map((crit) =>
-      this.searchCriteriaList.find((other) =>
-        deepEqual(other.serialize(this.rootStore), crit.serialize(this.rootStore)),
-      ),
+  @action.bound toggleSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    const idsToToggle = isClientSearchGroup(queries)
+      ? [queries.id, ...queries.children.map((ch) => ch.id)]
+      : queries.map((ch) => ch.id);
+    const existingCrits = this.searchRootGroup.children.filter((other) =>
+      idsToToggle.includes(other.id),
     );
-    if (existingMatchingCriterias.every(notEmpty)) {
-      // If they're already in there, remove them
-      existingMatchingCriterias.forEach((query) => {
-        this.searchCriteriaList.remove(query);
-        query.dispose();
+    if (existingCrits.length > 0) {
+      existingCrits.forEach((existing) => {
+        this.searchRootGroup.children.remove(existing);
+        existing.dispose();
       });
-      if (this.searchCriteriaList.length > 0) {
+      if (this.searchRootGroup.children.length > 0) {
         this.viewQueryContent();
       } else {
         this.viewAllContent();
       }
     } else {
-      // If they're not already in there, add them
       this.addSearchCriterias(queries);
     }
   }
 
   @action.bound removeSearchCriteria(query: ClientFileSearchCriteria): void {
     query.dispose();
-    this.searchCriteriaList.remove(query);
-    if (this.searchCriteriaList.length > 0) {
+    this.searchRootGroup.children.remove(query);
+    if (this.searchRootGroup.children.length > 0) {
       this.viewQueryContent();
     } else {
       this.viewAllContent();
@@ -1199,34 +1268,50 @@ class UiStore {
     }
   }
 
-  @action.bound replaceSearchCriterias(queries: Exclude<ClientFileSearchCriteria[], 'key'>): void {
-    this.searchCriteriaList.forEach((c) => c.dispose());
+  @action.bound replaceSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    this.searchRootGroup.dispose();
 
-    this.searchCriteriaList.replace(queries);
+    if (queries instanceof ClientSearchGroup) {
+      this.searchRootGroup = ClientSearchGroup.deserialize(queries.serialize(this.rootStore));
+      this.searchRootGroup.id = generateId();
+    } else {
+      this.searchRootGroup.children.replace(queries);
+    }
 
-    if (this.searchCriteriaList.length > 0) {
+    if (this.searchRootGroup.children.length > 0) {
       this.viewQueryContent();
     } else {
       this.viewAllContent();
     }
   }
 
-  @action.bound removeSearchCriteriaByIndex(i: number): void {
-    const removedCrits = this.searchCriteriaList.splice(i, 1);
+  @action.bound replaceSearchRootConjuction(conj: SearchConjunction): void {
+    this.searchRootGroup.conjunction = conj;
+  }
 
+  @action.bound removeSearchCriteriaByIndex(i: number): void {
+    const removedCrits = this.searchRootGroup.children.splice(i, 1);
     removedCrits.forEach((c) => c.dispose());
 
-    if (this.searchCriteriaList.length > 0) {
+    if (this.searchRootGroup.children.length > 0) {
       this.viewQueryContent();
     } else {
       this.viewAllContent();
     }
+  }
+
+  @action.bound removeSearchCriteriaById(id: string): boolean {
+    const result = this.searchRootGroup.removeNode(id);
+    this.rootStore.fileStore.refetch();
+    return result;
   }
 
   @action.bound addTagSelectionToCriteria(): void {
     const newCrits = Array.from(
       this.tagSelection,
-      (tag) => new ClientTagSearchCriteria('tags', tag.id),
+      (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
     );
     this.addSearchCriterias(newCrits);
     for (const tag of this.tagSelection) {
@@ -1237,7 +1322,10 @@ class UiStore {
 
   @action.bound replaceCriteriaWithTagSelection(): void {
     this.replaceSearchCriterias(
-      Array.from(this.tagSelection, (tag) => new ClientTagSearchCriteria('tags', tag.id)),
+      Array.from(
+        this.tagSelection,
+        (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
+      ),
     );
     for (const tag of this.tagSelection) {
       this.addRecentlyUsedTag(tag);
@@ -1249,10 +1337,10 @@ class UiStore {
     oldCrit: ClientFileSearchCriteria,
     crit: ClientFileSearchCriteria,
   ): void {
-    const index = this.searchCriteriaList.indexOf(oldCrit);
+    const index = this.searchRootGroup.children.indexOf(oldCrit);
     if (index !== -1) {
-      this.searchCriteriaList[index].dispose();
-      this.searchCriteriaList[index] = crit;
+      this.searchRootGroup.children[index].dispose();
+      this.searchRootGroup.children[index] = crit;
       this.viewQueryContent();
     }
   }
@@ -1441,24 +1529,34 @@ class UiStore {
           ([k, v]) => k in defaultHotkeyMap && (this.hotkeyMap[k as keyof IHotkeyMap] = v),
         );
 
-        this.isLoadFileCountsStartupEnabled = Boolean(prefs.isLoadFileCountsStartupEnabled ?? true);
         this.isRefreshLocationsStartupEnabled = Boolean(prefs.isRefreshLocationsStartupEnabled ?? false); // eslint-disable-line prettier/prettier
         this.isRememberSearchEnabled = Boolean(prefs.isRememberSearchEnabled);
         if (this.isRememberSearchEnabled) {
           // If remember search criteria, restore the search criteria list...
-          const serializedCriteriaList: SearchCriteria[] =
+          const serializedCriterias: SearchGroupDTO | (SearchGroupDTO | SearchCriteria)[] =
             // BACKWARDS_COMPATIBILITY: searchCriteriaList used to be serialized to a string
-            typeof prefs.searchCriteriaList === 'string'
-              ? JSON.parse(prefs.searchCriteriaList ?? '[]')
-              : prefs.searchCriteriaList ?? [];
-          const newCrits = serializedCriteriaList.map((c) =>
-            ClientFileSearchCriteria.deserialize(c),
-          );
-          this.searchCriteriaList.push(...newCrits);
+            typeof (prefs.searchRootGroup ?? prefs.searchCriteriaList) === 'string'
+              ? JSON.parse(prefs.searchRootGroup ?? prefs.searchCriteriaList ?? '[]')
+              : prefs.searchRootGroup ?? prefs.searchCriteriaList ?? [];
+          if ('children' in serializedCriterias) {
+            this.searchRootGroup = ClientSearchGroup.deserialize(serializedCriterias);
+          } else if (Array.isArray(serializedCriterias)) {
+            this.searchRootGroup.children.push(
+              ...serializedCriterias.map((c) => {
+                if ('children' in c) {
+                  const g = ClientSearchGroup.deserialize(c);
+                  g.setParent(this.searchRootGroup);
+                  return g;
+                }
+                const crit = ClientFileSearchCriteria.deserialize(c);
+                crit.setParent(this.searchRootGroup);
+                return crit;
+              }),
+            );
+          }
 
           // and other content-related options. So it's just like you never closed Allusion!
           this.firstItem = prefs.firstItem;
-          this.searchMatchAny = prefs.searchMatchAny;
           this.isSlideMode = prefs.isSlideMode;
         }
         console.info('recovered', prefs);
@@ -1510,13 +1608,11 @@ class UiStore {
       outlinerHeights: this.outlinerHeights.slice(),
       outlinerWidth: this.outlinerWidth,
       inspectorWidth: this.inspectorWidth,
-      isLoadFileCountsStartupEnabled: this.isLoadFileCountsStartupEnabled,
       isRefreshLocationsStartupEnabled: this.isRefreshLocationsStartupEnabled,
       isRememberSearchEnabled: this.isRememberSearchEnabled,
       isSlideMode: this.isSlideMode,
       firstItem: this.firstItem,
-      searchMatchAny: this.searchMatchAny,
-      searchCriteriaList: this.searchCriteriaList.map((c) => c.serialize(this.rootStore)),
+      searchRootGroup: this.searchRootGroup.serialize(this.rootStore),
       recentlyUsedTags: Array.from(this.recentlyUsedTags, (t) => t.id),
       recentlyUsedTagsMaxLength: this.recentlyUsedTagsMaxLength,
       isClearTagSelectorsOnSelectEnabled: this.isClearTagSelectorsOnSelectEnabled,
@@ -1545,11 +1641,17 @@ class UiStore {
     return undefined;
   }
 
-  /** Return {@link UiStore.firstItem}: first item visible in viewport, and the current item in SlideMode */
+  @computed get firstItemIndex(): number {
+    this.rootStore.fileStore.fileDimensions.length; // Touch fileDimencions to re-compute when number of files change.
+    if (this.firstItem) {
+      return this.rootStore.fileStore.getIndex(this.firstItem.id) ?? 0;
+    }
+    return 0;
+  }
+
+  /** Return {@link UiStore.firstItemIndex}: first item visible in viewport, and the current item in SlideMode */
   @computed get firstFileInView(): ClientFile | undefined {
-    return this.firstItem < this.rootStore.fileStore.fileList.length
-      ? this.rootStore.fileStore.fileList[this.firstItem]
-      : undefined;
+    return this.firstItem ? this.rootStore.fileStore.get(this.firstItem.id) : undefined;
   }
 
   @action private viewAllContent(): void {

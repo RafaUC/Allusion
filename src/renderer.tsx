@@ -6,17 +6,16 @@
 // in the HTML file
 import './style.scss';
 
-import Dexie from 'dexie';
-import fse from 'fs-extra';
 import { autorun, reaction, runInAction } from 'mobx';
 import React from 'react';
 import { Root, createRoot } from 'react-dom/client';
+
+import Backend from './backend/backend';
 
 import { IS_DEV } from 'common/process';
 import { promiseRetry } from 'common/timeout';
 import { IS_PREVIEW_WINDOW, WINDOW_STORAGE_KEY } from 'common/window';
 import { RendererMessenger } from 'src/ipc/renderer';
-import Backend from './backend/backend';
 import App from './frontend/App';
 import SplashScreen from './frontend/containers/SplashScreen';
 import StoreProvider from './frontend/contexts/StoreContext';
@@ -26,7 +25,12 @@ import { FILE_STORAGE_KEY } from './frontend/stores/FileStore';
 import RootStore from './frontend/stores/RootStore';
 import { PREFERENCES_STORAGE_KEY } from './frontend/stores/UiStore';
 import BackupScheduler from './backend/backup-scheduler';
-import { DB_NAME, dbInit } from './backend/config';
+import path from 'path';
+import { DB_NAME } from './backend/config';
+import fse from 'fs-extra';
+import { USE_BACKEND_AS_WORKER } from 'src/backend/config';
+import { BackendService } from 'src/frontend/workers/BackendService';
+import { BackupSchedulerService } from './frontend/workers/BackupSchedulerService';
 
 async function main(): Promise<void> {
   // Render our react components in the div with id 'app' in the html file
@@ -40,24 +44,42 @@ async function main(): Promise<void> {
 
   root.render(<SplashScreen />);
 
-  const db = dbInit(DB_NAME);
+  const basePath = await RendererMessenger.getPath('userData');
+  const databaseDirectory = path.join(basePath, 'databases');
+  const databaseFilePath = path.join(databaseDirectory, `${DB_NAME}.sqlite`);
 
   if (!IS_PREVIEW_WINDOW) {
-    await runMainApp(db, root);
+    await runMainApp(databaseFilePath, databaseDirectory, root);
   } else {
-    await runPreviewApp(db, root);
+    await runPreviewApp(databaseFilePath, root);
   }
 }
 
-async function runMainApp(db: Dexie, root: Root): Promise<void> {
+async function runMainApp(dbPath: string, dbDirectory: string, root: Root): Promise<void> {
+  // Check if the database file already exists
   const defaultBackupDirectory = await RendererMessenger.getDefaultBackupDirectory();
-  const backup = new BackupScheduler(db, defaultBackupDirectory);
-  const [backend] = await Promise.all([
-    Backend.init(db, () => backup.schedule()),
-    fse.ensureDir(defaultBackupDirectory),
-  ]);
+  const { backupScheduler, tempJsonToImport } = await initBackupSchedulerOrWorker(
+    USE_BACKEND_AS_WORKER,
+    dbPath,
+    dbDirectory,
+    defaultBackupDirectory,
+  );
+  const notifyChange = () => {
+    return backupScheduler.schedule();
+  };
+  const restoreEmpty = (): Promise<void> => {
+    return backupScheduler.restoreEmpty();
+  };
 
-  const rootStore = await RootStore.main(backend, backup);
+  const backend = await initBackendOrWorker(
+    USE_BACKEND_AS_WORKER,
+    dbPath,
+    tempJsonToImport,
+    notifyChange,
+    restoreEmpty,
+  );
+
+  const rootStore = await RootStore.main(backend, backupScheduler);
 
   RendererMessenger.initialized();
 
@@ -125,7 +147,7 @@ async function runMainApp(db: Dexie, root: Root): Promise<void> {
     await addTagsToFile(item.filePath, item.tagNames);
   });
 
-  RendererMessenger.onGetTags(async () => ({ tags: await backend.fetchTags() }));
+  RendererMessenger.onGetTags(async () => ({ tags: (await backend?.fetchTags()) ?? [] }));
 
   RendererMessenger.onFullScreenChanged((val) => rootStore.uiStore.setFullScreen(val));
 
@@ -188,9 +210,20 @@ async function runMainApp(db: Dexie, root: Root): Promise<void> {
   window.addEventListener('beforeunload', handleBeforeUnload);
 }
 
-async function runPreviewApp(db: Dexie, root: Root): Promise<void> {
-  const backend = new Backend(db, () => {});
-  const rootStore = await RootStore.preview(backend, new BackupScheduler(db, ''));
+async function runPreviewApp(dbPath: string, root: Root): Promise<void> {
+  return;
+  //const backend = await Backend.init(dbPath, () => {});
+  // TODO: create an apropiated initPreview mode
+  const backend = new Backend();
+  await backend.init(
+    dbPath,
+    undefined,
+    () => {},
+    async () => {},
+  );
+  const backupScheduler = new BackupScheduler();
+  await backupScheduler.init(dbPath, '', '');
+  const rootStore = await RootStore.preview(backend, backupScheduler);
 
   RendererMessenger.initialized();
 
@@ -257,6 +290,65 @@ async function runPreviewApp(db: Dexie, root: Root): Promise<void> {
       window.close();
     }
   });
+}
+
+async function initBackupSchedulerOrWorker(
+  useWorker: boolean,
+  dbPath: string,
+  dbDirectory: string,
+  defaultBackupDirectory: string,
+): Promise<{ backupScheduler: BackupScheduler; tempJsonToImport: string | undefined }> {
+  if (useWorker) {
+    const backupService = new BackupSchedulerService();
+    const { backupScheduler, tempJsonToImport } = await backupService.init(
+      dbPath,
+      dbDirectory,
+      defaultBackupDirectory,
+    );
+    return { backupScheduler: backupScheduler as unknown as BackupScheduler, tempJsonToImport };
+  } else {
+    const backupScheduler = new BackupScheduler();
+    const tempJsonToImport = await backupScheduler.init(
+      dbPath,
+      dbDirectory,
+      defaultBackupDirectory,
+    );
+    return { backupScheduler, tempJsonToImport };
+  }
+}
+
+async function initBackendOrWorker(
+  useWorker: boolean,
+  dbPath: string,
+  tempJsonToImport: string | undefined,
+  notifyChange: () => void,
+  restoreEmpty: () => Promise<void>,
+  defaultBackupDirectory?: string | undefined,
+): Promise<Backend> {
+  //const dbExists = await fse.pathExists(dbPath);
+  let backend: Backend;
+  // If using worker mode and DB already exists, initialize backend in worker
+  if (useWorker) {
+    const backendService = new BackendService();
+    const [remoteBackend] = await Promise.all([
+      backendService.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
+      defaultBackupDirectory ? fse.ensureDir(defaultBackupDirectory) : Promise.resolve(),
+    ]);
+    backend = remoteBackend as unknown as Backend;
+  } else {
+    // If DB does not exist or worker mode is disabled,
+    // initialize backend in the main thread to safely run migrations
+    backend = new Backend();
+    await Promise.all([
+      backend.init(dbPath, tempJsonToImport, notifyChange, restoreEmpty),
+      defaultBackupDirectory ? fse.ensureDir(defaultBackupDirectory) : Promise.resolve(),
+    ]);
+  }
+  // remove temporal json to avoid infinite re import.
+  if (tempJsonToImport) {
+    await fse.remove(tempJsonToImport);
+  }
+  return backend;
 }
 
 main()

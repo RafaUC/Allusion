@@ -3,10 +3,10 @@ import { action, makeObservable, observable, runInAction } from 'mobx';
 import SysPath from 'path';
 
 import { getThumbnailPath } from 'common/fs';
-import { promiseAllLimit } from 'common/promise';
-import { DataStorage } from '../../api/data-storage';
+import { batchReducer, promiseAllLimit } from 'common/promise';
+import { DataStorage, makeFileBatchFetcher } from '../../api/data-storage';
 import { OrderDirection } from '../../api/data-storage-search';
-import { FileDTO, IMG_EXTENSIONS, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { FileStats, FileDTO, IMG_EXTENSIONS, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID, generateId } from '../../api/id';
 import { LocationDTO } from '../../api/location';
 import { RendererMessenger } from '../../ipc/renderer';
@@ -216,10 +216,7 @@ class LocationStore {
   }
 
   /** Manually synchronizes the database files and locations with the current file system state using a brute-force scan. */
-  @action async updateLocations(
-    locations?: ClientLocation | ClientLocation[],
-    allDbFiles?: FileDTO[],
-  ): Promise<boolean> {
+  @action async updateLocations(locations?: ClientLocation | ClientLocation[]): Promise<boolean> {
     let locs: ClientLocation[];
     if (locations === undefined) {
       locs = this.locationList.slice();
@@ -229,7 +226,7 @@ class LocationStore {
       locs = locations;
     }
     locs.forEach((loc) => (loc.isRefreshing = true));
-    const foundNewFiles = await this.compareLocations(locs, allDbFiles);
+    const foundNewFiles = await this.compareLocations(locs);
     if (foundNewFiles) {
       this.rootStore.fileStore.refetch();
     }
@@ -237,28 +234,9 @@ class LocationStore {
   }
 
   // Returns whether files have been added, changed or removed
-  @action async compareLocations(
-    locations: ClientLocation[],
-    allDbFiles?: FileDTO[],
-  ): Promise<boolean> {
+  @action async compareLocations(locations: ClientLocation[]): Promise<boolean> {
     let foundNewFiles = false;
     const len = locations.length;
-
-    // Get all files in the DB, set up data structures for quick lookups
-    // Doing it for all locations, so files moved to another Location on disk, it's properly re-assigned in Allusion too
-    const dbFiles: FileDTO[] =
-      allDbFiles ?? (await this.backend.fetchFiles('id', OrderDirection.Asc, false));
-    const dbFilesPathSet = new Set(dbFiles.map((f) => f.absolutePath));
-    const dbFilesByCreatedDate = new Map<number, FileDTO[]>();
-    for (const file of dbFiles) {
-      const time = file.dateCreated.getTime();
-      const entry = dbFilesByCreatedDate.get(time);
-      if (entry) {
-        entry.push(file);
-      } else {
-        dbFilesByCreatedDate.set(time, [file]);
-      }
-    }
 
     // For every location, find created/moved/deleted files, and update the database accordingly.
     // TODO: Do this in a web worker, not in the renderer thread!
@@ -289,53 +267,38 @@ class LocationStore {
       }
 
       console.log('Finding created files...');
+
       // Find all files that have been created (those on disk but not in DB)
-      const createdPaths = diskFiles.filter((f) => !dbFilesPathSet.has(f.absolutePath));
-      const createdFiles = await Promise.all(
-        createdPaths.map((path) => pathToIFile(path, location, this.rootStore.imageLoader)),
-      );
-
       // Find all files of this location that have been removed (those in DB but not on disk anymore)
-      const missingFiles = dbFiles.filter(
-        (file) => file.locationId === location.id && !diskFileMap.has(file.absolutePath),
+      const { createdStats, missingFiles } = await this.backend.compareFiles(
+        location.id,
+        diskFiles,
       );
-
+      const createdFiles = await Promise.all(
+        createdStats.map((stats) => pathToIFile(stats, location, this.rootStore.imageLoader)),
+      );
       // Find matches between removed and created images (different name/path but same characteristics)
-      // TODO: use the ino field on files for this
       const createdMatches = missingFiles.map((mf) =>
         createdFiles.find((cf) => areFilesIdenticalBesidesName(cf, mf)),
       );
       // Also look for duplicate files: when a files is renamed/moved it will become a new entry, should be de-duplicated
-      const dbMatches = missingFiles.map((missingDbFile, i) => {
-        if (createdMatches[i]) {
-          return false;
-        } // skip missing files that match with a newly created file
-        // Quick lookup for files with same created date,
-        const candidates = dbFilesByCreatedDate.get(missingDbFile.dateCreated.getTime()) || [];
-
-        // then first look for a file with the same name + resolution (for when file is moved to different path)
-        const matchWithName = candidates.find(
-          (otherDbFile) =>
-            missingDbFile !== otherDbFile &&
-            missingDbFile.name === otherDbFile.name &&
-            areFilesIdenticalBesidesName(missingDbFile, otherDbFile),
-        );
-
-        // If no match, try looking without filename in case the file was renamed (prone to errors, but better than nothing)
-        return (
-          matchWithName ||
-          candidates.find(
-            (otherDbFile) =>
-              missingDbFile !== otherDbFile &&
-              areFilesIdenticalBesidesName(missingDbFile, otherDbFile),
-          )
-        );
-      });
+      const dbMatches = new Map<ID, FileDTO>(await this.backend.findMissingDBMatches(missingFiles));
 
       console.debug({ missingFiles, createdFiles, createdMatches, dbMatches });
 
-      // Update renamed files in backend
       const foundCreatedMatches = createdMatches.filter((m) => m !== undefined) as FileDTO[];
+
+      runInAction(() => {
+        if (
+          missingFiles.length - dbMatches.size - foundCreatedMatches.length >
+          this.rootStore.fileStore.numMissingFiles
+        ) {
+          this.rootStore.fileStore.setDirtyMissingFiles(true);
+        }
+      });
+
+      // Update renamed files in backend
+      const updatedFileIds = new Set<ID>();
       if (foundCreatedMatches.length > 0) {
         console.debug(
           `Found ${foundCreatedMatches.length} renamed/moved files in location ${location.name}. These are detected as new files, but will instead replace their original entry in the DB of Allusion`,
@@ -353,32 +316,31 @@ class LocationStore {
               name: match.name,
             };
             renamedFilesToUpdate.push(updatedFileData);
+            updatedFileIds.add(updatedFileData.id);
             this.rootStore.fileStore.replaceMovedFile(updatedFileData.id, updatedFileData);
           }
         }
         // There might be duplicates, so convert to set
         await this.backend.saveFiles(Array.from(new Set(renamedFilesToUpdate)));
+        foundNewFiles = true;
       }
 
-      const numDbMatches = dbMatches.filter((f) => Boolean(f));
-      if (numDbMatches.length > 0) {
+      if (dbMatches.size > 0) {
         // Renaming/moving files will be created as new files while the old one sticks around
         // In here we transfer the tag data over from the old entry to the new one, and delete the old entry
         console.debug(
-          `Found ${numDbMatches.length} renamed/moved files in location ${location.name} that were already present in the database. Removing duplicates`,
-          numDbMatches,
+          `Found ${dbMatches.size} renamed/moved files in location ${location.name} that were already present in the database. Removing duplicates`,
+          dbMatches,
         );
         const files: FileDTO[] = [];
-        for (let i = 0; i < dbMatches.length; i++) {
-          const match = dbMatches[i];
-          if (match) {
+        for (let i = 0; i < missingFiles.length; i++) {
+          const missingfile = missingFiles[i];
+          const match = dbMatches.get(missingfile.id);
+          if (match && !updatedFileIds.has(missingfile.id)) {
             files.push({
               ...match,
-              tags: Array.from(new Set([...missingFiles[i].tags, ...match.tags])),
-              extraProperties: { ...missingFiles[i].extraProperties, ...match.extraProperties },
-              extraPropertyIDs: Array.from(
-                new Set([...missingFiles[i].extraPropertyIDs, ...match.extraPropertyIDs]),
-              ),
+              tags: Array.from(new Set([...missingfile.tags, ...match.tags])),
+              extraProperties: { ...missingfile.extraProperties, ...match.extraProperties },
             });
           }
         }
@@ -386,7 +348,7 @@ class LocationStore {
         await this.backend.saveFiles(Array.from(new Set(files)));
         // Remove missing files that have a match in the database
         await this.backend.removeFiles(
-          missingFiles.filter((_, i) => Boolean(dbMatches[i])).map((f) => f.id),
+          missingFiles.filter((mf) => Boolean(dbMatches.get(mf.id))).map((mf) => mf.id),
         );
         foundNewFiles = true; // Set a flag to trigger a refetch
       }
@@ -397,13 +359,27 @@ class LocationStore {
         await this.backend.createFilesFromPath(location.path, newFiles);
       }
 
-      await this.updateChangedFiles(dbFiles, diskFileMap);
+      // Check adn update all metadata in files that have changed on disk
+      await batchReducer(
+        makeFileBatchFetcher(this.backend, 1000, {
+          conjunction: 'and',
+          children: [
+            { key: 'locationId', operator: 'equals', value: location.id, valueType: 'string' },
+          ],
+        }),
+        async (batch) => {
+          await this.updateChangedFiles(batch, diskFileMap);
+          return undefined;
+        },
+        undefined,
+      );
 
       if (!wasInitialized) {
         console.groupEnd();
       }
 
-      foundNewFiles = foundNewFiles || newFiles.length > 0;
+      foundNewFiles = foundNewFiles || newFiles.length > 0; /**/
+      console.groupEnd();
     }
 
     if (foundNewFiles) {
@@ -411,6 +387,7 @@ class LocationStore {
     } else {
       this.showLocationProcessToast('hide', 'update');
     }
+    this.rootStore.fileStore.refetchFileCounts();
     return foundNewFiles;
   }
 
@@ -428,7 +405,7 @@ class LocationStore {
       if (
         diskFile &&
         (((dbFile.dateLastIndexed.getTime() < diskFile.dateModified.getTime() ||
-          dbFile.OrigDateModified.getTime() !== diskFile.dateModified.getTime()) &&
+          dbFile.dateModifiedOS.getTime() !== diskFile.dateModified.getTime()) &&
           diskFile.size !== dbFile.size) ||
           diskFile.ino !== dbFile.ino)
       ) {
@@ -437,7 +414,7 @@ class LocationStore {
           // Recreate metadata which checks the resolution of the image
           ...(await getMetaData(diskFile, this.rootStore.imageLoader)),
           ino: diskFile.ino,
-          OrigDateModified: diskFile.dateModified,
+          dateModifiedOS: diskFile.dateModified,
           dateLastIndexed: new Date(),
         };
 
@@ -446,7 +423,7 @@ class LocationStore {
             {
               ino: dbFile.ino,
               size: dbFile.size,
-              OrigDateModified: dbFile.OrigDateModified,
+              OrigDateModified: dbFile.dateModifiedOS,
               dateLastIndexed: dbFile.dateLastIndexed,
               name: dbFile.absolutePath,
             },
@@ -456,7 +433,7 @@ class LocationStore {
             {
               ino: newFile.ino,
               size: newFile.size,
-              OrigDateModified: newFile.OrigDateModified,
+              OrigDateModified: newFile.dateModifiedOS,
               dateLastIndexed: newFile.dateLastIndexed,
               name: newFile.absolutePath,
             },
@@ -665,7 +642,8 @@ class LocationStore {
       );
     } else {
       await this.backend.createFilesFromPath(fileStats.absolutePath, [file]);
-
+      fileStore.setDirtyTotalFiles(true);
+      fileStore.setDirtyUntaggedFiles(true);
       AppToaster.show({ message: 'New images have been detected.', timeout: 5000 }, 'new-images');
       // might be called a lot when moving many images into a folder, so debounce it
     }
@@ -695,6 +673,7 @@ class LocationStore {
     const fileStore = this.rootStore.fileStore;
     const clientFile = fileStore.fileList.find((f) => f && f.absolutePath === path);
 
+    fileStore.setDirtyMissingFiles(true);
     if (clientFile) {
       fileStore.hideFile(clientFile);
       fileStore.debouncedRefetch();
@@ -705,17 +684,33 @@ class LocationStore {
    * Fetches the files belonging to a location
    */
   @action async findLocationFiles(locationId: ID): Promise<FileDTO[]> {
-    const crit = new ClientStringSearchCriteria('locationId', locationId, 'equals').toCondition();
-    return this.backend.searchFiles(crit, 'id', OrderDirection.Asc, false);
+    const crit = new ClientStringSearchCriteria(
+      undefined,
+      'locationId',
+      locationId,
+      'equals',
+    ).toCondition();
+    return this.backend.searchFiles(
+      { conjunction: 'and', children: [crit] },
+      'id',
+      OrderDirection.Asc,
+      false,
+    );
   }
 
   @action async removeSublocationFiles(subLoc: ClientSubLocation): Promise<void> {
     const crit = new ClientStringSearchCriteria(
+      undefined,
       'absolutePath',
       subLoc.path,
       'startsWith',
     ).toCondition();
-    const files = await this.backend.searchFiles(crit, 'id', OrderDirection.Asc, false);
+    const files = await this.backend.searchFiles(
+      { conjunction: 'and', children: [crit] },
+      'id',
+      OrderDirection.Asc,
+      false,
+    );
     await this.backend.removeFiles(files.map((f) => f.id));
     this.rootStore.fileStore.refetch();
   }
@@ -746,18 +741,6 @@ class LocationStore {
   }
 }
 
-export type FileStats = {
-  absolutePath: string;
-  /** When file was last modified on disk */
-  dateModified: Date;
-  /** When file was created on disk */
-  dateCreated: Date;
-  /** Current size of the file in bytes */
-  size: number;
-  /** A unique identifier of the file created by the OS, stays identical even when renaming/moving files */
-  ino: string;
-};
-
 export async function pathToIFile(
   stats: FileStats,
   loc: ClientLocation,
@@ -771,11 +754,11 @@ export async function pathToIFile(
     id: generateId(),
     locationId: loc.id,
     tags: [],
-    extraPropertyIDs: [],
+    tagSorting: 'hierarchy',
     extraProperties: {},
     dateAdded: now,
     dateModified: now,
-    OrigDateModified: stats.dateModified,
+    dateModifiedOS: stats.dateModified,
     dateLastIndexed: now,
     ...(await getMetaData(stats, imageLoader)),
   };

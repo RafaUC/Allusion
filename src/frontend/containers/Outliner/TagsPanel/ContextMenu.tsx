@@ -135,6 +135,11 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         icon={IconSet.EDIT}
       />
       <MenuItem
+        icon={IconSet.RELOAD_COMPACT}
+        text="Update File Counts"
+        onClick={() => tagStore.updateTagSubTreeFileCounts(tag)}
+      />
+      <MenuItem
         icon={!tag.isHidden ? IconSet.HIDDEN : IconSet.PREVIEW}
         text="Hide Tagged Images"
         onClick={tag.toggleHidden}
@@ -158,7 +163,7 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         onClick={() =>
           tag.isSelected
             ? uiStore.addTagSelectionToCriteria()
-            : uiStore.addSearchCriteria(new ClientTagSearchCriteria('tags', tag.id))
+            : uiStore.addSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags', tag.id))
         }
         text="Add to Search"
         icon={IconSet.SEARCH}
@@ -167,7 +172,7 @@ export const TagItemContextMenu = observer((props: IContextMenuProps) => {
         onClick={() =>
           tag.isSelected
             ? uiStore.replaceCriteriaWithTagSelection()
-            : uiStore.replaceSearchCriteria(new ClientTagSearchCriteria('tags', tag.id))
+            : uiStore.replaceSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags', tag.id))
         }
         text="Replace Search"
         icon={IconSet.REPLACE}

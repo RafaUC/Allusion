@@ -13,7 +13,11 @@ import { SavedSearchRemoval } from '../../../components/RemovalAlert';
 import { useStore } from '../../../contexts/StoreContext';
 import { DnDSearchType, SearchDnDProvider, useSearchDnD } from '../../../contexts/TagDnDContext';
 import { ClientFileSearchCriteria, CustomKeyDict } from '../../../entities/SearchCriteria';
-import { ClientFileSearchItem } from '../../../entities/SearchItem';
+import {
+  ClientFileSearchItem,
+  ClientSearchGroup,
+  isClientSearchGroup,
+} from '../../../entities/SearchItem';
 import { useAutorun } from '../../../hooks/mobx';
 import SearchItemDialog from '../../AdvancedSearch/SearchItemDialog';
 import { IExpansionState } from '../../types';
@@ -44,7 +48,7 @@ const isExpanded = (nodeData: ClientFileSearchItem, treeData: ITreeData) =>
   !!treeData.expansion[nodeData.id];
 
 const customKeys = (
-  search: (crits: ClientFileSearchCriteria[], searchMatchAny: boolean) => void,
+  search: (crits: ClientFileSearchCriteria[] | ClientSearchGroup, searchMatchAny: boolean) => void,
   event: React.KeyboardEvent<HTMLLIElement>,
   nodeData: ClientFileSearchItem | ClientFileSearchCriteria,
   treeData: ITreeData,
@@ -59,7 +63,7 @@ const customKeys = (
     case 'Enter':
       event.stopPropagation();
       if (nodeData instanceof ClientFileSearchItem) {
-        search(nodeData.criteria, nodeData.matchAny);
+        search(nodeData.rootGroup, nodeData.rootGroup.conjunction === 'or');
       } else {
         // TODO: ctrl/shift adds onto search
         search([nodeData], false);
@@ -82,25 +86,29 @@ const customKeys = (
   }
 };
 
-const SearchCriteriaLabel = ({ nodeData, treeData }: { nodeData: any; treeData: any }) => (
-  <SearchItemCriteria nodeData={nodeData} treeData={treeData} />
+const SearchItemNodeLabel = ({ nodeData, treeData }: { nodeData: any; treeData: any }) => (
+  <SearchItemNode nodeData={nodeData} treeData={treeData} />
 );
 
 const SearchItemLabel = ({ nodeData, treeData }: { nodeData: any; treeData: any }) => (
   <SearchItem nodeData={nodeData} treeData={treeData} />
 );
 
+const mapNode = (node: ClientFileSearchCriteria | ClientSearchGroup): ITreeItem => {
+  return {
+    id: `${node.id}`,
+    nodeData: node,
+    label: SearchItemNodeLabel,
+    children: isClientSearchGroup(node) ? node.children.map((ch) => mapNode(ch)) : [],
+    isExpanded,
+  };
+};
+
 const mapItem = (item: ClientFileSearchItem): ITreeItem => ({
   id: item.id,
   label: SearchItemLabel,
   nodeData: item,
-  children: item.criteria.map((c, i) => ({
-    id: `${item.id}-${i}`,
-    nodeData: c,
-    label: SearchCriteriaLabel,
-    children: [],
-    isExpanded: () => false,
-  })),
+  children: item.rootGroup.children.map((ch) => mapNode(ch)),
   isExpanded,
 });
 
@@ -158,16 +166,13 @@ const SearchItem = observer(
       (e: React.MouseEvent) => {
         runInAction(() => {
           if (!e.ctrlKey) {
-            uiStore.replaceSearchCriterias(nodeData.criteria.toJSON());
-            if (uiStore.searchMatchAny !== nodeData.matchAny) {
-              uiStore.toggleSearchMatchAny();
-            }
+            uiStore.replaceSearchCriterias(nodeData.rootGroup);
           } else {
-            uiStore.toggleSearchCriterias(nodeData.criteria.toJSON());
+            uiStore.toggleSearchCriterias(nodeData.rootGroup);
           }
         });
       },
-      [nodeData.criteria, nodeData.matchAny, uiStore],
+      [nodeData.rootGroup, uiStore],
     );
 
     const handleEdit = useCallback(
@@ -235,7 +240,7 @@ const SearchItem = observer(
         onDrop={handleDrop}
       >
         {/* {IconSet.SEARCH} */}
-        {nodeData.matchAny ? IconSet.SEARCH_ANY : IconSet.SEARCH_ALL}
+        {nodeData.rootGroup.conjunction === 'or' ? IconSet.SEARCH_ANY : IconSet.SEARCH_ALL}
         <div className="label-text">{nodeData.name}</div>
 
         <button className="btn btn-icon" onClick={handleEdit}>
@@ -246,48 +251,68 @@ const SearchItem = observer(
   },
 );
 
-const SearchItemCriteria = observer(
-  ({ nodeData }: { nodeData: ClientFileSearchCriteria; treeData: ITreeData }) => {
-    const rootStore = useStore();
-    const { uiStore } = rootStore;
+interface SearchItemCriteriaProps {
+  nodeData: ClientFileSearchCriteria | ClientSearchGroup;
+  treeData: ITreeData;
+}
 
-    // TODO: context menu for individual criteria of search items?
+const SearchItemNode = observer(({ nodeData }: SearchItemCriteriaProps) => {
+  const rootStore = useStore();
+  const { uiStore } = rootStore;
 
-    const handleClick = useCallback(
-      (e: React.MouseEvent) => {
-        runInAction(() => {
-          if (!e.ctrlKey) {
-            uiStore.replaceSearchCriterias([nodeData]);
-          } else {
-            uiStore.toggleSearchCriterias([nodeData]);
-          }
-        });
-      },
-      [nodeData, uiStore],
-    );
+  // TODO: context menu for individual criteria of search items?
 
-    const label = nodeData.getLabel(CustomKeyDict, rootStore);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      runInAction(() => {
+        let ndata: ClientSearchGroup | ClientFileSearchCriteria[] = [];
+        if (isClientSearchGroup(nodeData)) {
+          ndata = nodeData;
+        } else {
+          ndata = [nodeData];
+        }
+        if (!e.ctrlKey) {
+          uiStore.replaceSearchCriterias(ndata);
+        } else {
+          uiStore.toggleSearchCriterias(ndata);
+        }
+      });
+    },
+    [nodeData, uiStore],
+  );
 
-    return (
-      <div
-        className="tree-content-label"
-        onClick={handleClick}
-        // onContextMenu={handleContextMenu}
-      >
-        {nodeData.valueType === 'array'
-          ? IconSet.TAG
-          : nodeData.valueType === 'string'
-          ? IconSet.FILTER_NAME_DOWN
-          : nodeData.valueType === 'number'
-          ? IconSet.FILTER_FILTER_DOWN
-          : IconSet.FILTER_DATE}
-        <div className="label-text" data-tooltip={label}>
-          {label}
-        </div>
+  const label = isClientSearchGroup(nodeData)
+    ? nodeData.name
+      ? nodeData.name
+      : nodeData
+          .getLabels(CustomKeyDict, rootStore)
+          .map((l) => l.label)
+          .join(', ')
+    : nodeData.getLabel(CustomKeyDict, rootStore);
+
+  return (
+    <div
+      className="tree-content-label"
+      onClick={handleClick}
+      // onContextMenu={handleContextMenu}
+    >
+      {isClientSearchGroup(nodeData)
+        ? nodeData.conjunction === 'or'
+          ? IconSet.SEARCH_ANY
+          : IconSet.SEARCH_ALL
+        : nodeData.valueType === 'array'
+        ? IconSet.TAG
+        : nodeData.valueType === 'string'
+        ? IconSet.FILTER_NAME_DOWN
+        : nodeData.valueType === 'number'
+        ? IconSet.FILTER_FILTER_DOWN
+        : IconSet.FILTER_DATE}
+      <div className="label-text" data-tooltip={label}>
+        {label}
       </div>
-    );
-  },
-);
+    </div>
+  );
+});
 
 interface ISearchTreeProps {
   onEdit: (search: ClientFileSearchItem) => void;
@@ -326,12 +351,15 @@ const SavedSearchesList = ({ onDelete, onEdit, onDuplicate, onReplace }: ISearch
         isExpanded,
         () => {},
         toggleExpansion,
-        customKeys.bind(null, (crits: ClientFileSearchCriteria[], searchMatchAny: boolean) => {
-          uiStore.replaceSearchCriterias(crits);
-          if (uiStore.searchMatchAny !== searchMatchAny) {
-            uiStore.toggleSearchMatchAny();
-          }
-        }),
+        customKeys.bind(
+          null,
+          (crits: ClientFileSearchCriteria[] | ClientSearchGroup, searchMatchAny: boolean) => {
+            uiStore.replaceSearchCriterias(crits);
+            if (uiStore.searchMatchAny !== searchMatchAny) {
+              uiStore.toggleSearchMatchAny();
+            }
+          },
+        ),
       ),
     [uiStore],
   );
@@ -371,10 +399,11 @@ const SavedSearchesPanel = observer((props: Partial<MultiSplitPaneProps>) => {
       runInAction(() => {
         return new ClientFileSearchItem(
           generateId(),
-          uiStore.searchCriteriaList.map((c) => c.getLabel(CustomKeyDict, rootStore)).join(', ') ||
-            'New search',
-          uiStore.searchCriteriaList.map((c) => c.serialize(rootStore)),
-          uiStore.searchMatchAny,
+          uiStore.searchRootGroup
+            .getLabels(CustomKeyDict, rootStore)
+            .map((label) => label.label)
+            .join(', ') || 'New search',
+          uiStore.searchRootGroup.serialize(rootStore, true),
           searchStore.searchList.length,
         );
       }),

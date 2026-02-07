@@ -3,9 +3,8 @@ import React, { RefObject, memo, useMemo, useState } from 'react';
 import { IconButton } from 'widgets/button';
 import { IconSet } from 'widgets/icons';
 import { InfoButton } from 'widgets/notifications';
-import { KeySelector, OperatorSelector, ValueInput } from './Inputs';
-import { QueryDispatch } from './QueryEditor';
-import { defaultQuery, generateCriteriaId } from './data';
+import { IndexInput, KeySelector, OperatorSelector, ValueInput } from './Inputs';
+import { appendCriteriaByIndexPath, CritIndexPath, defaultQuery, QueryDispatch } from './data';
 import { useStore } from 'src/frontend/contexts/StoreContext';
 
 export interface QueryBuilderProps {
@@ -14,6 +13,7 @@ export interface QueryBuilderProps {
 }
 
 const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: QueryBuilderProps) {
+  const [path, setPath] = useState<CritIndexPath>([]);
   const [criteria, setCriteria] = useState(defaultQuery('tags'));
   const { extraPropertyStore } = useStore();
   const epID = 'extraProperty' in criteria ? criteria.extraProperty : undefined;
@@ -23,7 +23,7 @@ const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: Qu
   );
 
   const add = () => {
-    dispatch((query) => new Map(query.set(generateCriteriaId(), criteria)));
+    dispatch((query) => appendCriteriaByIndexPath(query, criteria, path));
     setCriteria(defaultQuery('tags'));
     keySelector.current?.focus();
   };
@@ -35,6 +35,10 @@ const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: Qu
         <InfoButton>
           A criteria is made of three components:
           <ul>
+            <li>
+              <b>nesting</b> (decides in which group the criteria will be added. If empty, it will
+              be added to the root group),
+            </li>
             <li>
               <b>key</b> (a property of the image file),
             </li>
@@ -57,11 +61,17 @@ const CriteriaBuilder = memo(function QueryBuilder({ keySelector, dispatch }: Qu
         </InfoButton>
       </legend>
       <div id="criteria-builder">
+        <label id="builder-space">Nesting</label>
         <label id="builder-key">Key</label>
         <label id="builder-operator">Operator</label>
         <label id="builder-value">Value</label>
         <span></span>
 
+        <IndexInput
+          labelledby="builder-index" //
+          path={path.join('.')}
+          setValue={setPath}
+        />
         <KeySelector
           labelledby="builder-key"
           ref={keySelector}

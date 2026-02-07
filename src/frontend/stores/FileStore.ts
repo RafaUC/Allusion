@@ -1,14 +1,21 @@
 import fse from 'fs-extra';
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
+//import { setTimeout as delay } from 'node:timers/promises';
 
 import { getThumbnailPath } from 'common/fs';
-import { promiseAllLimit } from 'common/promise';
+import { batchReducer, promiseAllLimit } from 'common/promise';
 import { debounce } from 'common/timeout';
-import { DataStorage } from '../../api/data-storage';
-import { ConditionDTO, OrderBy, OrderDirection } from '../../api/data-storage-search';
+import { DataStorage, makeFileBatchFetcher } from '../../api/data-storage';
+import {
+  ConditionGroupDTO,
+  Cursor,
+  OrderBy,
+  OrderDirection,
+  PaginationDirection,
+} from '../../api/data-storage-search';
 import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
-import { AppToaster } from '../components/Toaster';
+import { AppToaster, IToastProps } from '../components/Toaster';
 import { ClientFile, mergeMovedFile } from '../entities/File';
 import { ClientLocation } from '../entities/Location';
 import {
@@ -28,8 +35,19 @@ import {
 import { InheritedTagsVisibilityModeType } from './UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
+import { serializeDate } from 'src/backend/schemaTypes';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
+
+type FetchArgs = [
+  OrderBy<FileDTO>, //order
+  OrderDirection, //fileOrder
+  boolean, //useNaturalOrdering
+  number, //limit
+  PaginationDirection | undefined, //pagination
+  Cursor | undefined, //cursor
+  string, //extraPropertyID
+];
 
 /** These fields are stored and recovered when the application opens up */
 type PersistentPreferenceFields =
@@ -37,7 +55,13 @@ type PersistentPreferenceFields =
   | 'orderBy'
   | 'orderByExtraProperty'
   | 'isNaturalOrderingEnabled'
-  | 'averageFetchTimes';
+  | 'averageFetchTimes'
+  | 'numTotalFiles'
+  | 'dirtyTotalFiles'
+  | 'numUntaggedFiles'
+  | 'dirtyUntaggedFiles'
+  | 'numMissingFiles'
+  | 'dirtyMissingFiles';
 
 export const enum Content {
   All,
@@ -52,6 +76,8 @@ const ContentLabels: Record<Content, string> = {
   [Content.Untagged]: 'Untagged',
   [Content.Query]: 'Query',
 };
+
+const PAGE_SIZE = 256;
 
 class FileStore {
   private readonly backend: DataStorage;
@@ -68,7 +94,7 @@ class FileStore {
    * The timestamp when the fileList expected layout was last modified.
    * Useful for in react component dependencies that need to trigger logic when the fileList changes
    */
-  @observable fileListLayoutLastModified = new Date();
+  @observable fileListLastRefetch = new Date();
   /** A map of file ID to its index in the file list, for quick lookups by ID */
   private readonly index = new Map<ID, number>();
 
@@ -82,15 +108,21 @@ class FileStore {
   @observable orderBy: OrderBy<FileDTO> = 'dateAdded';
   @observable isNaturalOrderingEnabled: boolean = false;
   @observable orderByExtraProperty: ID = '';
+
   @observable numTotalFiles = 0;
-  @observable numLoadedFiles = 0;
+  @observable dirtyTotalFiles = true;
   @observable numUntaggedFiles = 0;
+  @observable dirtyUntaggedFiles = true;
   @observable numMissingFiles = 0;
+  @observable dirtyMissingFiles = true;
+  @observable numFilteredFiles = 0;
+  @observable numLoadedFiles = 0;
   /**
    * ID pair for the current backend fetch task.
    * Helps identify if a new task has started and allows aborting previous ones.
    * - First element: fetch ID
-   * - Second element: filesFromBackend ID
+   * - Second element: filesFromBackend ID, also indicathes the state of the fetch:
+   *     if its 0 the fetch process as ended, if its 1 the fetch process is in course
    * */
   readonly fetchTaskIdPair = observable<[number, number]>([0, 0]);
   readonly averageFetchTimes = observable(new Map<string, number>([]));
@@ -393,24 +425,31 @@ class FileStore {
     }
     this.isTaggingWithService = true;
     const taggingServiceURL = this.rootStore.uiStore.taggingServiceURL;
-    let files = Array.from(this.rootStore.uiStore.fileSelection);
-    const numFiles = files.length;
+    const isAllFilesSelected = this.rootStore.uiStore.isAllFilesSelected;
+    const selectedFiles = Array.from(this.rootStore.uiStore.fileSelection);
+    const selectedIndex = new Map(selectedFiles.map((f, i) => [f.id, i]));
+    const N = this.rootStore.uiStore.taggingServiceParallelRequests;
+    const batchSize = 25;
+    const numFiles = isAllFilesSelected ? this.numFilteredFiles : selectedFiles.length;
+    const toastKey = 'tagging-using-service';
     const isMulti = numFiles > 1;
+
+    let count = 0;
     let successCount = 0;
     let isServiceActive = false;
-    const toastKey = 'tagging-using-service';
     let isCancelled = false;
-    const clickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
-    const showProgressToaster = (progress: number) => {
+    const cancelled = () => isCancelled;
+    const failedClickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
+
+    // use local counters instead of using the progress argument of the callbacks
+    const showProgressToaster = () => {
       if (!isCancelled) {
-        const progressCount = Math.round(numFiles * progress);
+        const percentage = ((count / numFiles) * 100).toFixed(2);
         AppToaster.show(
           {
-            message: `Tagging ${numFiles} file${isMulti ? 's ' : ''}${
-              isMulti ? (progress * 100).toFixed(1) : ''
-            }${isMulti ? '%...' : '...'}  ${
-              successCount !== progressCount ? `(${progressCount - successCount} failures)` : ''
-            }`,
+            message: `Tagging ${numFiles} file${isMulti ? 's ' : ''}${isMulti ? percentage : ''}${
+              isMulti ? '%' : ''
+            } (${count})...  ${successCount !== count ? `(${count - successCount} failures)` : ''}`,
             timeout: 0,
             clickAction: {
               label: 'Cancel',
@@ -424,81 +463,107 @@ class FileStore {
       }
     };
 
-    showProgressToaster(0);
+    const showfinishToaster = () => {
+      if (successCount === 0) {
+        isCancelled = true;
+        const message = taggingServiceURL
+          ? 'Could not get tags from the tagging service: is it not running, or is the API/URL misconfigured?'
+          : 'No Local Tagging Service API configured, go to: Settings > Background Processes > Local Tagging Service API URL';
+        AppToaster.show(
+          {
+            type: 'error',
+            message: message,
+            timeout: 10000,
+            clickAction: taggingServiceURL ? failedClickAction : undefined,
+          },
+          toastKey,
+        );
+      } else {
+        const isSuccess = successCount === numFiles;
+        AppToaster.show(
+          {
+            type: isSuccess ? 'success' : 'warning',
+            message: `Successfully tagged ${successCount} of ${numFiles} files.  ${
+              !isSuccess ? `(${numFiles - successCount} failures)` : ''
+            }`,
+            timeout: 0,
+            clickAction: !isSuccess ? failedClickAction : undefined,
+          },
+          toastKey,
+        );
+      }
+    };
 
-    // Try to get the Allowed files, in case of the service API does some filtering to skip unnecessary requests
-    const allowedFiles = await this.getAllowedFilesFromTaggingService(
-      files.map((f) => f.absolutePath),
-    ).catch((e) => console.error(e));
-    files =
-      allowedFiles === undefined ? files : files.filter((f) => allowedFiles.has(f.absolutePath));
-    // Process files with only N jobs in parallel and a progress + cancel callback
-    const N = this.rootStore.uiStore.taggingServiceParallelRequests;
-    await promiseAllLimit(
-      files.map((file) => async () => {
-        const currentSuccessCount = successCount;
-        const generatedTagNames = await this.getTagNamesUsingTaggingService(file);
-        if (!isCancelled && generatedTagNames !== undefined && generatedTagNames.length > 0) {
-          try {
-            await this.tagFileUsingNamesOrAliases(file, generatedTagNames);
-            // Add a common tag to indicate that the file was auto-tagged, allowing the user to filter them.
-            await this.tagFileUsingNamesOrAliases(file, ['auto-tagged']);
-            // Save the file even if it has been disposed after a change of content view
-            if (!file.isAutoSaveEnabled) {
-              this.save(runInAction(() => file.serialize()));
-            }
-            successCount++;
-          } catch (error) {
-            console.error(error);
+    const processBatch = async (files: ClientFile[]) => {
+      // Try to get the Allowed files, in case of the service API does some filtering to skip unnecessary requests
+      const allowedFiles = await this.getAllowedFilesFromTaggingService(
+        files.map((f) => f.absolutePath),
+      ).catch((e) => console.error(e));
+      files =
+        allowedFiles === undefined ? files : files.filter((f) => allowedFiles.has(f.absolutePath));
+      // Process files with only N jobs in parallel and a progress + cancel callback
+      await promiseAllLimit(
+        files.map((file, batchIndex) => async () => {
+          // if the file was in the original selection use that instance instead
+          // and replace the file in the batch with it (because the whole batch gets saved at the end
+          // and if the unotuched instance gets saved, the changes made get lost)
+          const idx = selectedIndex.get(file.id);
+          if (idx !== undefined) {
+            file = selectedFiles[idx];
+            files[batchIndex] = file;
           }
-        }
-        // if not success, allways for the first one but do not spam if all are fails.
-        if (successCount === currentSuccessCount && (!isServiceActive || successCount > 0)) {
-          AppToaster.show(
-            {
-              type: 'error',
-              message: `Failed to get the tags for "${file.name}" from the tagging service`,
-              timeout: 8000,
-              clickAction: clickAction,
-            },
-            `${toastKey}-failed-${file.id}`,
-          );
-        }
-        isServiceActive = true;
-      }),
-      N,
-      showProgressToaster,
-      () => isCancelled,
-    ).catch((e) => console.error(e));
+          const currentSuccessCount = successCount;
+          const generatedTagNames = await this.getTagNamesUsingTaggingService(file);
+          if (!isCancelled && generatedTagNames !== undefined && generatedTagNames.length > 0) {
+            try {
+              await this.tagFileUsingNamesOrAliases(file, generatedTagNames);
+              // Add a common tag to indicate that the file was auto-tagged, allowing the user to filter them.
+              await this.tagFileUsingNamesOrAliases(file, ['auto-tagged']);
+              // Save the file even if it has been disposed after a change of content view
+              if (!file.isAutoSaveEnabled) {
+                this.save(runInAction(() => file.serialize()));
+              }
+              successCount++;
+            } catch (error) {
+              console.error(error);
+            }
+          }
+          // if not success, allways for the first one but do not spam if all are fails.
+          if (successCount === currentSuccessCount && (!isServiceActive || successCount > 0)) {
+            AppToaster.show(
+              {
+                type: 'error',
+                message: `Failed to get the tags for "${file.name}" from the tagging service`,
+                timeout: 8000,
+                clickAction: failedClickAction,
+              },
+              `${toastKey}-failed-${file.id}`,
+            );
+          }
+          count++;
+          isServiceActive = true;
+        }),
+        N,
+        showProgressToaster,
+        cancelled,
+      );
+    };
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (successCount === 0) {
-      const message = taggingServiceURL
-        ? 'Could not get tags from the tagging service: is it not running, or is the API/URL misconfigured?'
-        : 'No Local Tagging Service API configured, go to: Settings > Background Processes > Local Tagging Service API URL';
-      AppToaster.show(
-        {
-          type: 'error',
-          message: message,
-          timeout: 10000,
-          clickAction: taggingServiceURL ? clickAction : undefined,
-        },
-        toastKey,
+    showProgressToaster();
+
+    if (isAllFilesSelected) {
+      await this.dispatchToFilteredFiles(
+        processBatch,
+        () => {},
+        cancelled,
+        showfinishToaster,
+        batchSize,
       );
     } else {
-      const isSuccess = successCount === numFiles;
-      AppToaster.show(
-        {
-          type: isSuccess ? 'success' : 'warning',
-          message: `Successfully tagged ${successCount} of ${numFiles} files.  ${
-            !isSuccess ? `(${numFiles - successCount} failures)` : ''
-          }`,
-          timeout: 0,
-          clickAction: !isSuccess ? clickAction : undefined,
-        },
-        toastKey,
-      );
+      await processBatch(selectedFiles).catch((e) => console.error(e));
+      showfinishToaster();
     }
+
     this.isTaggingWithService = false;
   }
 
@@ -611,12 +676,29 @@ class FileStore {
         average,
       )}ms`,
       // eslint-disable-next-line prettier/prettier
-      color1, color2, color1, color2, color1, color2, color1, color2
+      color1,
+      color2,
+      color1,
+      color2,
+      color1,
+      color2,
+      color1,
+      color2,
     );
   }
 
   @action.bound setNumLoadedFiles(val: number): void {
     this.numLoadedFiles = val;
+  }
+
+  @action.bound setDirtyTotalFiles(val: boolean): void {
+    this.dirtyTotalFiles = val;
+  }
+  @action.bound setDirtyUntaggedFiles(val: boolean): void {
+    this.dirtyUntaggedFiles = val;
+  }
+  @action.bound setDirtyMissingFiles(val: boolean): void {
+    this.dirtyMissingFiles = val;
   }
 
   /**
@@ -679,7 +761,10 @@ class FileStore {
         this.rootStore.uiStore.deselectFile(file);
         this.removeThumbnail(file.absolutePath);
       }
-      this.fileListLayoutLastModified = new Date();
+      runInAction(() => {
+        this.replaceFileList(this.fileList.filter((f) => f && !files.includes(f)));
+        this.dirtyMissingFiles = true;
+      });
       return this.refetch();
     } catch (err) {
       console.error('Could not remove files', err);
@@ -688,9 +773,9 @@ class FileStore {
 
   @action async deleteFilesByExtension(ext: IMG_EXTENSIONS_TYPE): Promise<void> {
     try {
-      const crit = new ClientStringSearchCriteria('extension', ext, 'equals');
+      const crit = new ClientStringSearchCriteria(undefined, 'extension', ext, 'equals');
       const files = await this.backend.searchFiles(
-        crit.toCondition(),
+        { conjunction: 'and', children: [crit.toCondition()] },
         'id',
         OrderDirection.Asc,
         false,
@@ -711,12 +796,66 @@ class FileStore {
    * of `fetchTaskIdPair` with the current timestamp to uniquely identify the task.
    * @returns The generated fetch ID (timestamp)
    */
-  @action.bound newFetchTaskId(): number {
+  @action.bound async newFetchTaskId(): Promise<number> {
     this.numLoadedFiles = 0;
     const now = performance.now();
     this.fetchTaskIdPair[0] = now;
     this.fetchTaskIdPair[1] = 1;
+    /*
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!USE_BACKEND_AS_WORKER && this.activeAverageFetchTime > 2000) {
+      // If the backend is not in a worker and the fetch is heavy
+      // Apply a small delay to give time to the progressbar
+      // to start the animation before the backend blocks the tread.
+      await delay(600);
+    } else {
+      await delay(10);
+    } */
     return now;
+  }
+
+  @action.bound async fetchPage(direction: PaginationDirection): Promise<void> {
+    if (this.showsMissingContent) {
+      return;
+    }
+    const { uiStore } = this.rootStore;
+    const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
+    try {
+      // Indicate a new fetch process
+      const start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.searchFiles(
+        criterias,
+        ...this.getFetchArgs(direction),
+      );
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      // continue if the current taskId is the same else abort the fetch
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        if (fetchedFiles.length === 0) {
+          AppToaster.show(
+            {
+              message: `${direction === 'after' ? 'End' : 'Top'} of results reached`,
+              timeout: direction === 'after' ? 5000 : 3000,
+            },
+            'results-edge-reached',
+          );
+        }
+        return this.updateFromBackend(fetchedFiles, direction);
+      } else {
+        console.debug(`FETCH "${direction}" ABORTED`);
+      }
+    } catch (e) {
+      console.log(`Could not fetch ${direction} page.`, e);
+    }
+  }
+
+  @action.bound async fetchAfter(): Promise<void> {
+    return this.fetchPage('after');
+  }
+
+  @action.bound async fetchBefore(): Promise<void> {
+    return this.fetchPage('before');
   }
 
   @action.bound async refetch(): Promise<void> {
@@ -731,30 +870,105 @@ class FileStore {
     }
   }
 
+  @action.bound toCursor(file: ClientFile | FileDTO): Cursor {
+    let cursorValue: Cursor['orderValue'];
+    if (this.orderBy === 'random') {
+      cursorValue = null;
+    } else if (this.orderBy === 'extraProperty') {
+      const ep = this.rootStore.extraPropertyStore.get(this.orderByExtraProperty);
+      if (file instanceof ClientFile) {
+        cursorValue = ep ? file.extraProperties.get(ep) ?? null : null;
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        cursorValue = ep ? file.extraProperties[ep.id] ?? null : null;
+      }
+    } else {
+      const val = file[this.orderBy];
+      if (val instanceof Date) {
+        cursorValue = serializeDate(val);
+      } else if (typeof val === 'object') {
+        cursorValue = null;
+      } else {
+        cursorValue = val;
+      }
+    }
+    return { id: file.id, orderValue: cursorValue };
+  }
+
+  @action.bound getFetchArgs(direction?: PaginationDirection): FetchArgs {
+    let cursorItem: ClientFile | undefined;
+    if (direction === 'after') {
+      cursorItem = this.fileList.at(-1);
+    } else if (direction == 'before') {
+      cursorItem = this.fileList.at(0);
+    } else {
+      // Prioritize the first selected file.
+      const selected = this.rootStore.uiStore.fileSelection.values().next().value as
+        | ClientFile
+        | undefined;
+      if (selected) {
+        cursorItem = selected;
+        this.rootStore.uiStore.setFirstItem(cursorItem);
+      } else {
+        const firstId = this.rootStore.uiStore.firstItem?.id;
+        cursorItem = firstId ? this.get(firstId) : undefined;
+      }
+    }
+    let cursor: Cursor | undefined;
+    if (!cursorItem) {
+      cursor = this.rootStore.uiStore.firstItem
+        ? { ...this.rootStore.uiStore.firstItem } // make a copy to remove observables
+        : undefined;
+    } else {
+      cursor = this.toCursor(cursorItem);
+    }
+
+    return [
+      this.orderBy,
+      this.orderDirection,
+      this.isNaturalOrderingEnabled,
+      PAGE_SIZE, // 256, // limit
+      direction ?? 'after', // pagination
+      cursor, // cursor
+      this.orderByExtraProperty,
+    ];
+  }
+
+  @action.bound async initialFetch(criterias?: ConditionGroupDTO<FileDTO>): Promise<FileDTO[]> {
+    const args: FetchArgs = this.getFetchArgs();
+    // Split the initial pagination into two halves to place the first item in the
+    // middle, avoids triggering multiple prepend/append operations on refetch,
+    // which caused visual jumps.
+
+    // Fetch the top half first.
+    args[3] = Math.trunc(PAGE_SIZE / 2); // split page size
+    args[4] = 'before';
+    const topHalf = await this.backend.searchFiles(criterias, ...args);
+    // bottom half
+    args[4] = 'after';
+    const bottomitem = topHalf.at(-1);
+    // if no items returned by bottom half use the same cursor
+    args[5] = bottomitem ? this.toCursor(bottomitem) : undefined;
+    const bottomHalf = await this.backend.searchFiles(criterias, ...args);
+    return topHalf.concat(bottomHalf);
+  }
+
   @action.bound async fetchAllFiles(): Promise<void> {
     try {
       this.setContentAll();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
-      this.rootStore.uiStore.clearSearchCriteriaList();
-      const fetchedFiles = await this.backend.fetchFiles(
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-      );
+      const start = await this.newFetchTaskId();
+      this.rootStore.uiStore.clearSearchCriteriaTree();
+      const fetchedFiles = await this.initialFetch();
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
-      let promise = undefined;
       if (start === currentFetchId) {
-        promise = this.updateFromBackend(fetchedFiles);
+        return this.updateFromBackend(fetchedFiles);
       } else {
         console.debug('FETCH All ABORTED');
       }
-      this.rootStore.initStartupLoads(fetchedFiles);
-      return promise;
     } catch (err) {
       console.error('Could not load all files', err);
     }
@@ -764,19 +978,12 @@ class FileStore {
     try {
       this.setContentUntagged();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
       const { uiStore } = this.rootStore;
-      uiStore.clearSearchCriteriaList();
-      const criteria = new ClientTagSearchCriteria('tags');
-      uiStore.searchCriteriaList.push(criteria);
-      const fetchedFiles = await this.backend.searchFiles(
-        criteria.toCondition(this.rootStore),
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-        uiStore.searchMatchAny,
-      );
+      uiStore.clearSearchCriteriaTree();
+      uiStore.searchRootGroup.children.push(new ClientTagSearchCriteria(undefined, 'tags'));
+      const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
+      const start = await this.newFetchTaskId();
+      const fetchedFiles = await this.initialFetch(criterias);
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
@@ -794,76 +1001,19 @@ class FileStore {
   @action.bound async fetchMissingFiles(): Promise<void> {
     try {
       const {
-        orderBy,
-        orderDirection,
-        isNaturalOrderingEnabled,
-        orderByExtraProperty,
         rootStore: { uiStore },
       } = this;
 
       this.setContentMissing();
-      // Indicate a new fetch process
-      const start = this.newFetchTaskId();
-      uiStore.clearSearchCriteriaList();
+      uiStore.clearSearchCriteriaTree();
 
-      // Fetch all files, then check their existence and only show the missing ones
-      // Similar to {@link updateFromBackend}, but the existence check needs to be awaited before we can show the images
-      const backendFiles = await this.backend.fetchFiles(
-        orderBy,
-        orderDirection,
-        isNaturalOrderingEnabled,
-        orderByExtraProperty,
-      );
-      const end = performance.now();
-      this.setAverageFetchTime(end - start);
-      // continue if the current taskId is the same else abort the fetch
-      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
-      if (!(start === currentFetchId)) {
-        console.debug('FETCH MISSING ABORTED');
-        return;
-      }
-
-      // For every new file coming in, either re-use the existing client file if it exists,
-      // or construct a new client file
-      const { newFiles, status } = await this.filesFromBackend(backendFiles, false);
-      if (status != Status.success) {
-        return;
-      }
-
-      // We don't store whether files are missing (since they might change at any time)
-      // So we have to check all files and check their existence them here
-      const existenceCheckPromises = runInAction(() => {
-        this.numLoadedFiles = 0;
-        const definedFiles = newFiles.filter(
-          (clientFile): clientFile is ClientFile => !!clientFile,
-        );
-        const total = definedFiles.length;
-        const step = Math.ceil(total / 20);
-
-        return definedFiles.map((clientFile, i) => async () => {
-          const exists = await fse.pathExists(clientFile.absolutePath);
-          clientFile.setBroken(!exists);
-          if (i % step === 0 || i === total - 1) {
-            this.setNumLoadedFiles(i);
-          }
-        });
-      });
-
-      const N = 50; // TODO: same here as in fetchFromBackend: number of concurrent checks should be system dependent
-      await promiseAllLimit(existenceCheckPromises, N);
-      // If filesFromBackend was aborted or the user changed the content while checking for
-      // missing files, do not replace the fileList
-      const [content, currentFetchId2] = runInAction(() => [this.content, this.fetchTaskIdPair[0]]);
-      if (content !== Content.Missing || !(start === currentFetchId2)) {
-        console.debug('FETCH MISSING ABORTED');
-        return;
-      }
+      const allMissingClientFiles = await this._fetchMissingFiles();
 
       runInAction(() => {
-        const missingClientFiles = newFiles.filter((file) => file && file.isBroken);
-        this.replaceFileList(missingClientFiles);
-        this.numMissingFiles = missingClientFiles.length;
-        this.fileListLayoutLastModified = new Date();
+        this.replaceFileList(allMissingClientFiles);
+        this.numMissingFiles = allMissingClientFiles.length;
+        this.dirtyMissingFiles = false;
+        this.fileListLastRefetch = new Date();
       });
       this.cleanFileSelection();
 
@@ -882,26 +1032,16 @@ class FileStore {
 
   @action.bound async fetchFilesByQuery(): Promise<void> {
     const { uiStore } = this.rootStore;
-
-    if (uiStore.searchCriteriaList.length === 0) {
+    if (uiStore.searchRootGroup.children.length === 0) {
       return this.fetchAllFiles();
     }
 
-    const criterias: ConditionDTO<FileDTO>[] = uiStore.searchCriteriaList.flatMap((c) =>
-      c.toCondition(this.rootStore),
-    );
+    const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
     try {
       this.setContentQuery();
       // Indicate a new fetch process
-      const start = this.newFetchTaskId();
-      const fetchedFiles = await this.backend.searchFiles(
-        criterias as [ConditionDTO<FileDTO>, ...ConditionDTO<FileDTO>[]],
-        this.orderBy,
-        this.orderDirection,
-        this.isNaturalOrderingEnabled,
-        this.orderByExtraProperty,
-        uiStore.searchMatchAny,
-      );
+      const start = await this.newFetchTaskId();
+      const fetchedFiles = await this.initialFetch(criterias);
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       // continue if the current taskId is the same else abort the fetch
@@ -914,6 +1054,31 @@ class FileStore {
     } catch (e) {
       console.log('Could not find files based on criteria', e);
     }
+  }
+
+  @action.bound async jumpToFirst(): Promise<void> {
+    //logic: set an empty cursor and do a refetch.
+    this.rootStore.uiStore.clearFileSelection();
+    this.rootStore.uiStore.clearFirstItem();
+    await this.refetch();
+  }
+
+  @action.bound async jumpToLast(): Promise<void> {
+    //logic: fetch the first file with the inverse order, then set it as cursor and refetch.
+    const args = this.getFetchArgs();
+    args[1] = this.orderDirection === OrderDirection.Asc ? OrderDirection.Desc : OrderDirection.Asc;
+    args[3] = 2; // limit, needs to load the last two items because of how this.initialFetch works
+    args[5] = undefined; // no cursor
+    const criterias = this.rootStore.uiStore.searchRootGroup.toCondition(this.rootStore);
+    const lastFile = (await this.backend.searchFiles(criterias, ...args)).at(-1);
+    if (!lastFile) {
+      return;
+    }
+    const lastClientFile = runInAction(() => new ClientFile(this, lastFile));
+    lastClientFile.dispose();
+    this.rootStore.uiStore.clearFileSelection();
+    this.rootStore.uiStore.setFirstItem(lastClientFile);
+    await this.refetch();
   }
 
   @action.bound incrementNumUntaggedFiles(): void {
@@ -945,6 +1110,13 @@ class FileStore {
    * - Count of loaded (defined) files
    */
   @action.bound replaceFileList(newFiles: (ClientFile | undefined)[]): void {
+    this.index.clear();
+    for (let index = 0; index < newFiles.length; index++) {
+      const file = newFiles[index];
+      if (file) {
+        this.index.set(file.id, index);
+      }
+    }
     this.fileList.replace(newFiles);
     this.fileDimensions.replace(
       this.fileList.map((f) => ({
@@ -952,13 +1124,6 @@ class FileStore {
         height: f ? f.height : 100,
       })),
     );
-    this.index.clear();
-    for (let index = 0; index < this.fileList.length; index++) {
-      const file = this.fileList[index];
-      if (file) {
-        this.index.set(file.id, index);
-      }
-    }
     this.numLoadedFiles = this.definedFiles.length;
   }
 
@@ -977,6 +1142,7 @@ class FileStore {
 
   addRecentlyUsedTag(tag: ClientTag): void {
     this.rootStore.uiStore.addRecentlyUsedTag(tag);
+    this.rootStore.tagStore.setFileCountDirty(tag);
   }
 
   getExtraProperties(
@@ -1055,6 +1221,19 @@ class FileStore {
         if (prefs.averageFetchTimes) {
           this.averageFetchTimes.replace(new Map(prefs.averageFetchTimes));
         }
+        if (prefs.numTotalFiles) {
+          this.numTotalFiles = prefs.numTotalFiles;
+        }
+        if (prefs.numUntaggedFiles) {
+          this.numUntaggedFiles = prefs.numUntaggedFiles;
+        }
+        if (prefs.numMissingFiles) {
+          this.numMissingFiles = prefs.numMissingFiles;
+        }
+        this.dirtyTotalFiles = Boolean(prefs.dirtyTotalFiles ?? true);
+        this.dirtyUntaggedFiles = Boolean(prefs.dirtyUntaggedFiles ?? true);
+        this.dirtyMissingFiles = Boolean(prefs.dirtyMissingFiles ?? true);
+        console.info('View recovered preferences:', prefs);
       } catch (e) {
         console.error('Cannot parse persistent preferences:', FILE_STORAGE_KEY, e);
       }
@@ -1068,6 +1247,12 @@ class FileStore {
       isNaturalOrderingEnabled: this.isNaturalOrderingEnabled,
       orderByExtraProperty: this.orderByExtraProperty,
       averageFetchTimes: Array.from(this.averageFetchTimes.entries()),
+      numTotalFiles: this.numTotalFiles,
+      dirtyTotalFiles: this.dirtyTotalFiles,
+      numUntaggedFiles: this.numUntaggedFiles,
+      dirtyUntaggedFiles: this.dirtyUntaggedFiles,
+      numMissingFiles: this.numMissingFiles,
+      dirtyMissingFiles: this.dirtyMissingFiles,
     };
     return preferences;
   }
@@ -1088,11 +1273,115 @@ class FileStore {
     }
   }
 
-  @action async updateFromBackend(backendFiles: FileDTO[]): Promise<void> {
-    if (backendFiles.length === 0) {
+  private async _fetchMissingFiles(count: true): Promise<number>;
+  private async _fetchMissingFiles(count?: false): Promise<ClientFile[]>;
+  @action private async _fetchMissingFiles(count: boolean = false): Promise<number | ClientFile[]> {
+    // Fetch all files, then check their existence and only show the missing ones
+    // Similar to {@link updateFromBackend}, but the existence check needs to be awaited before we can show the images
+    // process all the backend files in batches
+
+    // variables to compute progressbar's progress
+    const total = this.numTotalFiles;
+    const batchSize = 1000;
+    const step = Math.ceil(total / 100);
+    let batchNum = 0;
+
+    // flag to indicate whether we should update the numLoadedFiles during the fetch
+    // or ignore cancelations by new fetch tasks
+    const isViewContent = this.showsMissingContent;
+    // Indicate a new fetch process if needed
+    const start = await this.newFetchTaskId();
+
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+
+    const allMissingClientFiles = await batchReducer(
+      makeFileBatchFetcher(this.backend, batchSize),
+      async (batch, acc) => {
+        // continue if the current taskId is the same else abort the fetch
+        const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+        if (isViewContent && !(start === currentFetchId)) {
+          console.debug('FETCH MISSING ABORTED');
+          cancelled = true;
+        }
+
+        // For every new file coming in create a new clientfile
+        // witout updating ovserbables and cancelling because this methos is sometimes in background
+        const { newFiles, status } = await this.filesFromBackend(batch, false, true);
+        if (status != Status.success) {
+          cancelled = true;
+        }
+
+        // We don't store whether files are missing (since they might change at any time)
+        // So we have to check all files and check their existence them here
+        const existenceCheckPromises = runInAction(() => {
+          const definedFiles = newFiles.filter(
+            (clientFile): clientFile is ClientFile => !!clientFile,
+          );
+          const batchStart = batchNum * batchSize;
+
+          return definedFiles.map((clientFile, i) => async () => {
+            const exists = await fse.pathExists(clientFile.absolutePath);
+            clientFile.setBroken(!exists);
+            if (exists) {
+              clientFile.dispose();
+            }
+            if (isViewContent && ((batchStart + i) % step === 0 || i === total - 1)) {
+              this.setNumLoadedFiles(batchStart + i);
+            }
+          });
+        });
+
+        const N = 50; // TODO: same here as in fetchFromBackend: number of concurrent checks should be system dependent
+        await promiseAllLimit(existenceCheckPromises, N);
+        // If filesFromBackend was aborted or the user changed the content while checking for
+        // missing files, do not replace the fileList
+        const [content, currentFetchId2] = runInAction(() => [
+          this.content,
+          this.fetchTaskIdPair[0],
+        ]);
+        if (isViewContent && (content !== Content.Missing || !(start === currentFetchId2))) {
+          console.debug('FETCH MISSING ABORTED');
+          cancelled = true;
+        }
+
+        const missingClientFiles = runInAction(() =>
+          newFiles.filter(
+            (file): file is ClientFile => file !== undefined && file.isBroken === true,
+          ),
+        );
+
+        batchNum++;
+        return count
+          ? (acc as number) + missingClientFiles.length
+          : (acc as ClientFile[]).concat(missingClientFiles);
+      },
+      count ? 0 : ([] as ClientFile[]),
+      isCancelled,
+    );
+    // this error should always be catched
+    if (isCancelled()) {
+      if (!count) {
+        (allMissingClientFiles as ClientFile[]).forEach((f) => f.dispose);
+      }
+      throw new Error('FETCH MISSING ABORTED');
+    }
+    const end = performance.now();
+    this.setAverageFetchTime(end - start);
+
+    return allMissingClientFiles;
+  }
+
+  @action async updateFromBackend(
+    backendFiles: FileDTO[],
+    direction?: PaginationDirection,
+  ): Promise<void> {
+    const isReplace = direction === undefined;
+    if (backendFiles.length === 0 && isReplace) {
       this.rootStore.uiStore.clearFileSelection();
-      this.fileListLayoutLastModified = new Date();
+      this.fileListLastRefetch = new Date();
       this.fetchTaskIdPair[1] = 0;
+      this.updateFileCountsState();
       return this.clearFileList();
     }
 
@@ -1102,54 +1391,49 @@ class FileStore {
       this.rootStore.tagStore.tagList.filter((t) => t.isHidden).map((t) => t.id),
     );
     backendFiles = backendFiles.filter((f) => !f.tags.some((t) => hiddenTagIds.has(t)));
-    this.fileDimensions.replace(
-      backendFiles.map((bf) => ({
-        width: bf.width,
-        height: bf.height,
-      })),
-    );
-
-    // Find firstItem in backendFiles to recover the scroll at the same File.
-    // Prioritize the first selected file.
-    const firstItem = this.rootStore.uiStore.firstItem;
-    const first = this.rootStore.uiStore.fileSelection.values().next();
-    const selectedFile = first.value as ClientFile | undefined;
-    const firstItemId = selectedFile !== undefined ? selectedFile.id : this.fileList[firstItem]?.id;
-    const newFirstItem = firstItemId ? backendFiles.findIndex((bf) => bf.id === firstItemId) : -1;
-    // If the file is not found, keep the previous firstItem.
-    if (newFirstItem !== -1) {
-      this.rootStore.uiStore.setFirstItem(newFirstItem, false);
-    }
-    this.fileListLayoutLastModified = new Date();
 
     // For every new file coming in, either re-use the existing client file if it exists,
     // or construct a new client file
-    const { status } = await this.filesFromBackend(backendFiles, true);
+    const { status, newFiles } = await this.filesFromBackend(backendFiles, isReplace);
     if (status != Status.success) {
       return;
     }
 
+    // if status == succes newfiles are all defined;
+    const definedNewFiles = newFiles as ClientFile[];
     // Check existence of new files asynchronously, no need to wait until they can be shown
     // we can simply check whether they exist after they start rendering
     // TODO: We can already get this from chokidar (folder watching), pretty much for free
     const existenceCheckPromises = runInAction(() => {
-      return this.definedFiles.map((clientFile) => async () => {
+      return definedNewFiles.map((clientFile) => async () => {
         const exists = await fse.pathExists(clientFile.absolutePath);
         clientFile.setBroken(!exists);
       });
     });
 
+    runInAction(() => {
+      if (direction === 'after') {
+        // append
+        this.replaceFileList([...this.fileList, ...definedNewFiles]);
+      }
+      if (direction === 'before') {
+        // prepend
+        this.replaceFileList([...definedNewFiles, ...this.fileList]);
+      }
+      if (isReplace) {
+        this.replaceFileList(definedNewFiles);
+        this.fileListLastRefetch = new Date();
+        this.updateFileCountsState();
+        this.cleanFileSelection();
+      }
+    });
     // Run the existence check with at most N checks in parallel
     // TODO: Should make N configurable, or determine based on the system/disk performance
     // NOTE: This is _not_ await intentionally, since we want to show the files to the user as soon as possible
-    runInAction(() => {
-      this.cleanFileSelection();
-      this.updateFileListState(); // update index & untagged image counter
-    });
     const N = 50;
     return promiseAllLimit(existenceCheckPromises, N)
       .then(() => {
-        this.updateFileListState(); // update missing image counter
+        this.countLoadedMissingfiles(); // update missing image counter
       })
       .catch((e) => console.error('An error occured during existence checking!', e));
   }
@@ -1178,6 +1462,7 @@ class FileStore {
   @action private async filesFromBackend(
     backendFiles: FileDTO[],
     updateObservable = true,
+    ignoreCancel = false,
     batchSize = 256,
   ): Promise<{
     newFiles: (ClientFile | undefined)[];
@@ -1200,10 +1485,12 @@ class FileStore {
       this.fileList.replace(newArray);
       targeIndex.clear();
     }
-    this.numLoadedFiles = 0;
+    if (updateObservable) {
+      this.numLoadedFiles = 0;
+    }
     const reusedStatus = new Set<ID>();
     let status: Status = Status.success;
-    const initialIndex = clamp(this.rootStore.uiStore.firstItem, 0, total - 1);
+    const initialIndex = clamp(this.rootStore.uiStore.firstItemIndex, 0, total - 1);
 
     // Calculate number of Batches and its order, prioritizing batches closer to the initialIndex;
     // calculate the initial batch to process with initilIndex at his center.
@@ -1238,14 +1525,18 @@ class FileStore {
       runInAction(() => {
         for (let i = start; i <= end; i++) {
           //Stop processing the batch if FFBETaskIds changed
-          if (taskId[0] !== this.fetchTaskIdPair[0] || taskId[1] !== this.fetchTaskIdPair[1]) {
+          if (
+            !ignoreCancel &&
+            (taskId[0] !== this.fetchTaskIdPair[0] || taskId[1] !== this.fetchTaskIdPair[1])
+          ) {
             status = Status.aborted;
             break;
           }
           const f = backendFiles[i];
           const idx = i;
           // Might already exist!
-          const eFileIndex = transitionIndex.get(f.id);
+          // if ignoreCancel allways create new files
+          const eFileIndex = !ignoreCancel ? transitionIndex.get(f.id) : undefined;
           const existingFile =
             eFileIndex !== undefined ? transitionFileList[eFileIndex] : undefined;
           if (existingFile) {
@@ -1280,7 +1571,9 @@ class FileStore {
             }
             targetList[idx] = existingFile;
             targeIndex.set(existingFile.id, idx);
-            this.numLoadedFiles++;
+            if (updateObservable) {
+              this.numLoadedFiles++;
+            }
           } else {
             // Otherwise, create new one.
             // TODO: Maybe better performance by always keeping the same pool of client files,
@@ -1298,7 +1591,9 @@ class FileStore {
             });
             targetList[idx] = file;
             targeIndex.set(file.id, idx);
-            this.numLoadedFiles++;
+            if (updateObservable) {
+              this.numLoadedFiles++;
+            }
           }
         }
       });
@@ -1317,67 +1612,107 @@ class FileStore {
     runInAction(() => {
       // Ensure numLoadedFiles is not bigger than the total of files, this can happen when
       // this funcion is called again before finishing or aborting the previous one.
-      if (this.numLoadedFiles > targetList.length) {
+      if (updateObservable && this.numLoadedFiles > targetList.length) {
         this.numLoadedFiles = targetList.length;
       }
-      // Dispose of Clientfiles that are not re-used (to get rid of MobX observers)
-      for (const file of transitionFileList) {
-        if (file && !reusedStatus.has(file.id)) {
-          file.dispose();
+      if (updateObservable) {
+        // Dispose of Clientfiles that are not re-used (to get rid of MobX observers)
+        for (const file of transitionFileList) {
+          if (file && !reusedStatus.has(file.id)) {
+            file.dispose();
+          }
         }
       }
       // set task sub id as finished if not aborted
-      if (status.valueOf() !== Status.aborted) {
+      if (!ignoreCancel && status.valueOf() !== Status.aborted) {
         this.fetchTaskIdPair[1] = 0;
       }
     });
     return { newFiles: targetList, newIndex: targeIndex, status: status };
   }
 
-  /** Derive fields from `fileList`
-   * - `index`
-   * - `numUntaggedFiles`
-   * - `numMissingFiles`
-   */
-  @action private updateFileListState() {
-    let missingFiles = 0;
-    let untaggedFiles = 0;
-    this.index.clear();
-    for (let index = 0; index < this.fileList.length; index++) {
-      const file = this.fileList[index];
-      if (!file) {
-        continue;
-      }
-      if (file.isBroken) {
-        missingFiles += 1;
-      } else if (file.tags.size === 0) {
-        untaggedFiles += 1;
-      }
-      this.index.set(file.id, index);
+  @action private countLoadedMissingfiles() {
+    // if found missing files while fetching files only overwrite numMissingfiles it when it's 0
+    if (this.numMissingFiles > 0) {
+      return;
     }
-    this.numMissingFiles = missingFiles;
-    if (this.showsAllContent) {
-      this.numTotalFiles = this.fileList.length;
-      this.numUntaggedFiles = untaggedFiles;
-    } else if (this.showsUntaggedContent) {
-      this.numUntaggedFiles = this.fileList.length;
+    let count = 0;
+    this.fileList.forEach((f) => {
+      if (f?.isBroken) {
+        count++;
+      }
+    });
+    this.numMissingFiles = count;
+  }
+
+  @action private async updateFileCountsState() {
+    if (this.showsMissingContent) {
+      // in case of showingMissing update the count in that fetch method
+      return;
     }
+    const { uiStore } = this.rootStore;
+    // determine what counts to fetch based con content view.
+    const withCriteria = !this.showsAllContent;
+    const withFiles = !this.showsAllContent || this.dirtyTotalFiles;
+    const withUntagged = this.showsAllContent && this.dirtyUntaggedFiles;
+    const withMissing = this.showsAllContent && this.dirtyMissingFiles;
+
+    const criteria = withCriteria ? uiStore.searchRootGroup.toCondition(this.rootStore) : undefined;
+    const options = {
+      files: withFiles,
+      untagged: withUntagged,
+    };
+
+    const [files, untagged] = await this.backend.countFiles(options, criteria);
+    runInAction(async () => {
+      if (this.showsAllContent) {
+        this.numTotalFiles = files ?? this.numTotalFiles;
+        this.numFilteredFiles = files ?? this.numTotalFiles;
+        this.dirtyTotalFiles = false;
+      } else {
+        this.numFilteredFiles = files ?? 0;
+      }
+      if (this.showsUntaggedContent) {
+        this.numUntaggedFiles = files ?? this.numUntaggedFiles;
+      } else {
+        this.numUntaggedFiles = untagged ?? this.numUntaggedFiles;
+      }
+      this.dirtyUntaggedFiles = false;
+      if (withMissing) {
+        const missingCount = await this._fetchMissingFiles(true);
+        runInAction(() => {
+          this.numMissingFiles = missingCount;
+          this.dirtyMissingFiles = false;
+        });
+      }
+    });
   }
 
   /** Initializes the total and untagged file counters by querying the database with count operations */
   async refetchFileCounts(): Promise<void> {
-    const [numTotalFiles, numUntaggedFiles] = await this.backend.countFiles();
+    const [numTotalFiles, numUntaggedFiles] = await this.backend.countFiles({
+      files: true,
+      untagged: true,
+    });
     runInAction(() => {
-      this.numUntaggedFiles = numUntaggedFiles;
-      this.numTotalFiles = numTotalFiles;
+      this.numUntaggedFiles = numUntaggedFiles ?? 0;
+      this.numTotalFiles = numTotalFiles ?? 0;
     });
   }
 
   @action private setOrderDirection(order: OrderDirection) {
+    if (this.orderBy === 'random') {
+      // new random order by clicking again order by random
+      this.backend.setSeed();
+    }
     this.orderDirection = order;
   }
 
   @action private setOrderBy(prop: OrderBy<FileDTO> = 'dateAdded') {
+    if (prop === 'random') {
+      // new random order
+      this.backend.setSeed();
+    }
     this.orderBy = prop;
   }
 
@@ -1388,9 +1723,155 @@ class FileStore {
   @action private incrementNumMissingFiles() {
     this.numMissingFiles++;
   }
+
+  /** Wrapper function that handles common saving status logic to filteredBackendfiles */
+  @action private async handleSavingToFilteredFiles<T>(
+    backendLambdaFN: (criterias: ConditionGroupDTO<FileDTO>) => Promise<T>,
+  ): Promise<T | null> {
+    const criterias = this.rootStore.uiStore.searchRootGroup.toCondition(this.rootStore);
+    this.setIsSaving(true);
+    this.incrementPendingSaves();
+    const result = await backendLambdaFN(criterias).catch((e) => {
+      console.error(e);
+      return null;
+    });
+    this.decrementPendingSaves();
+    if (this.pendingSaves === 0) {
+      this.setIsSaving(false);
+    }
+    return result;
+  }
+
+  /** Adds specified tags to files matching current filters. */
+  @action async addTagsToFilteredFiles(tags: ClientTag[]): Promise<void> {
+    const tagIds = tags.map((t) => {
+      this.addRecentlyUsedTag(t);
+      return t.id;
+    });
+    await this.handleSavingToFilteredFiles(
+      async (c) => await this.backend.addTagsToFiles(tagIds, c),
+    );
+  }
+
+  /** Removes specified tags to files matching current filters. */
+  @action async removeTagsFromFilteredFiles(tags: ClientTag[]): Promise<void> {
+    const tagIds = tags.map((t) => {
+      this.addRecentlyUsedTag(t);
+      return t.id;
+    });
+    await this.handleSavingToFilteredFiles(
+      async (c) => await this.backend.removeTagsFromFiles(tagIds, c),
+    );
+  }
+
+  private isDispatchingToBackend = false;
+
+  @action async dispatchToFilteredFiles(
+    dispatchClientFiles: (files: ClientFile[]) => Promise<void>,
+    showProgressToaster?: (progress: number) => void,
+    isCanceled?: () => boolean,
+    showFinishProgressToaster?: (total: number, succesCount: number, status: Status) => void,
+    batchSize = 250,
+  ): Promise<void> {
+    if (this.isDispatchingToBackend) {
+      AppToaster.show(
+        {
+          message: 'Saving to all selected files already in progress...',
+          timeout: 6000,
+          type: 'error',
+        },
+        'is-dispatching-to-backend',
+      );
+      return;
+    }
+    let _isCancelled = false;
+    const handleCancelled = () => {
+      _isCancelled = true;
+    };
+    const isCanceledWrap = () => Boolean(isCanceled?.() || _isCancelled);
+
+    const uiStore = this.rootStore.uiStore;
+    this.isDispatchingToBackend = true;
+    const total = this.numFilteredFiles;
+    let count = 0;
+    let status: Status = Status.success;
+
+    // if not pogresstoaster provided use a default one.
+    const definedShowProgressToaster =
+      showProgressToaster !== undefined
+        ? showProgressToaster
+        : (progress: number) =>
+            AppToaster.show(
+              {
+                message: `Saving ${total} Files ${(progress * 100).toFixed(1)}%...`,
+                timeout: 0,
+                clickAction: {
+                  label: 'Cancel',
+                  onClick: handleCancelled,
+                },
+              },
+              'is-dispatching-to-backend',
+            );
+
+    try {
+      definedShowProgressToaster(0);
+      const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
+      const modifiedFilesCount = await batchReducer(
+        makeFileBatchFetcher(this.backend, batchSize, criterias),
+        async (batch, acc) => {
+          const { newFiles } = await this.filesFromBackend(batch, false, true);
+          const clientFiles = newFiles.filter(
+            (clientFile): clientFile is ClientFile => !!clientFile,
+          );
+
+          // remove mobx observer
+          clientFiles.forEach((f) => f.dispose());
+          // apply changes
+          await dispatchClientFiles(clientFiles);
+          // save files
+          runInAction(() => {
+            clientFiles.forEach((f) => this.save(f.serialize()));
+          });
+          await this.saveFilesToSave();
+
+          acc = acc + clientFiles.length;
+          count = acc;
+          definedShowProgressToaster(acc / total);
+          return acc;
+        },
+        0,
+        isCanceledWrap,
+      );
+      count = modifiedFilesCount;
+    } catch (error) {
+      status = Status.error;
+      console.error('ERROR WHILE DISPATCHING TO BACKEND FILES', error);
+    }
+    if (isCanceledWrap() && status !== Status.error) {
+      status = Status.aborted;
+    }
+    if (showFinishProgressToaster) {
+      showFinishProgressToaster(total, count, status);
+    } else {
+      const strings = {
+        [Status.success]: ['Succesfuly saved', '', 'success'],
+        [Status.error]: ['Saved', ' with errors', 'error'],
+        [Status.aborted]: ['Saved', ' and cancelled', 'warning'],
+      }[status];
+      AppToaster.show(
+        {
+          message: `${strings[0]} ${count} files${strings[1]}.`,
+          timeout: 0,
+          type: strings[2] as IToastProps['type'],
+        },
+        'is-dispatching-to-backend',
+      );
+    }
+    this.isDispatchingToBackend = false;
+  }
 }
 
-enum Status {
+export enum Status {
   success = 'success',
   error = 'error',
   aborted = 'aborted',

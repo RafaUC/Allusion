@@ -3,7 +3,9 @@ import React, {
   ForwardedRef,
   forwardRef,
   useCallback,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -13,6 +15,8 @@ import {
   ExtraPropertyOperators,
   isExtraPropertyOperatorType,
   NumberOperators,
+  SearchConjunction,
+  SearchConjunctions,
   StringOperators,
 } from '../../../api/data-storage-search';
 import { IMG_EXTENSIONS } from '../../../api/file';
@@ -22,15 +26,139 @@ import { useStore } from '../../contexts/StoreContext';
 import {
   ExtraPropertyOperatorLabels,
   NumberOperatorSymbols,
+  SearchConjuctionSymbols,
   StringOperatorLabels,
 } from '../../entities/SearchCriteria';
 import { ClientTag } from '../../entities/Tag';
-import { Criteria, Key, Operator, TagValue, Value, defaultQuery } from './data';
+import {
+  CritIndexPath,
+  Criteria,
+  Key,
+  Operator,
+  TagValue,
+  Value,
+  defaultQuery,
+  parseIndexPath,
+} from './data';
 import { ExtraPropertySelector } from 'src/frontend/components/ExtraPropertySelector';
 import { ClientExtraProperty } from 'src/frontend/entities/ExtraProperty';
 import { usePopover } from 'widgets/popovers/usePopover';
 import { ExtraPropertyType } from 'src/api/extraProperty';
 import { Observer } from 'mobx-react-lite';
+import { debounce } from 'common/timeout';
+
+function formatPath(path: string): string {
+  return parseIndexPath(path)
+    .map((v) => v + 1)
+    .join('.');
+}
+
+interface IndexInputProps {
+  path: string;
+  setValue: (toIndexPat: CritIndexPath) => void;
+  labelledby?: string;
+}
+
+export const IndexInput = ({ path, setValue, labelledby }: IndexInputProps) => {
+  const [text, setText] = useState(formatPath(path));
+
+  useEffect(() => {
+    setText(formatPath(path));
+  }, [path]);
+
+  const debounceSetValue = useMemo(() => debounce(setValue, 0), [setValue]);
+  const commit = useCallback(
+    (raw: string) => {
+      // allow to set incomplete paths while typing but not commit them
+      if (raw.endsWith('.')) {
+        return;
+      }
+      const parts = raw ? raw.split('.') : [];
+      const path: number[] = [];
+      for (const part of parts) {
+        if (part === '') {
+          return;
+        }
+        let index = parseInt(part, 10);
+        if (isNaN(index)) {
+          return;
+        }
+        // UI is 1-based
+        index = Math.max(index, 1);
+        path.push(index - 1);
+      }
+
+      const normalizedText = path.map((v) => v + 1).join('.');
+      setText(normalizedText);
+      debounceSetValue(path);
+    },
+    [debounceSetValue],
+  );
+
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (!/^\d*(\.\d*)*$/.test(raw)) {
+      return;
+    }
+    setText(raw);
+    //commit(raw);
+  }, []);
+
+  const handleKeydown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        commit(text);
+      }
+    },
+    [commit, text],
+  );
+
+  const handleBlur = () => {
+    commit(text);
+  };
+
+  return (
+    <input
+      aria-labelledby={labelledby}
+      className="input criteria-input"
+      type="text"
+      placeholder="e.g. 1.2.3"
+      value={text}
+      inputMode="numeric"
+      onInput={handleInput}
+      onBlur={handleBlur}
+      onKeyDown={handleKeydown}
+    />
+  );
+};
+
+export interface ConjuctionSelectorProps {
+  labelledby: string;
+  value: SearchConjunction;
+  setConjunction: (conjunction: SearchConjunction) => void;
+}
+
+export const ConjuctionSelector = ({
+  labelledby,
+  value,
+  setConjunction,
+}: ConjuctionSelectorProps) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const conjunction = e.target.value as SearchConjunction;
+    setConjunction(conjunction);
+  };
+
+  return (
+    <select
+      className="conjunction-input"
+      aria-labelledby={labelledby}
+      onChange={handleChange}
+      value={value}
+    >
+      {SearchConjunctions.map((sc) => toOperatorOption(sc, SearchConjuctionSymbols))}
+    </select>
+  );
+};
 
 type SetCriteria = (fn: (criteria: Criteria) => Criteria) => void;
 
@@ -444,7 +572,7 @@ function getOperatorOptions(key: Key, extraPropertyType?: ExtraPropertyType) {
   return [];
 }
 
-const toOperatorOption = <T extends string>(o: T, labels?: Record<T, string>) => (
+export const toOperatorOption = <T extends string>(o: T, labels?: Record<T, string>) => (
   <option key={o} value={o}>
     {labels && o in labels ? labels[o] : camelCaseToSpaced(o)}
   </option>

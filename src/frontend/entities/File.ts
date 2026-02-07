@@ -10,11 +10,10 @@ import {
 } from 'mobx';
 import Path from 'path';
 
-import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { FILE_TAGS_SORTING_TYPE, FileDTO, FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ID } from '../../api/id';
 import ImageLoader from '../image/ImageLoader';
 import FileStore from '../stores/FileStore';
-import { FileStats } from '../stores/LocationStore';
 import { ClientTag } from './Tag';
 import { ClientExtraProperty } from './ExtraProperty';
 import {
@@ -65,7 +64,7 @@ export class ClientFile {
   readonly dateAdded: Date;
   readonly dateCreated: Date;
   readonly dateModified: Date;
-  readonly OrigDateModified: Date;
+  readonly dateModifiedOS: Date;
   readonly dateLastIndexed: Date;
   readonly name: string;
   readonly extension: IMG_EXTENSIONS_TYPE;
@@ -73,6 +72,7 @@ export class ClientFile {
   readonly filename: string;
 
   @observable thumbnailPath: string = '';
+  @observable tagSorting: FILE_TAGS_SORTING_TYPE;
 
   // Is undefined until existence check has been completed
   @observable isBroken?: boolean;
@@ -90,10 +90,11 @@ export class ClientFile {
     this.dateAdded = fileProps.dateAdded;
     this.dateCreated = fileProps.dateCreated;
     this.dateModified = fileProps.dateModified;
-    this.OrigDateModified = fileProps.OrigDateModified;
+    this.dateModifiedOS = fileProps.dateModifiedOS;
     this.dateLastIndexed = fileProps.dateLastIndexed;
     this.name = fileProps.name;
     this.extension = fileProps.extension;
+    this.tagSorting = fileProps.tagSorting;
 
     const location = store.getLocation(this.locationId);
     this.absolutePath = Path.join(location.path, this.relativePath);
@@ -180,7 +181,7 @@ export class ClientFile {
     if (!hasTag) {
       this.tags.add(tag);
       this.store.addRecentlyUsedTag(tag);
-      tag.incrementFileCount(this.id);
+      tag.incrementFileCount();
 
       if (this.tags.size === 1 && !this.isBroken) {
         this.store.decrementNumUntaggedFiles();
@@ -195,7 +196,7 @@ export class ClientFile {
       if (!this.tags.has(tag)) {
         this.tags.add(tag);
         this.store.addRecentlyUsedTag(tag);
-        tag.incrementFileCount(this.id);
+        tag.incrementFileCount();
       }
     });
 
@@ -216,7 +217,7 @@ export class ClientFile {
   @action.bound removeTag(tag: ClientTag): void {
     const hadTag = this.tags.delete(tag);
     if (hadTag) {
-      tag.decrementFileCount(this.id);
+      tag.decrementFileCount();
       this.store.addRecentlyUsedTag(tag);
 
       if (this.tags.size === 0) {
@@ -232,7 +233,7 @@ export class ClientFile {
   @action.bound clearTags(): void {
     if (this.tags.size > 0) {
       this.store.incrementNumUntaggedFiles();
-      this.tags.forEach((tag) => tag.decrementFileCount(this.id));
+      this.tags.forEach((tag) => tag.decrementFileCount());
       this.tags.clear();
     }
   }
@@ -258,7 +259,6 @@ export class ClientFile {
       ([extraProperty, value]) => [extraProperty.id, value],
     );
     const extraProperties: ExtraProperties = Object.fromEntries(entries);
-    const extraPropertyIDs = entries.map(([id]) => id);
     return {
       id: this.id,
       ino: this.ino,
@@ -266,7 +266,7 @@ export class ClientFile {
       relativePath: this.relativePath,
       absolutePath: this.absolutePath,
       tags: Array.from(this.tags, (t) => t.id), // removes observable properties from observable array
-      extraPropertyIDs: extraPropertyIDs,
+      tagSorting: this.tagSorting,
       extraProperties: extraProperties,
       size: this.size,
       width: this.width,
@@ -274,7 +274,7 @@ export class ClientFile {
       dateAdded: this.dateAdded,
       dateCreated: this.dateCreated,
       dateModified: this.dateModified,
-      OrigDateModified: this.OrigDateModified,
+      dateModifiedOS: this.dateModifiedOS,
       dateLastIndexed: this.dateLastIndexed,
       name: this.name,
       extension: this.extension,
@@ -282,6 +282,7 @@ export class ClientFile {
   }
 
   dispose(): void {
+    //console.count('Dispose File');
     this.autoSave = false;
     // clean up the observer
     this.saveHandler();
