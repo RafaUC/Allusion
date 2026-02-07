@@ -1,7 +1,7 @@
 {
   "name": "allusion",
   "productName": "Allusion",
-  "version": "1.0.0-ruc.9.0",
+  "version": "1.0.0-ruc.10.0",
   "description": "A tool for managing your visual library",
   "main": "build/main.bundle.js",
   "scripts": {
