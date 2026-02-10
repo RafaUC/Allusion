@@ -114,11 +114,6 @@ class LocationStore {
         ),
     );
     runInAction(() => this.locationList.replace(locations));
-    runInAction(() => {
-      for (const location of this.locationList) {
-        location.init();
-      }
-    });
   }
 
   save(loc: LocationDTO): void {

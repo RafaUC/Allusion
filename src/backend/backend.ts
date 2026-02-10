@@ -158,7 +158,7 @@ export default class Backend implements DataStorage {
         })
         .execute();
     }
-    await this.preAggregateJSON();
+    //await this.preAggregateJSON();
   }
 
   async setSeed(seed?: number): Promise<void> {

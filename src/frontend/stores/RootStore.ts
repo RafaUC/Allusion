@@ -72,11 +72,14 @@ class RootStore {
       }
     });
 
+    console.time('init tagstore');
     await Promise.all([
       // The tag store needs to be awaited because file and location entities have references
       // to tag entities.
       rootStore.tagStore.init(),
     ]);
+    console.timeEnd('init tagstore');
+    console.time('init extras');
     await Promise.all([
       // The location store must be initiated because the file entity constructor
       // uses the location reference to set values.
@@ -86,6 +89,7 @@ class RootStore {
       rootStore.imageLoader.init(),
       rootStore.searchStore.init(),
     ]);
+    console.timeEnd('init extras');
 
     // Restore preferences, which affects how the file store initializes
     // It depends on tag store being initialized for reconstructing search criteria
@@ -123,9 +127,7 @@ class RootStore {
       );
     }
 
-    // look for any new or removed images, handled by parcel/watcher
-    rootStore.locationStore.watchLocations();
-    rootStore.initStartupLoads().catch(console.error);
+    rootStore.runPostInitializeTasks().catch(console.error);
 
     return rootStore;
   }
@@ -166,18 +168,28 @@ class RootStore {
     return rootStore;
   }
 
-  isStartupLoadsInitialized = false;
-  async initStartupLoads(): Promise<void> {
-    if (this.isStartupLoadsInitialized) {
+  arePostInitTaskRun = false;
+  async runPostInitializeTasks(): Promise<void> {
+    if (this.arePostInitTaskRun) {
       return;
     }
-    this.isStartupLoadsInitialized = true;
-    runInAction(async () => {
-      const doRefreshLocations = this.uiStore.isRefreshLocationsStartupEnabled;
-      if (doRefreshLocations) {
-        await this.locationStore.updateLocations();
-      }
-    });
+    this.arePostInitTaskRun = true;
+
+    // Init locations
+    const locations = runInAction(() => this.locationStore.locationList.slice());
+    for (const location of locations) {
+      await location.init();
+    }
+    // look for any new or removed images, handled by parcel/watcher
+    await this.locationStore.watchLocations();
+
+    // Run user configured startup actions
+    const { isRefreshLocationsStartupEnabled } = runInAction(() => ({
+      isRefreshLocationsStartupEnabled: this.uiStore.isRefreshLocationsStartupEnabled,
+    }));
+    if (isRefreshLocationsStartupEnabled) {
+      await this.locationStore.updateLocations();
+    }
   }
 
   async backupDatabaseToFile(path: string): Promise<void> {
