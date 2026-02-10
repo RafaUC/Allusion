@@ -69,6 +69,7 @@ const defaultWriteArgs = [
 class ExifIO {
   @observable hierarchicalSeparator: string;
 
+  private openPromise: Promise<this> | null = null;
   private isOpening = false;
 
   // For accented characters and foreign alphabets, an extra arg is needed on Windows
@@ -85,24 +86,33 @@ class ExifIO {
     return ep._open || false;
   }
 
-  async initialize(): Promise<ExifIO> {
+  // Implementation of Singleton promise Pattern
+  async initialize(): Promise<this> {
     if (ep._open) {
       return this;
     }
-    if (!this.isOpening) {
-      this.isOpening = true;
-      const pid = await ep.open();
-      console.log('Started exiftool process %s', pid);
-    } else {
-      await new Promise<void>((resolve) =>
-        setInterval(() => {
-          if (ep._open) {
-            resolve();
-          }
-        }, 50),
-      );
+    if (this.openPromise) {
+      return this.openPromise;
     }
-    return this;
+    this.openPromise = (async () => {
+      try {
+        const pid = await ep.open();
+        console.log('Started exiftool process %s', pid);
+        return this;
+      } catch (err) {
+        // if fails set promise to null to retry on next call
+        this.openPromise = null;
+        console.error('Failed to open Exiftool', err);
+        //throw err;
+        return this;
+      }
+    })();
+
+    return this.openPromise;
+  }
+
+  async ensureReady(): Promise<this> {
+    return this.initialize();
   }
 
   async close(): Promise<void> {
@@ -145,7 +155,9 @@ class ExifIO {
     }
     return [...splitHierarchy, ...filteredTags.map((t) => [t])];
   }
+
   async readTags(filepath: string): Promise<string[][]> {
+    await this.ensureReady();
     const metadata = await ep.readMetadata(filepath, [
       'HierarchicalSubject',
       'Subject',
@@ -163,6 +175,7 @@ class ExifIO {
   }
 
   async readExtraProperties(filepath: string): Promise<string | undefined> {
+    await this.ensureReady();
     const metadata = await ep.readMetadata(filepath, [
       'XMP-xmp:ExtraProperties',
       ...this.extraArgs,
@@ -175,6 +188,7 @@ class ExifIO {
   }
 
   async readExifTags(filepath: string, tags: string[]): Promise<(string | undefined)[]> {
+    await this.ensureReady();
     const metadata = await ep.readMetadata(filepath, [...tags, ...this.extraArgs]);
     if (metadata.error || !metadata.data?.[0]) {
       throw new Error(metadata.error || 'No metadata entry');
@@ -217,6 +231,7 @@ class ExifIO {
     // Can add and remove simultaneously with `exiftool -keywords+="add this" -keywords-="remove this"`
     // Multiple at once with `-sep ", " -keywords="one, two, three"`
 
+    await this.ensureReady();
     if (!tagNameHierarchy.length) {
       return;
     }
@@ -254,6 +269,7 @@ class ExifIO {
       onlyIfUndefined?: boolean;
     },
   ): Promise<void> {
+    await this.ensureReady();
     console.debug('Writing', data, 'to', filepath);
 
     const args = [...defaultWriteArgs, ...this.extraArgs];
@@ -332,6 +348,7 @@ class ExifIO {
    * @returns The width and height of the image, or width and height as 0 if the resolution could not be determined.
    */
   async getDimensions(filepath: string): Promise<{ width: number; height: number }> {
+    await this.ensureReady();
     let metadata: Awaited<ReturnType<typeof ep.readMetadata>> | undefined = undefined;
     try {
       metadata = await ep.readMetadata(filepath, [
@@ -366,7 +383,7 @@ class ExifIO {
     // console.log(res);
 
     // TODO: can also extract preview from RAW https://exiftool.org/forum/index.php?topic=7408.0
-
+    await this.ensureReady();
     if (!this.isOpen()) {
       return false;
     }

@@ -72,24 +72,17 @@ class RootStore {
       }
     });
 
-    console.time('init tagstore');
     await Promise.all([
       // The tag store needs to be awaited because file and location entities have references
       // to tag entities.
       rootStore.tagStore.init(),
     ]);
-    console.timeEnd('init tagstore');
-    console.time('init extras');
     await Promise.all([
       // The location store must be initiated because the file entity constructor
       // uses the location reference to set values.
       rootStore.locationStore.init(),
       rootStore.extraPropertyStore.init(),
-      rootStore.exifTool.initialize(),
-      rootStore.imageLoader.init(),
-      rootStore.searchStore.init(),
     ]);
-    console.timeEnd('init extras');
 
     // Restore preferences, which affects how the file store initializes
     // It depends on tag store being initialized for reconstructing search criteria
@@ -109,9 +102,6 @@ class RootStore {
             await rootStore.fileStore.fetchFilesByQuery();
           };
 
-    // Load the files already in the database so user instantly sees their images
-    fileStoreInit();
-
     // If slide mode was recovered from a previous session, it was disabled by setContentQuery.
     // Watch fileStore.numLoadedFiles until there are files in view to re-enable slide mode.
     if (isSlideMode) {
@@ -127,7 +117,9 @@ class RootStore {
       );
     }
 
-    rootStore.runPostInitializeTasks().catch(console.error);
+    // Load the files already in the database so user instantly sees their images
+    fileStoreInit();
+    rootStore.runPostInitializeTasks();
 
     return rootStore;
   }
@@ -169,11 +161,15 @@ class RootStore {
   }
 
   arePostInitTaskRun = false;
+
   async runPostInitializeTasks(): Promise<void> {
     if (this.arePostInitTaskRun) {
       return;
     }
     this.arePostInitTaskRun = true;
+
+    // init searchStore before other longer inits
+    await this.searchStore.init();
 
     // Init locations
     const locations = runInAction(() => this.locationStore.locationList.slice());
@@ -190,6 +186,10 @@ class RootStore {
     if (isRefreshLocationsStartupEnabled) {
       await this.locationStore.updateLocations();
     }
+
+    // this modules can be initialized just-in-time so we can let thei genereal init at the end.
+    await this.imageLoader.init();
+    await this.exifTool.initialize();
   }
 
   async backupDatabaseToFile(path: string): Promise<void> {

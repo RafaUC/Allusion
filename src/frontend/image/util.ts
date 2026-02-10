@@ -2,6 +2,38 @@ import { clamp } from 'common/core';
 import fse from 'fs-extra';
 import { thumbnailFormat } from 'common/config';
 
+export abstract class BaseLoader implements Loader {
+  private initPromise: Promise<void> | null = null;
+
+  // Implementation of Singleton promise Pattern
+  public async init(): Promise<void> {
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = (async () => {
+      try {
+        await this.doInit();
+      } catch (error) {
+        // if it fails set to null to rety on next call
+        this.initPromise = null;
+        throw error;
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  protected async ensureReady() {
+    await this.init();
+  }
+
+  // actual init implementation
+  protected abstract doInit(): Promise<void>;
+
+  abstract decode(buffer: Buffer): Promise<ImageData>;
+}
+
 export interface Loader extends Decoder {
   init: () => Promise<void>;
 }
@@ -27,7 +59,7 @@ export async function getBlob(decoder: Decoder, path: string): Promise<string> {
 const processingPaths = new Set<string>();
 const MAX_CONCURRENT_PATHS = 4;
 const RETRY_DELAY = 10000;
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function generateThumbnail(
   decoder: Decoder,
@@ -36,15 +68,21 @@ export async function generateThumbnail(
   thumbnailSize: number,
 ): Promise<void> {
   if (processingPaths.has(inputPath)) {
-    console.debug(`Thumbnail generation already in progress for ${inputPath} Waiting ${RETRY_DELAY}ms`);
+    console.debug(
+      `Thumbnail generation already in progress for ${inputPath} Waiting ${RETRY_DELAY}ms`,
+    );
     return await delay(RETRY_DELAY);
   }
   if (processingPaths.size >= MAX_CONCURRENT_PATHS) {
-    console.debug(`Max concurrent paths limit reached: ${processingPaths.size}/${MAX_CONCURRENT_PATHS}. Waiting ${RETRY_DELAY}ms`);
+    console.debug(
+      `Max concurrent paths limit reached: ${processingPaths.size}/${MAX_CONCURRENT_PATHS}. Waiting ${RETRY_DELAY}ms`,
+    );
     return await delay(RETRY_DELAY);
   }
 
-  console.debug(`Adding ${inputPath} to processingPaths. Current size: ${processingPaths.size + 1}`);
+  console.debug(
+    `Adding ${inputPath} to processingPaths. Current size: ${processingPaths.size + 1}`,
+  );
   processingPaths.add(inputPath);
   // TODO: merge this functionality with the thumbnail worker: it's basically duplicate code
   let buffer: Buffer | null = await fse.readFile(inputPath);

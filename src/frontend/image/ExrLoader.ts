@@ -1,13 +1,14 @@
 import { default as init, decode } from 'wasm/packages/exr/exr_decoder';
-import { Loader } from './util';
+import { BaseLoader } from './util';
 
-class ExrLoader implements Loader {
-  async init(): Promise<void> {
+class ExrLoader extends BaseLoader {
+  protected async doInit(): Promise<void> {
     await init(new URL('wasm/packages/exr/exr_decoder_bg.wasm', import.meta.url));
   }
 
-  decode(buffer: Buffer): Promise<ImageData> {
-    return Promise.resolve(decode(buffer));
+  public async decode(buffer: Buffer): Promise<ImageData> {
+    await this.ensureReady();
+    return decode(buffer);
   }
 }
 

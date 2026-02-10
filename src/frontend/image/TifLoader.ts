@@ -1,5 +1,5 @@
 import UTIF from 'utif';
-import { Loader } from './util';
+import { BaseLoader } from './util';
 
 /** Tags that exist in every tiff file. */
 const enum BaselineTag {
@@ -8,8 +8,8 @@ const enum BaselineTag {
   BitsPerSample = 't258',
 }
 
-class TifLoader implements Loader {
-  init(): Promise<void> {
+class TifLoader extends BaseLoader {
+  protected async doInit(): Promise<void> {
     return Promise.resolve();
   }
 
@@ -17,7 +17,8 @@ class TifLoader implements Loader {
    * Based on: https://github.com/photopea/UTIF.js/blob/master/UTIF.js#L1119
    * @param buffer Image buffer (e.g. from fse.readFile)
    */
-  decode(buffer: ArrayBuffer): Promise<ImageData> {
+  public async decode(buffer: ArrayBuffer): Promise<ImageData> {
+    await this.ensureReady();
     const ifds = UTIF.decode(buffer);
     const vsns = ifds[0].subIFD ? ifds.concat(ifds[0].subIFD as any) : ifds;
 

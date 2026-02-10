@@ -22,7 +22,7 @@ class SearchStore {
     makeObservable(this);
   }
 
-  async init(): Promise<void> {
+  @action async init(): Promise<void> {
     try {
       const fetchedSearches = await this.backend.fetchSearches();
       fetchedSearches.sort((a, b) => a.index - b.index);
