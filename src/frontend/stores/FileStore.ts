@@ -1,6 +1,6 @@
 import fse from 'fs-extra';
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
-import { setTimeout as delay } from 'node:timers/promises';
+//import { setTimeout as delay } from 'node:timers/promises';
 
 import { getThumbnailPath } from 'common/fs';
 import { batchReducer, promiseAllLimit } from 'common/promise';
@@ -1117,18 +1117,14 @@ class FileStore {
         this.index.set(file.id, index);
       }
     }
-    this.replaceFileDimensions(newFiles);
-    this.fileList.replace(newFiles);
-    this.numLoadedFiles = this.definedFiles.length;
-  }
-
-  @action.bound replaceFileDimensions(files: (ClientFile | FileDTO | undefined)[]): void {
     this.fileDimensions.replace(
-      files.map((f) => ({
+      newFiles.map((f) => ({
         width: f ? f.width : 100,
         height: f ? f.height : 100,
       })),
     );
+    this.fileList.replace(newFiles);
+    this.numLoadedFiles = this.definedFiles.length;
   }
 
   @action get(id: ID): ClientFile | undefined {
@@ -1396,14 +1392,9 @@ class FileStore {
     );
     backendFiles = backendFiles.filter((f) => !f.tags.some((t) => hiddenTagIds.has(t)));
 
-    if (isReplace) {
-      // if is replace set file dimensions here for smoother loading
-      this.replaceFileDimensions(backendFiles);
-      this.fileListLastRefetch = new Date();
-    }
     // For every new file coming in, either re-use the existing client file if it exists,
     // or construct a new client file
-    const { status, newFiles } = await this.filesFromBackend(backendFiles, isReplace);
+    const { status, newFiles } = await this.filesFromBackend(backendFiles, false);
     if (status != Status.success) {
       return;
     }
