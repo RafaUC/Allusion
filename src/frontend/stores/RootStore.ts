@@ -96,11 +96,7 @@ class RootStore {
     const fileStoreInit =
       numCriterias === 0
         ? rootStore.fileStore.fetchAllFiles
-        : async () => {
-            // When searching by criteria, the file counts and startup Loads won't be set (only when fetching all files),
-            // so fetch them manually
-            await rootStore.fileStore.fetchFilesByQuery();
-          };
+        : rootStore.fileStore.fetchFilesByQuery;
 
     // If slide mode was recovered from a previous session, it was disabled by setContentQuery.
     // Watch fileStore.numLoadedFiles until there are files in view to re-enable slide mode.
