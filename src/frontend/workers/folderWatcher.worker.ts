@@ -57,7 +57,7 @@ export class FolderWatcherWorker {
     // watch for this https://github.com/parcel-bundler/watcher/pull/207
 
     const handleEvents = // Small indentation hack to avoid affecting git blame
-      (events: parcelWatcher.Event[], extensions: IMG_EXTENSIONS_TYPE[]) => {
+      async (events: parcelWatcher.Event[], extensions: IMG_EXTENSIONS_TYPE[]) => {
         for (const event of events) {
           // Ignore Files that aren't our extension type
           const ext = SysPath.extname(event.path).toLowerCase().split('.')[1];
@@ -132,7 +132,9 @@ export class FolderWatcherWorker {
           console.error('Error fired in watcher', directory, err);
           ctx.postMessage({ type: 'error', value: err });
         }
-        handleEvents(events, extensions);
+        handleEvents(events, extensions).catch(err => {
+            ctx.postMessage({ type: 'error', value: err.code });
+        });
       },
       { ignore: [], backend: backend },
     );

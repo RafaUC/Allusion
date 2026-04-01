@@ -666,17 +666,22 @@ class LocationStore {
     }
   }
 
-  @action hideFile(path: string): void {
+  @action async hideFile(path: string): Promise<void> {
     // This is called when an image is removed from the filesystem.
     // Could also mean that a file was renamed or moved, in which case addFile was called already:
     // its path will have changed, so we won't find it here, which is fine, it'll be detected as missing later.
     const fileStore = this.rootStore.fileStore;
     const clientFile = fileStore.fileList.find((f) => f && f.absolutePath === path);
 
-    fileStore.setDirtyMissingFiles(true);
     if (clientFile) {
       fileStore.hideFile(clientFile);
       fileStore.debouncedRefetch();
+    } else {
+      // If the hidden file exists in the DB but not in the current fileList, mark missingFilesCount as dirty.
+      const dbMatch = (await this.backend.fetchFilesByKey('absolutePath', path))[0];
+      if (dbMatch) {
+        fileStore.setDirtyMissingFiles(true);
+      }
     }
   }
 

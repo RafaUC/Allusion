@@ -507,6 +507,17 @@ export class ClientLocation {
       } else if (data.type === 'error') {
         const { value } = data;
         console.error('Location watch error:', value);
+        if (value === 'ENOENT') {
+          AppToaster.show(
+            {
+              message: `An error has occurred while reading a new file at location "${this.name}".`,
+              timeout: 3000,
+              type: 'warning',
+            },
+            'location-error',
+          );
+          return;
+        }
         AppToaster.show(
           {
             message: `An error has occured while ${
