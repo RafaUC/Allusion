@@ -1117,13 +1117,13 @@ class FileStore {
         this.index.set(file.id, index);
       }
     }
-    this.fileList.replace(newFiles);
     this.fileDimensions.replace(
-      this.fileList.map((f) => ({
+      newFiles.map((f) => ({
         width: f ? f.width : 100,
         height: f ? f.height : 100,
       })),
     );
+    this.fileList.replace(newFiles);
     this.numLoadedFiles = this.definedFiles.length;
   }
 
@@ -1394,7 +1394,7 @@ class FileStore {
 
     // For every new file coming in, either re-use the existing client file if it exists,
     // or construct a new client file
-    const { status, newFiles } = await this.filesFromBackend(backendFiles, isReplace);
+    const { status, newFiles } = await this.filesFromBackend(backendFiles, false);
     if (status != Status.success) {
       return;
     }

@@ -99,11 +99,7 @@ class RootStore {
     const fileStoreInit =
       numCriterias === 0
         ? rootStore.fileStore.fetchAllFiles
-        : async () => {
-            // When searching by criteria, the file counts and startup Loads won't be set (only when fetching all files),
-            // so fetch them manually
-            await rootStore.fileStore.fetchFilesByQuery();
-          };
+        : rootStore.fileStore.fetchFilesByQuery;
 
     // Load the files already in the database so user instantly sees their images
     fileStoreInit();
