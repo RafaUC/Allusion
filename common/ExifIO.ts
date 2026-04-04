@@ -290,6 +290,43 @@ class ExifIO {
     }
   }
 
+  /** Reads metadata from a file and organizes it into a nested object structure */
+  async readData(filepath: string): Promise<{ [key: string]: { [key: string]: any } }> {
+    let metadata: Awaited<ReturnType<typeof ep.readMetadata>> | undefined = undefined;
+    try {
+      metadata = await ep.readMetadata(filepath, ['G0', ...this.extraArgs]);
+      if (metadata.error || !metadata.data?.[0]) {
+        throw new Error(metadata.error || 'No metadata entry');
+      }
+      const entry = metadata.data[0];
+      const nestedData: { [key: string]: { [key: string]: any } } = {};
+      Object.entries(entry).forEach(([key, value]) => {
+        // Separamos el prefijo (categoría) del nombre de la propiedad
+        // Ejemplo: "File:FileName" -> category: "File", prop: "FileName"
+        const [category, ...propParts] = key.split(':');
+        const propName = propParts.join(':');
+
+        if (propName) {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!nestedData[category]) {
+            nestedData[category] = {};
+          }
+          nestedData[category][propName] = value;
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!nestedData['General']) {
+            nestedData['General'] = {};
+          }
+          nestedData['General'][category] = value;
+        }
+      });
+      return nestedData;
+    } catch (e) {
+      console.error('Could not read metadata from ', filepath, e, metadata);
+      return { error: { error: 'Could not read metadata' } };
+    }
+  }
+
   /** Adds */
   // async addTag(files: string[], tagHierarchy: string[]) {
   //   // concat file paths into one big string, each surrounded by double quotes

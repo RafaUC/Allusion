@@ -1,6 +1,6 @@
 {
   "editor.codeActionsOnSave": {
-    "source.fixAll": "explicit"
+    "source.fixAll": "never"
   },
   "prettier.configPath": ".prettierrc.json",
   "search.exclude": {

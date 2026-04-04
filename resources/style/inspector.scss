@@ -89,7 +89,57 @@
   }
 }
 
-// File info
+// File info & exif reader
+#exif-viewer {
+  .exif-viewer-toolbar {
+    background-color: var(--shade1);
+    display: flex;
+    width: calc(100% + 0.75rem);
+    padding-inline: 0.75rem;
+    margin-inline: -0.75rem;
+    
+    #exif-viewer-menu,
+    .btn-minimal {
+      background-color: var(--shade1);
+      min-height: unset;
+      border-radius: 0%;
+    }
+
+
+    .btn-minimal {
+      padding-inline: 2rem;
+    }
+
+    &.is-default {
+      button:first-child { 
+        background-color: var(--background-color);
+      }
+    }
+
+    &.is-exif {
+      #exif-viewer-menu {
+        background-color: var(--background-color);
+      }
+    }
+  }
+
+  #exif-viewer-menu {
+    .menu-button-text-elem {
+      padding-inline: 1rem;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+
+      .custom-icon {
+        padding: 3px;
+        margin-left: 3px;
+      }
+    }
+  }
+}
+
+table#exif-info,
 table#file-info {
   display: block;
   border-spacing: 0 0.25rem;

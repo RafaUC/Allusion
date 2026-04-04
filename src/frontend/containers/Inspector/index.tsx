@@ -3,11 +3,11 @@ import { observer } from 'mobx-react-lite';
 
 import { useStore } from '../../contexts/StoreContext';
 import FileTags from '../../components/FileTag';
-import ImageInfo from '../../components/ImageInfo';
 import { IconButton, IconSet } from 'widgets';
 import { shell } from 'electron';
 import { IS_PREVIEW_WINDOW } from 'common/window';
 import FileExtraPropertiesEditor from '../../components/FileExtraPropertiesEditor';
+import ExifViewer from 'src/frontend/components/ExifViewer';
 
 const Inspector = observer(() => {
   const { uiStore, fileStore } = useStore();
@@ -25,7 +25,7 @@ const Inspector = observer(() => {
 
   return (
     <aside id="inspector" className="multi-scroll">
-      <section>{first && <ImageInfo file={first} />}</section>
+      <section>{first && <ExifViewer file={first} />}</section>
       <section>
         <header>
           <h2>Path to file</h2>
