@@ -948,18 +948,20 @@ class UiStore {
 
   /** Adds tags to selection. If all files are selected, it updates the filtered set in backend.*/
   @action.bound async addTagsToSelectedFiles(tags: ClientTag[]): Promise<void> {
+    const selection = Array.from(this.rootStore.uiStore.fileSelection);
+    selection.forEach((f) => f.addTags(tags));
     if (this.isAllFilesSelected) {
       await this.rootStore.fileStore.addTagsToFilteredFiles(tags);
     }
-    this.fileSelection.forEach((f) => f.addTags(tags));
   }
 
   /** Removes tags from selection. If all files are selected, it updates the filtered set in backend.*/
   @action.bound async removeTagsFromSelectedFiles(tags: ClientTag[]): Promise<void> {
+    const selection = Array.from(this.rootStore.uiStore.fileSelection);
+    selection.forEach((f) => tags.forEach((t) => f.removeTag(t)));
     if (this.isAllFilesSelected) {
       await this.rootStore.fileStore.removeTagsFromFilteredFiles(tags);
     }
-    this.fileSelection.forEach((f) => tags.forEach((t) => f.removeTag(t)));
   }
 
   @action.bound selectFile(file?: ClientFile, clear?: boolean): void {
