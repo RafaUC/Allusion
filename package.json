@@ -28,7 +28,7 @@
       "extraResources": [
         "resources/exiftool/exiftool.pl",
         "resources/exiftool/lib",
-        "resources/exiftool/.Exiftool_config"
+        "resources/exiftool/.ExifTool_config"
       ]
     },
     "dmg": {
@@ -42,7 +42,7 @@
       "extraResources": [
         "resources/exiftool/exiftool.pl",
         "resources/exiftool/lib",
-        "resources/exiftool/.Exiftool_config"
+        "resources/exiftool/.ExifTool_config"
       ]
     },
     "win": {
@@ -52,7 +52,7 @@
       ],
       "extraResources": [
         "resources/exiftool/exiftool.exe",
-        "resources/exiftool/.Exiftool_config"
+        "resources/exiftool/.ExifTool_config"
       ]
     },
     "extraResources": [
