@@ -357,11 +357,11 @@ const MatchingTagsList = observer(
     const toggleSelection = useCallback(
       action(async (isSelected: boolean, tag: ClientTag) => {
         if (isSelected) {
-          await uiStore.removeTagsFromSelectedFiles([tag]);
           allSelectedToggleStatus?.set(tag.id, false);
+          await uiStore.removeTagsFromSelectedFiles([tag]);
         } else {
-          await uiStore.addTagsToSelectedFiles([tag]);
           allSelectedToggleStatus?.set(tag.id, true);
+          await uiStore.addTagsToSelectedFiles([tag]);
         }
         resetTextBox();
       }),
