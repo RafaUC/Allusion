@@ -34,6 +34,7 @@ import {
   Insertable,
   Expression,
   RawBuilder,
+  Selectable,
 } from 'kysely';
 import { kyselyLogger, migrateToLatest, PAD_STRING_LENGTH } from './config';
 import { DataStorage } from 'src/api/data-storage';
@@ -345,7 +346,7 @@ export default class Backend implements DataStorage {
   }
 
   async fetchFilesByKey(key: keyof FileDTO, values: IndexableType): Promise<FileDTO[]> {
-    console.info('SQLite: Fetching files by key...');
+    console.info('SQLite: Fetching files by key...', key, values);
     if (!['tags', 'extraProperties', 'extraPropertyIDs'].includes(key)) {
       if (!Array.isArray(values)) {
         values = [values as string | number | Date];
@@ -1188,7 +1189,13 @@ function createTimingProxy(obj: Backend): Backend {
   });
 }
 
-function mapToDTO(dbFile: FileDTO | { [x: string]: any }): FileDTO {
+function mapToDTO(
+  dbFile:
+    | (Selectable<Files> & { tags: string[] | null; extraProperties: EpValues[] | null })
+    | {
+        [x: string]: any;
+      },
+): FileDTO {
   // convert data into FileDTO format
   const extraPropertyIDs: ID[] = [];
   const extraProperties: ExtraProperties = {};
@@ -1208,7 +1215,7 @@ function mapToDTO(dbFile: FileDTO | { [x: string]: any }): FileDTO {
     tagSorting: dbFile.tagSorting,
     dateAdded: deserializeDate(dbFile.dateAdded),
     dateModified: deserializeDate(dbFile.dateModified),
-    dateModifiedOS: deserializeDate(dbFile.dateModifiedOS),
+    dateModifiedOS: deserializeDate(dbFile.dateModifiedOs),
     dateLastIndexed: deserializeDate(dbFile.dateLastIndexed),
     dateCreated: deserializeDate(dbFile.dateCreated),
     name: dbFile.name,
@@ -1997,7 +2004,7 @@ function normalizeFiles(sourceFiles: FileDTO[]) {
       height: file.height,
       dateAdded: serializeDate(file.dateAdded),
       dateModified: serializeDate(file.dateModified),
-      dateModifiedOS: serializeDate(file.dateModifiedOS),
+      dateModifiedOs: serializeDate(file.dateModifiedOS),
       dateLastIndexed: serializeDate(file.dateLastIndexed),
       dateCreated: serializeDate(file.dateCreated),
     });

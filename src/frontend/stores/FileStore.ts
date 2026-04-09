@@ -135,7 +135,7 @@ class FileStore {
     this.rootStore = rootStore;
     makeObservable(this);
 
-    this.debouncedRefetch = debounce(this.refetch, 800).bind(this);
+    this.debouncedRefetch = debounce(this.refetch, 1600).bind(this);
     this.debouncedSaveFilesToSave = debounce(this.saveFilesToSave, 200).bind(this);
     // reaction to keep updated properties "related" to fileList
   }
@@ -146,33 +146,67 @@ class FileStore {
 
   @action.bound async readTagsFromFiles(_?: React.MouseEvent, onlySelected = false): Promise<void> {
     const toastKey = 'read-tags-from-file';
-    try {
-      const files = onlySelected
-        ? Array.from(this.rootStore.uiStore.fileSelection)
-        : this.fileList.slice();
+    const isAllFilesSelected = this.rootStore.uiStore.isAllFilesSelected;
+    const selectedFiles = Array.from(this.rootStore.uiStore.fileSelection);
+    const batchSize = 200;
+    const numFiles =
+      isAllFilesSelected || !onlySelected ? this.numFilteredFiles : selectedFiles.length;
+    let count = 0;
+    let isCancelled = false;
+    const cancelled = () => isCancelled;
+    const failedClickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
+
+    const showProgressToaster = () => {
+      const percentage = ((count / numFiles) * 100).toFixed(2);
+      AppToaster.show(
+        {
+          message: `Reading tags from ${numFiles} files ${percentage}%...`,
+          timeout: 0,
+          clickAction: {
+            label: 'Cancel',
+            onClick: () => {
+              isCancelled = true;
+            },
+          },
+        },
+        toastKey,
+      );
+    };
+    const showFinishToast = (_t: any, _c: any, status: Status) => {
+      const isError = status === Status.error;
+      const message = isError
+        ? 'Reading tags from files failed. Check the dev console for more details'
+        : 'Reading tags from files... Done!';
+      AppToaster.show(
+        {
+          message: message,
+          timeout: 5000,
+        },
+        toastKey,
+      );
+      AppToaster.show(
+        {
+          message: message,
+          timeout: 5000,
+          clickAction: isError ? failedClickAction : undefined,
+        },
+        toastKey,
+      );
+    };
+    const processBatch = async (files: ClientFile[]) => {
       const numFiles = files.length;
       for (let i = 0; i < numFiles; i++) {
-        AppToaster.show(
-          {
-            message: `Reading tags from files ${((100 * i) / numFiles).toFixed(0)}%...`,
-            timeout: 0,
-          },
-          toastKey,
-        );
-        const file = files[i];
-        if (!file) {
-          continue;
+        if (cancelled()) {
+          break;
         }
-
+        showProgressToaster();
+        const file = files[i];
         const absolutePath = file.absolutePath;
-
         try {
           const tagsNameHierarchies = await this.rootStore.exifTool.readTags(absolutePath);
-
           // Now that we know the tag names in file metadata, add them to the files in Allusion
           // Main idea: Find matching tag with same name, otherwise, insert new
           //   for now, just match by the name at the bottom of the hierarchy
-
           const { tagStore } = this.rootStore;
           for (const tagHierarchy of tagsNameHierarchies) {
             const match = tagStore.findByNameOrAlias(tagHierarchy[tagHierarchy.length - 1]);
@@ -220,23 +254,26 @@ class FileStore {
         } catch (e) {
           console.error('Could not import extraProperties for', absolutePath, e);
         }
+        count++;
       }
-      AppToaster.show(
-        {
-          message: 'Reading tags from files... Done!',
-          timeout: 5000,
-        },
-        toastKey,
+    };
+
+    if (isAllFilesSelected || !onlySelected) {
+      await this.dispatchToFilteredFiles(
+        processBatch,
+        () => {},
+        cancelled,
+        showFinishToast,
+        batchSize,
       );
-    } catch (e) {
-      console.error('Could not read tags', e);
-      AppToaster.show(
-        {
-          message: 'Reading tags from files failed. Check the dev console for more details',
-          timeout: 5000,
-        },
-        toastKey,
-      );
+      this.rootStore.fileStore.refetch();
+    } else {
+      let status = Status.success;
+      await processBatch(selectedFiles).catch((e) => {
+        console.error('Could not read tags', e);
+        status = Status.error;
+      });
+      showFinishToast(undefined, undefined, status);
     }
   }
 
@@ -246,11 +283,49 @@ class FileStore {
 
   @action.bound async writeTagsToFiles(_?: React.MouseEvent, onlySelected = false): Promise<void> {
     const toastKey = 'write-tags-to-file';
-    try {
-      const files = onlySelected
-        ? Array.from(this.rootStore.uiStore.fileSelection)
-        : this.definedFiles.slice();
-      const numFiles = files.length;
+    const isAllFilesSelected = this.rootStore.uiStore.isAllFilesSelected;
+    const selectedFiles = Array.from(this.rootStore.uiStore.fileSelection);
+    const batchSize = 200;
+    const numFiles =
+      isAllFilesSelected || !onlySelected ? this.numFilteredFiles : selectedFiles.length;
+    let count = 0;
+    let isCancelled = false;
+    const cancelled = () => isCancelled;
+    const failedClickAction = { label: 'Open DevTools', onClick: RendererMessenger.toggleDevTools };
+
+    const showProgressToaster = () => {
+      if (!isCancelled) {
+        const percentage = ((count / numFiles) * 100).toFixed(2);
+        AppToaster.show(
+          {
+            message: `Writing tags to ${numFiles} files ${percentage}%...`,
+            timeout: 0,
+            clickAction: {
+              label: 'Cancel',
+              onClick: () => {
+                isCancelled = true;
+              },
+            },
+          },
+          toastKey,
+        );
+      }
+    };
+    const showFinishToast = (_t: any, _c: any, status: Status) => {
+      const isError = status === Status.error;
+      const message = isError
+        ? 'Writing tags to files failed. Check the dev console for more details'
+        : 'Writing tags to files... Done!';
+      AppToaster.show(
+        {
+          message: message,
+          timeout: 5000,
+          clickAction: isError ? failedClickAction : undefined,
+        },
+        toastKey,
+      );
+    };
+    const processBatch = async (files: ClientFile[]) => {
       const fileTagsProps = runInAction(() =>
         files.map((f) => {
           const extraProps: Record<string, ExtraPropertyValue> = {};
@@ -261,49 +336,42 @@ class FileStore {
             absolutePath: f.absolutePath,
             tagHierarchy: Array.from(
               f.tags,
-              action((t) => t.path),
+              action((t) => t.cleanPath),
             ),
             extraPropsValues: JSON.stringify(extraProps),
           };
         }),
       );
-      let lastToastVal = '0';
       for (let i = 0; i < fileTagsProps.length; i++) {
-        const newToastVal = ((100 * i) / numFiles).toFixed(0);
-        if (lastToastVal !== newToastVal) {
-          lastToastVal = newToastVal;
-          AppToaster.show(
-            {
-              message: `Writing tags to files ${newToastVal}%...`,
-              timeout: 0,
-            },
-            toastKey,
-          );
+        if (cancelled()) {
+          break;
         }
-
+        showProgressToaster();
         const { absolutePath, tagHierarchy, extraPropsValues } = fileTagsProps[i];
         try {
           await this.rootStore.exifTool.writeTags(absolutePath, tagHierarchy, extraPropsValues);
         } catch (e) {
           console.error('Could not write tags to', absolutePath, tagHierarchy, e);
         }
+        count++;
       }
-      AppToaster.show(
-        {
-          message: 'Writing tags to files... Done!',
-          timeout: 5000,
-        },
-        toastKey,
+    };
+
+    if (isAllFilesSelected || !onlySelected) {
+      await this.dispatchToFilteredFiles(
+        processBatch,
+        () => {},
+        cancelled,
+        showFinishToast,
+        batchSize,
       );
-    } catch (e) {
-      console.error('Could not write tags', e);
-      AppToaster.show(
-        {
-          message: 'Writing tags to files failed. Check the dev console for more details',
-          timeout: 5000,
-        },
-        toastKey,
-      );
+    } else {
+      let status = Status.success;
+      await processBatch(selectedFiles).catch((e) => {
+        console.error(e);
+        status = Status.error;
+      });
+      showFinishToast(undefined, undefined, status);
     }
   }
 

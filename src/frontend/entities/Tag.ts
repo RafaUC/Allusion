@@ -264,6 +264,10 @@ export class ClientTag {
     return Array.from(this.getAncestors(), (t) => `${t.isHeader ? '#' : ''}${t.name}`).reverse();
   }
 
+  get cleanPath(): string[] {
+    return Array.from(this.getAncestors(), (t) => t.name).reverse();
+  }
+
   @computed get pathCharLength(): number {
     let total = 0;
     for (let i = 0; i < this.path.length; i++) {

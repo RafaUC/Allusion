@@ -284,7 +284,7 @@ function normalizeFiles(sourceFiles: any[], extraProperties: Insertable<ExtraPro
       height: file.height ?? 10,
       dateAdded: serializeDate(file.dateAdded ? new Date(file.dateAdded) : new Date()),
       dateModified: serializeDate(file.dateModified ? new Date(file.dateModified) : new Date()),
-      dateModifiedOS: serializeDate(
+      dateModifiedOs: serializeDate(
         file.OrigDateModified
           ? new Date(file.OrigDateModified)
           : file.dateModifiedOS

@@ -112,7 +112,7 @@ export type Files = {
   tagSorting: FILE_TAGS_SORTING_TYPE;
   dateAdded: ColumnType<DateAsNumber, DateAsNumber, never>;
   dateModified: DateAsNumber;
-  dateModifiedOS: DateAsNumber;
+  dateModifiedOs: DateAsNumber;
   dateLastIndexed: DateAsNumber;
   name: string;
   extension: IMG_EXTENSIONS_TYPE;

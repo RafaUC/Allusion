@@ -20,6 +20,7 @@ import { ClientTag } from '../entities/Tag';
 import { IS_MAC, IS_WIN } from 'common/process';
 import { BackendType } from '@parcel/watcher';
 import { execSync } from 'child_process';
+import { debounce } from 'common/timeout';
 
 const PREFERENCES_STORAGE_KEY = 'location-store-preferences';
 type Preferences = { extensions: IMG_EXTENSIONS_TYPE[] };
@@ -58,12 +59,16 @@ class LocationStore {
   // Allow users to disable certain file types. Global option for now, needs restart
   // TODO: Maybe per location/sub-location?
   readonly enabledFileExtensions = observable(new Set<IMG_EXTENSIONS_TYPE>());
+  private filesToUpdate: Map<string, FileStats> = new Map();
+  debouncedUpdateFilesToUpdate: () => Promise<void>;
 
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
     this.rootStore = rootStore;
 
     makeObservable(this);
+
+    this.debouncedUpdateFilesToUpdate = debounce(this.updateFilestoUpdate, 1200).bind(this);
   }
 
   @action async init(): Promise<void> {
@@ -650,17 +655,24 @@ class LocationStore {
     fileStore.debouncedRefetch();
   }
 
-  @action async updateFile(fileStats: FileStats): Promise<void> {
+  updateFile(file: FileStats): void {
+    this.filesToUpdate.set(file.absolutePath, file);
+    // Debouncing the file update action improves performance when bulk writing file metadata.
+    this.debouncedUpdateFilesToUpdate();
+  }
+
+  @action async updateFilestoUpdate(): Promise<void> {
+    const fileStats = Array.from(this.filesToUpdate.values());
+    this.filesToUpdate.clear();
     const fileStore = this.rootStore.fileStore;
     const dbMatchOverwrites = await this.backend.fetchFilesByKey(
       'absolutePath',
-      fileStats.absolutePath,
+      fileStats.map((fs) => fs.absolutePath),
     );
-    const dbMatchOverwrite = dbMatchOverwrites.length > 0 ? dbMatchOverwrites[0] : undefined;
-    if (dbMatchOverwrite) {
+    if (dbMatchOverwrites.length > 0) {
       await this.updateChangedFiles(
-        [dbMatchOverwrite],
-        new Map<string, FileStats>([[fileStats.absolutePath, fileStats]]),
+        dbMatchOverwrites,
+        new Map<string, FileStats>(fileStats.map((fs) => [fs.absolutePath, fs])),
       );
       fileStore.debouncedRefetch();
     }
