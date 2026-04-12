@@ -1341,9 +1341,17 @@ class FileStore {
     }
   }
 
+  private isCountingInBackground = false;
   private async _fetchMissingFiles(count: true): Promise<number>;
   private async _fetchMissingFiles(count?: false): Promise<ClientFile[]>;
   @action private async _fetchMissingFiles(count: boolean = false): Promise<number | ClientFile[]> {
+    // prevent multiple background countings to be executed at the same time
+    if (count) {
+      if (this.isCountingInBackground) {
+        throw new Error('Already counting missing files in background');
+      }
+      this.isCountingInBackground = true;
+    }
     // Fetch all files, then check their existence and only show the missing ones
     // Similar to {@link updateFromBackend}, but the existence check needs to be awaited before we can show the images
     // process all the backend files in batches
@@ -1358,10 +1366,30 @@ class FileStore {
     // or ignore cancelations by new fetch tasks
     const isViewContent = this.showsMissingContent;
     // Indicate a new fetch process if needed
-    const start = await this.newFetchTaskId();
+    let start = 0;
+    if (!count) {
+      start = await this.newFetchTaskId();
+    }
 
     let cancelled = false;
     const isCancelled = () => cancelled;
+
+    const showProgressToaster = () => {
+      const percentage = Math.min(((batchNum * batchSize) / total) * 100, 100).toFixed(1);
+      AppToaster.show(
+        {
+          message: `Scanning for missing files ${percentage}%...`,
+          timeout: 1200,
+          clickAction: {
+            label: 'Cancel',
+            onClick: () => {
+              cancelled = true;
+            },
+          },
+        },
+        'scanning-missing',
+      );
+    };
 
     const allMissingClientFiles = await batchReducer(
       makeFileBatchFetcher(this.backend, batchSize),
@@ -1391,7 +1419,7 @@ class FileStore {
           return definedFiles.map((clientFile, i) => async () => {
             const exists = await fse.pathExists(clientFile.absolutePath);
             clientFile.setBroken(!exists);
-            if (exists) {
+            if (count || exists) {
               clientFile.dispose();
             }
             if (isViewContent && ((batchStart + i) % step === 0 || i === total - 1)) {
@@ -1420,6 +1448,7 @@ class FileStore {
         );
 
         batchNum++;
+        showProgressToaster();
         return count
           ? (acc as number) + missingClientFiles.length
           : (acc as ClientFile[]).concat(missingClientFiles);
@@ -1431,11 +1460,17 @@ class FileStore {
     if (isCancelled()) {
       if (!count) {
         (allMissingClientFiles as ClientFile[]).forEach((f) => f.dispose);
+      } else {
+        this.isCountingInBackground = false;
       }
       throw new Error('FETCH MISSING ABORTED');
     }
-    const end = performance.now();
-    this.setAverageFetchTime(end - start);
+    if (!count) {
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+    } else {
+      this.isCountingInBackground = false;
+    }
 
     return allMissingClientFiles;
   }
@@ -1539,7 +1574,9 @@ class FileStore {
   }> {
     // get current task Id and update the sub Id
     const taskId: [number, number] = [this.fetchTaskIdPair[0], performance.now()];
-    this.fetchTaskIdPair[1] = taskId[1];
+    if (!ignoreCancel) {
+      this.fetchTaskIdPair[1] = taskId[1];
+    }
     const total = backendFiles.length;
 
     // Copy of the current fileList and index to process reused and dispose unused ClienFiles
@@ -1747,8 +1784,12 @@ class FileStore {
       }
       this.dirtyUntaggedFiles = false;
       if (withMissing) {
-        const missingCount = await this._fetchMissingFiles(true);
-        runInAction(() => {
+        const currentMissing = runInAction(() => this.numMissingFiles);
+        const missingCount = await this._fetchMissingFiles(true).catch((e) => {
+          console.error(e);
+          return currentMissing;
+        });
+        runInAction(async () => {
           this.numMissingFiles = missingCount;
           this.dirtyMissingFiles = false;
         });
