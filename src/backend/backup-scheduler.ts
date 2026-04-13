@@ -10,27 +10,29 @@ import { getToday, getWeekStart } from 'common/core';
 
 export default class BackupScheduler implements DataBackup {
   #db!: SQLite.Database;
-  #backupDirectory: string = '';
-  #batabaseDirectory: string = '';
+  #backupDirectory: string | undefined = undefined;
+  #databaseDirectory: string | undefined = undefined;
   #lastBackupIndex: number = 0;
   #lastBackupDate: Date = new Date(0);
 
   async init(
     databasePath: string,
-    batabaseDirectory: string,
-    backupDirectory: string,
+    databaseDirectory: string | undefined,
+    backupDirectory: string | undefined,
   ): Promise<string | undefined> {
-    this.#batabaseDirectory = batabaseDirectory;
+    this.#databaseDirectory = databaseDirectory;
     this.#backupDirectory = backupDirectory;
 
-    await fse.ensureDir(backupDirectory);
-    await fse.ensureDir(batabaseDirectory);
-
-    const tempJsonToImport = await BackupScheduler.checkAndRestoreDB(
-      databasePath,
-      batabaseDirectory,
-      backupDirectory,
-    );
+    let tempJsonToImport = undefined;
+    if (databaseDirectory && backupDirectory) {
+      await fse.ensureDir(backupDirectory);
+      await fse.ensureDir(databaseDirectory);
+      tempJsonToImport = await BackupScheduler.checkAndRestoreDB(
+        databasePath,
+        databaseDirectory,
+        backupDirectory,
+      );
+    }
     await fse.ensureFile(databasePath);
 
     this.#db = new SQLite(databasePath, { readonly: true });
@@ -118,6 +120,10 @@ export default class BackupScheduler implements DataBackup {
 
   // Wait 10 seconds after a change for any other changes before creating a backup.
   #createPeriodicBackup = debounce(async (): Promise<void> => {
+    if (!this.#backupDirectory) {
+      console.debug('Skipping #createPeriodicBackup');
+      return;
+    }
     const filePath = path.join(
       this.#backupDirectory,
       `auto-backup-${this.#lastBackupIndex}.sqlite`,
@@ -155,13 +161,17 @@ export default class BackupScheduler implements DataBackup {
   }
 
   async restoreFromFile(sourcePath: string): Promise<void> {
+    if (!this.#databaseDirectory) {
+      console.debug('Skipping #restoreFromFile');
+      return;
+    }
     console.info('SQLite: Importing database backup...', sourcePath);
 
     if (!(await fse.pathExists(sourcePath))) {
       throw new Error(`Backup file not found: ${sourcePath}`);
     }
     const ext = path.extname(sourcePath);
-    const destPath = path.join(this.#batabaseDirectory, `${DB_TO_IMPORT_NAME}${ext}`);
+    const destPath = path.join(this.#databaseDirectory, `${DB_TO_IMPORT_NAME}${ext}`);
     // Replace file to import if exists.
     await fse.remove(destPath);
     await fse.copyFile(sourcePath, destPath);
@@ -169,7 +179,11 @@ export default class BackupScheduler implements DataBackup {
   }
 
   async restoreEmpty(): Promise<void> {
-    const emptyDBPath = path.join(this.#batabaseDirectory, `${DB_TO_IMPORT_NAME}.sqlite`);
+    if (!this.#databaseDirectory) {
+      console.debug('Skipping #restoreEmpty');
+      return;
+    }
+    const emptyDBPath = path.join(this.#databaseDirectory, `${DB_TO_IMPORT_NAME}.sqlite`);
     await fse.remove(emptyDBPath);
     await fse.ensureFile(emptyDBPath);
     const db = new Backend();

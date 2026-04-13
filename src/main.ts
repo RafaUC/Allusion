@@ -651,6 +651,10 @@ MainMessenger.onSendPreviewFiles((msg) => {
     MainMessenger.onceInitialized().then(() => {
       if (previewWindow) {
         MainMessenger.sendPreviewFiles(previewWindow.webContents, msg);
+        if (!previewWindow.isVisible()) {
+          previewWindow.show();
+        }
+        previewWindow.focus();
       }
     });
   } else {
