@@ -90,6 +90,22 @@ export const BackgroundProcesses = observer(() => {
           Semantic model status: <strong>{fileStore.semanticStatusLabel}</strong>
           {fileStore.semanticModelId ? ` (${fileStore.semanticModelId})` : ''}
         </Callout>
+        {fileStore.semanticIndexingTotal > 0 ? (
+          <Callout icon={IconSet.INFO}>
+            <div>
+              Semantic indexing: {fileStore.semanticIndexingCompleted} / {fileStore.semanticIndexingTotal}{' '}
+              ({fileStore.semanticIndexingProgressPercent}%)
+            </div>
+            <progress
+              value={fileStore.semanticIndexingProgress}
+              max={1}
+              style={{ width: '100%' }}
+            />
+            {fileStore.semanticIndexingFailed > 0 ? (
+              <div>Skipped files: {fileStore.semanticIndexingFailed}</div>
+            ) : null}
+          </Callout>
+        ) : null}
         {fileStore.semanticStatusError ? (
           <Callout icon={IconSet.WARNING}>{fileStore.semanticStatusError}</Callout>
         ) : null}

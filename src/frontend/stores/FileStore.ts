@@ -37,6 +37,7 @@ import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
 import { serializeDate } from 'src/backend/schemaTypes';
 import {
+  SemanticIndexingStatus,
   SemanticSearchOptions,
   SemanticSearchStatus,
   SemanticStatusState,
@@ -139,8 +140,14 @@ class FileStore {
   @observable semanticStatusState: SemanticStatusState = 'idle';
   @observable semanticStatusError: string | undefined;
   @observable semanticModelId = '';
+  @observable semanticIndexingTotal = 0;
+  @observable semanticIndexingCompleted = 0;
+  @observable semanticIndexingFailed = 0;
+  @observable semanticIndexingPending = 0;
+  @observable semanticIndexingProgress = 0;
   @observable semanticTopK = 64;
   @observable semanticMinScore = 0;
+  private semanticStatusPollTimeout: ReturnType<typeof setTimeout> | undefined;
   private activeSemanticQuery: ActiveSemanticQuery | undefined;
   /**
    * ID pair for the current backend fetch task.
@@ -154,6 +161,7 @@ class FileStore {
 
   debouncedRefetch: () => void;
   debouncedSaveFilesToSave: () => Promise<void>;
+  private readonly debouncedSemanticStatusRefresh: () => void;
 
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
@@ -162,14 +170,32 @@ class FileStore {
 
     this.debouncedRefetch = debounce(this.refetch, 800).bind(this);
     this.debouncedSaveFilesToSave = debounce(this.saveFilesToSave, 200).bind(this);
+    this.debouncedSemanticStatusRefresh = debounce(() => {
+      void this.refreshSemanticStatus().catch((error) => {
+        console.warn('Could not refresh semantic status', error);
+      });
+    }, 1000);
     // reaction to keep updated properties "related" to fileList
   }
 
+  @action.bound requestSemanticStatusRefresh(): void {
+    this.debouncedSemanticStatusRefresh();
+  }
+
   @computed get semanticStatusLabel(): string {
+    const hasIndexingProgress = this.semanticIndexingTotal > 0;
+    const indexingPercent = Math.round(this.semanticIndexingProgress * 100);
+
     switch (this.semanticStatusState) {
       case 'ready':
+        if (this.isSemanticIndexing) {
+          return `Semantic Ready (${indexingPercent}%)`;
+        }
         return 'Semantic Ready';
       case 'loading':
+        if (hasIndexingProgress) {
+          return `Semantic Loading (${indexingPercent}%)`;
+        }
         return 'Semantic Loading';
       case 'error':
         return 'Semantic Error';
@@ -180,6 +206,14 @@ class FileStore {
 
   @computed get isSemanticReady(): boolean {
     return this.semanticStatusState === 'ready';
+  }
+
+  @computed get isSemanticIndexing(): boolean {
+    return this.semanticIndexingPending > 0;
+  }
+
+  @computed get semanticIndexingProgressPercent(): number {
+    return Math.round(this.semanticIndexingProgress * 100);
   }
 
   @action.bound setSemanticTopK(value: number): void {
@@ -207,8 +241,35 @@ class FileStore {
       this.semanticStatusState = status.state;
       this.semanticStatusError = status.error;
       this.semanticModelId = status.modelId;
+      this.semanticIndexingTotal = status.indexing.total;
+      this.semanticIndexingCompleted = status.indexing.completed;
+      this.semanticIndexingFailed = status.indexing.failed;
+      this.semanticIndexingPending = status.indexing.pending;
+      this.semanticIndexingProgress = clamp(status.indexing.progress, 0, 1);
     });
+    this.scheduleSemanticStatusPolling(status.indexing, status.state);
     return status;
+  }
+
+  private scheduleSemanticStatusPolling(
+    indexing: SemanticIndexingStatus,
+    state: SemanticStatusState,
+  ): void {
+    if (this.semanticStatusPollTimeout) {
+      clearTimeout(this.semanticStatusPollTimeout);
+      this.semanticStatusPollTimeout = undefined;
+    }
+
+    if (state !== 'loading' && !indexing.isRunning && indexing.pending <= 0) {
+      return;
+    }
+
+    this.semanticStatusPollTimeout = setTimeout(() => {
+      this.semanticStatusPollTimeout = undefined;
+      void this.refreshSemanticStatus().catch((error) => {
+        console.warn('Could not poll semantic status', error);
+      });
+    }, 1500);
   }
 
   @action.bound async warmupSemanticModel(): Promise<void> {

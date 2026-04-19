@@ -143,7 +143,9 @@ const SemanticStatusCommand = observer(() => {
 
   const tooltip = fileStore.semanticStatusError
     ? `Semantic search status: ${fileStore.semanticStatusLabel} (${fileStore.semanticStatusError})`
-    : `Semantic search status: ${fileStore.semanticStatusLabel}`;
+    : fileStore.semanticIndexingTotal > 0
+      ? `Semantic search status: ${fileStore.semanticStatusLabel} (${fileStore.semanticIndexingCompleted}/${fileStore.semanticIndexingTotal})`
+      : `Semantic search status: ${fileStore.semanticStatusLabel}`;
 
   return (
     <ToolbarButton

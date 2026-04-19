@@ -387,8 +387,10 @@ class LocationStore {
         location.id,
         diskFiles,
       );
-      const createdFiles = await Promise.all(
-        createdStats.map((stats) => pathToIFile(stats, location, this.rootStore.imageLoader)),
+      const METADATA_JOBS = 24;
+      const createdFiles = await promiseAllLimit(
+        createdStats.map((stats) => () => pathToIFile(stats, location, this.rootStore.imageLoader)),
+        METADATA_JOBS,
       );
       // Find matches between removed and created images (different name/path but same characteristics)
       const createdMatches = missingFiles.map((mf) =>
@@ -470,6 +472,7 @@ class LocationStore {
       const newFiles = createdFiles.filter((cf) => !foundCreatedMatches.includes(cf));
       if (newFiles.length) {
         await this.backend.createFilesFromPath(location.path, newFiles);
+        this.rootStore.fileStore.requestSemanticStatusRefresh();
       }
 
       // Check adn update all metadata in files that have changed on disk
@@ -689,6 +692,7 @@ class LocationStore {
 
     AppToaster.show({ message: 'Updating database...', timeout: 0 }, toastKey);
     await this.backend.createFilesFromPath(location.path, files);
+    this.rootStore.fileStore.requestSemanticStatusRefresh();
 
     AppToaster.show({ message: `Location "${location.name}" is ready!`, timeout: 5000 }, toastKey);
     this.requestRefetch();
@@ -756,6 +760,7 @@ class LocationStore {
       );
     } else {
       await this.backend.createFilesFromPath(fileStats.absolutePath, [file]);
+      this.rootStore.fileStore.requestSemanticStatusRefresh();
       fileStore.setDirtyTotalFiles(true);
       fileStore.setDirtyUntaggedFiles(true);
       AppToaster.show({ message: 'New images have been detected.', timeout: 5000 }, 'new-images');

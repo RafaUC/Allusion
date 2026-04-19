@@ -4,10 +4,20 @@ import { FileDTO } from './file';
 export const SemanticStatusStates = ['idle', 'loading', 'ready', 'error'] as const;
 export type SemanticStatusState = (typeof SemanticStatusStates)[number];
 
+export type SemanticIndexingStatus = {
+  isRunning: boolean;
+  total: number;
+  completed: number;
+  failed: number;
+  pending: number;
+  progress: number;
+};
+
 export type SemanticSearchStatus = {
   modelId: string;
   state: SemanticStatusState;
   error?: string;
+  indexing: SemanticIndexingStatus;
 };
 
 export type SemanticSearchOptions = {

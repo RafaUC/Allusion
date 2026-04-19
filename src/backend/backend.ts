@@ -96,6 +96,11 @@ export default class Backend implements DataStorage {
   #sqliteVectorQuantizeDirty = true;
   #semanticEmbeddingDimension: number | undefined;
   readonly #semanticEmbedder = new SemanticEmbedder();
+  readonly #semanticIndexQueue = new Set<ID>();
+  #semanticIndexProcessing = false;
+  #semanticIndexTotal = 0;
+  #semanticIndexCompleted = 0;
+  #semanticIndexFailed = 0;
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -514,7 +519,23 @@ export default class Backend implements DataStorage {
   }
 
   async fetchSemanticStatus(): Promise<SemanticSearchStatus> {
-    return this.#semanticEmbedder.getStatus();
+    const status = this.#semanticEmbedder.getStatus();
+    const pending = this.#semanticIndexQueue.size;
+    const total = Math.max(0, this.#semanticIndexTotal);
+    const completed = Math.min(this.#semanticIndexCompleted, total);
+    const progress = total <= 0 ? 1 : Math.min(1, completed / total);
+
+    return {
+      ...status,
+      indexing: {
+        isRunning: this.#semanticIndexProcessing,
+        total,
+        completed,
+        failed: this.#semanticIndexFailed,
+        pending,
+        progress,
+      },
+    };
   }
 
   private async getSemanticEmbeddingDimension(): Promise<number> {
@@ -962,9 +983,92 @@ export default class Backend implements DataStorage {
         }
       }
     });
+
+    this.enqueueSemanticEmbeddings(filesDTO.map((file) => file.id));
+
     this.#isQueryDirty = true;
     this.#notifyChange();
     console.info('SQLite: Files created successfully');
+  }
+
+  private enqueueSemanticEmbeddings(fileIds: ID[]): void {
+    if (fileIds.length === 0) {
+      return;
+    }
+
+    if (!this.#semanticIndexProcessing && this.#semanticIndexQueue.size === 0) {
+      this.#semanticIndexTotal = 0;
+      this.#semanticIndexCompleted = 0;
+      this.#semanticIndexFailed = 0;
+    }
+
+    let added = 0;
+    for (const fileId of fileIds) {
+      if (this.#semanticIndexQueue.has(fileId)) {
+        continue;
+      }
+      this.#semanticIndexQueue.add(fileId);
+      added++;
+    }
+
+    if (added <= 0) {
+      return;
+    }
+
+    this.#semanticIndexTotal += added;
+
+    if (!this.#semanticIndexProcessing) {
+      void this.processSemanticEmbeddingQueue();
+    }
+  }
+
+  private takeNextSemanticQueueFileId(): ID | undefined {
+    const iterator = this.#semanticIndexQueue.values().next();
+    if (iterator.done) {
+      return undefined;
+    }
+
+    const fileId = iterator.value;
+    this.#semanticIndexQueue.delete(fileId);
+    return fileId;
+  }
+
+  private async processSemanticEmbeddingQueue(): Promise<void> {
+    if (this.#semanticIndexProcessing) {
+      return;
+    }
+
+    this.#semanticIndexProcessing = true;
+
+    try {
+      const expectedDimension = await this.getSemanticEmbeddingDimension();
+
+      while (true) {
+        const fileId = this.takeNextSemanticQueueFileId();
+        if (!fileId) {
+          break;
+        }
+
+        try {
+          const file = (await this.fetchFilesByID([fileId])).at(0);
+          if (file) {
+            await this.ensureEmbeddingForFile(file, false, undefined, expectedDimension);
+          }
+        } catch (error) {
+          this.#semanticIndexFailed++;
+          console.warn('Background semantic indexing skipped file', fileId, error);
+        } finally {
+          this.#semanticIndexCompleted++;
+        }
+      }
+    } catch (error) {
+      console.warn('Background semantic indexing queue failed', error);
+    } finally {
+      this.#semanticIndexProcessing = false;
+      if (this.#semanticIndexQueue.size > 0) {
+        void this.processSemanticEmbeddingQueue();
+      }
+    }
   }
 
   async createLocation(location: LocationDTO): Promise<void> {

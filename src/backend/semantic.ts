@@ -28,6 +28,14 @@ export class SemanticEmbedder {
       modelId: this.#modelId,
       state: this.#status,
       error: this.#initError?.message,
+      indexing: {
+        isRunning: false,
+        total: 0,
+        completed: 0,
+        failed: 0,
+        pending: 0,
+        progress: 1,
+      },
     };
   }
 
