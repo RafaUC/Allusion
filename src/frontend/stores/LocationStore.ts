@@ -131,14 +131,16 @@ class LocationStore {
   }
 
   private requestRefetch(): void {
-    if (this.rootStore.fileStore.isSemanticQueryActive) {
+    const isSemanticQueryActive = runInAction(() => this.rootStore.fileStore.isSemanticQueryActive);
+    if (isSemanticQueryActive) {
       return;
     }
     void this.rootStore.fileStore.refetch();
   }
 
   private requestDebouncedRefetch(): void {
-    if (this.rootStore.fileStore.isSemanticQueryActive) {
+    const isSemanticQueryActive = runInAction(() => this.rootStore.fileStore.isSemanticQueryActive);
+    if (isSemanticQueryActive) {
       return;
     }
     this.rootStore.fileStore.debouncedRefetch();
