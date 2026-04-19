@@ -53,6 +53,25 @@ export function isFileExtensionVideo(
   return (VideoExtensions as readonly IMG_EXTENSIONS_TYPE[]).includes(fileExtension);
 }
 
+const Model3DExtensions = [
+  'ply',
+  'spz',
+  'splat',
+  'ksplat',
+  'sog',
+  'rad',
+  'glb',
+  'gltf',
+  'obj',
+] as const satisfies readonly IMG_EXTENSIONS_TYPE[];
+export type Model3DExtensionsType = (typeof Model3DExtensions)[number];
+
+export function isFileExtension3DModel(
+  fileExtension: IMG_EXTENSIONS_TYPE,
+): fileExtension is Model3DExtensionsType {
+  return (Model3DExtensions as readonly IMG_EXTENSIONS_TYPE[]).includes(fileExtension);
+}
+
 const NativeImageCompatibleExtensions = [
   'png',
   'jpg',

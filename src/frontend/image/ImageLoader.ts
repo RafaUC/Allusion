@@ -12,9 +12,11 @@ import { generateThumbnailUsingWorker } from './ThumbnailGeneration';
 import TifLoader from './TifLoader';
 import { generateThumbnail, getBlob } from './util';
 import { isFileExtensionVideo } from 'common/fs';
+import { renderModelPreviewBlob } from 'src/rendering/ModelPreviewRenderer';
 
 type FormatHandlerType =
   | 'web'
+  | 'spark3d'
   | 'tifLoader'
   | 'exrLoader'
   | 'psdLoader'
@@ -39,6 +41,15 @@ const FormatHandlers: Record<IMG_EXTENSIONS_TYPE, FormatHandlerType> = {
   // xcf: 'extractEmbeddedThumbnailOnly',
   exr: 'exrLoader',
   // avif: 'sharp',
+  ply: 'spark3d',
+  spz: 'spark3d',
+  splat: 'spark3d',
+  ksplat: 'spark3d',
+  sog: 'spark3d',
+  rad: 'spark3d',
+  glb: 'spark3d',
+  gltf: 'spark3d',
+  obj: 'spark3d',
   mp4: 'web',
   webm: 'web',
   ogg: 'web',
@@ -103,6 +114,14 @@ class ImageLoader {
 
     const handlerType = FormatHandlers[extension];
     switch (handlerType) {
+      case 'spark3d': {
+        // Spark internally spawns worker threads that need `window`. Rendering in the main
+        // renderer thread (where window exists) avoids that issue.
+        const blob = await renderModelPreviewBlob(absolutePath, thumbnailMaxSize);
+        await fse.outputFile(thumbnailPath, new Uint8Array(await blob.arrayBuffer()));
+        updateThumbnailPath(file, thumbnailPath);
+        break;
+      }
       case 'web':
         // If the third argument of `generateThumbnailUsingWorker`, "timeoutReject", is set to true,
         // it will cause a reject/throw and return an error inside the imageSource promise when the timeout finishes.
@@ -155,6 +174,8 @@ class ImageLoader {
     switch (handlerType) {
       case 'web':
         return file.absolutePath;
+      case 'spark3d':
+        return file.thumbnailPath;
       case 'tifLoader': {
         const src =
           this.srcBufferCache.get(file) ?? (await getBlob(this.tifLoader, file.absolutePath));

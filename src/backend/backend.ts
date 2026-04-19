@@ -77,6 +77,7 @@ import {
   sourceHashForFile,
   vectorToFloat32Blob,
 } from './semantic';
+import { isRenderable3DModelPath } from 'src/rendering/ModelPreviewRenderer';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -205,7 +206,9 @@ export default class Backend implements DataStorage {
         | { version?: string }
         | undefined;
       console.info(
-        `SQLite: sqlite-vector extension loaded from "${extensionPath}" (${row?.version ?? 'unknown version'}).`,
+        `SQLite: sqlite-vector extension loaded from "${extensionPath}" (${
+          row?.version ?? 'unknown version'
+        }).`,
       );
       return true;
     } catch (error) {
@@ -302,14 +305,15 @@ export default class Backend implements DataStorage {
     }
   }
 
-
   private async ensureSqliteVectorQuantized(): Promise<void> {
     if (!this.#sqliteVectorQuantizeDirty) {
       return;
     }
 
     try {
-      await sql`SELECT vector_quantize(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN})`.execute(this.#db);
+      await sql`SELECT vector_quantize(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN})`.execute(
+        this.#db,
+      );
       await sql`SELECT vector_quantize_preload(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN})`.execute(
         this.#db,
       );
@@ -554,6 +558,27 @@ export default class Backend implements DataStorage {
     return indexed;
   }
 
+  async embedFileFromThumbnail(fileId: ID, thumbnailPath: string): Promise<void> {
+    const file = (await this.fetchFilesByID([fileId])).at(0);
+    if (!file) return;
+
+    const sourceHash = sourceHashForFile(file);
+    const modelId = this.#semanticEmbedder.modelId;
+    const embedding = await this.#semanticEmbedder.embedImage(thumbnailPath);
+    const embeddingBlob = vectorToFloat32Blob(embedding);
+    const embeddingJson = JSON.stringify(embedding);
+
+    await this.#db
+      .insertInto('fileEmbeddings')
+      .values({ fileId, modelId, embeddingJson, embeddingBlob, sourceHash, updatedAt: Date.now() })
+      .onConflict((oc) =>
+        oc.column('fileId').doUpdateSet({ modelId, embeddingJson, embeddingBlob, sourceHash, updatedAt: Date.now() }),
+      )
+      .execute();
+
+    this.#sqliteVectorQuantizeDirty = true;
+  }
+
   async fetchSemanticStatus(): Promise<SemanticSearchStatus> {
     const status = this.#semanticEmbedder.getStatus();
     const pending = this.#semanticIndexQueue.size;
@@ -621,7 +646,11 @@ export default class Backend implements DataStorage {
     const existingEmbeddings = await this.#db
       .selectFrom('fileEmbeddings')
       .select(['fileId', 'embeddingBlob', 'embeddingJson', 'sourceHash', 'modelId'])
-      .where('fileId', 'in', uniqueCandidates.map((file) => file.id))
+      .where(
+        'fileId',
+        'in',
+        uniqueCandidates.map((file) => file.id),
+      )
       .execute();
     const existingByFileId = new Map<ID, (typeof existingEmbeddings)[number]>();
     for (const row of existingEmbeddings) {
@@ -736,11 +765,7 @@ export default class Backend implements DataStorage {
         .where('fileId', '=', file.id)
         .executeTakeFirst());
 
-    if (
-      !forceReindex &&
-      existing?.sourceHash === sourceHash &&
-      existing?.modelId === modelId
-    ) {
+    if (!forceReindex && existing?.sourceHash === sourceHash && existing.modelId === modelId) {
       if (existing.embeddingBlob) {
         const vector = float32BlobToVector(existing.embeddingBlob);
         if (vector.length > 0 && (!expectedDimension || vector.length === expectedDimension)) {
@@ -762,16 +787,36 @@ export default class Backend implements DataStorage {
       }
     }
 
-    const embedding = isFileExtensionVideo(file.extension)
-      ? await this.embedVideoSemanticEmbedding(file, expectedDimension)
-      : await this.#semanticEmbedder.embedImage(file.absolutePath);
+    let embedding: number[];
+    if (isFileExtensionVideo(file.extension)) {
+      embedding = await this.embedVideoSemanticEmbedding(file, expectedDimension);
+    } else {
+      let embeddingSourcePath = file.absolutePath;
+      let cleanupPreviewPath: string | undefined;
+      if (isRenderable3DModelPath(file.absolutePath)) {
+        // Three.js and Spark both need `window` (WebGL), which isn't available in the
+        // backend worker context. 3D models cannot be semantically embedded here.
+        throw new Error(`3D format not supported for semantic embedding: ${file.absolutePath}`);
+      }
+
+      try {
+        embedding = await this.#semanticEmbedder.embedImage(embeddingSourcePath);
+      } finally {
+        if (cleanupPreviewPath) {
+          fs.promises.rm(cleanupPreviewPath, { force: true }).catch(() => undefined);
+        }
+      }
+    }
+
     if (expectedDimension && embedding.length !== expectedDimension) {
       throw new Error(
         `Semantic image embedding dimension mismatch for ${file.absolutePath}: expected ${expectedDimension}, got ${embedding.length}.`,
       );
     }
+
     const embeddingBlob = vectorToFloat32Blob(embedding);
     const embeddingJson = JSON.stringify(embedding);
+
     await this.#db
       .insertInto('fileEmbeddings')
       .values({
@@ -833,7 +878,9 @@ export default class Backend implements DataStorage {
       }
 
       if (frameEmbeddings.length === 0) {
-        throw new Error(`Semantic video embedding produced no frame vectors for ${file.absolutePath}.`);
+        throw new Error(
+          `Semantic video embedding produced no frame vectors for ${file.absolutePath}.`,
+        );
       }
 
       return meanPoolEmbeddings(frameEmbeddings);
@@ -1138,7 +1185,9 @@ export default class Backend implements DataStorage {
           }
         } catch (error) {
           this.#semanticIndexFailed++;
-          console.warn('Background semantic indexing skipped file', fileId, error);
+          if (!(error instanceof Error && error.message.startsWith('3D format not supported'))) {
+            console.warn('Background semantic indexing skipped file', fileId, error);
+          }
         } finally {
           this.#semanticIndexCompleted++;
         }

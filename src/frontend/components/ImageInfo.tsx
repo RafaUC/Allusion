@@ -2,6 +2,7 @@ import fse from 'fs-extra';
 import React, { ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { formatDateTime, humanFileSize } from 'common/fmt';
+import { isFileExtension3DModel } from 'common/fs';
 import { IconSet } from 'widgets/icons';
 import { Toolbar, ToolbarButton } from 'widgets/toolbar';
 import { RendererMessenger } from '../../ipc/renderer';
@@ -100,6 +101,7 @@ const ImageInfo = ({ file }: ImageInfoProps) => {
       ),
     );
 
+    if (isFileExtension3DModel(file.extension)) return;
     exifTool.readExifTags(file.absolutePath, exifTags).then((tagValues) => {
       const stats: Record<string, string> = {};
       tagValues.forEach((val, i) => {

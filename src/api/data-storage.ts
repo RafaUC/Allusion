@@ -54,6 +54,7 @@ export interface DataStorage {
   semanticSearchByImage(fileId: ID, options?: SemanticSearchOptions): Promise<FileDTO[]>;
   warmupSemanticModel(): Promise<void>;
   reindexSemanticEmbeddings(fileIds?: ID[]): Promise<number>;
+  embedFileFromThumbnail(fileId: ID, thumbnailPath: string): Promise<void>;
   fetchSemanticStatus(): Promise<SemanticSearchStatus>;
   createTag(tag: TagDTO): Promise<void>;
   createFilesFromPath(path: string, files: FileDTO[]): Promise<void>;

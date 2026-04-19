@@ -11,6 +11,7 @@ import {
 import Path from 'path';
 
 import { FILE_TAGS_SORTING_TYPE, FileDTO, FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
+import { isFileExtension3DModel } from 'common/fs';
 import { ID } from '../../api/id';
 import ImageLoader from '../image/ImageLoader';
 import FileStore from '../stores/FileStore';
@@ -292,11 +293,14 @@ export class ClientFile {
 /** Should be called when after constructing a file before sending it to the backend. */
 export async function getMetaData(stats: FileStats, imageLoader: ImageLoader): Promise<IMetaData> {
   const path = stats.absolutePath;
-  const dimensions = await imageLoader.getImageResolution(stats.absolutePath);
+  const extension = Path.extname(path).slice(1).toLowerCase() as IMG_EXTENSIONS_TYPE;
+  const dimensions = isFileExtension3DModel(extension)
+    ? { width: 0, height: 0 }
+    : await imageLoader.getImageResolution(stats.absolutePath);
 
   return {
     name: Path.basename(path),
-    extension: Path.extname(path).slice(1).toLowerCase() as IMG_EXTENSIONS_TYPE,
+    extension,
     size: stats.size,
     width: dimensions.width,
     height: dimensions.height,

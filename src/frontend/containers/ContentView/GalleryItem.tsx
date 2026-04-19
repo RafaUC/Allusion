@@ -4,7 +4,7 @@ import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ellipsize, humanFileSize } from 'common/fmt';
-import { encodeFilePath, isFileExtensionVideo } from 'common/fs';
+import { encodeFilePath, isFileExtension3DModel, isFileExtensionVideo } from 'common/fs';
 import { IconButton, IconSet } from 'widgets';
 import { useStore } from '../../contexts/StoreContext';
 import { ClientFile } from '../../entities/File';
@@ -128,7 +128,7 @@ export const MasonryCell = observer(
 // e.g. %2F should be %252F on filesystems. Something to do with decodeURI, but seems like only on the filename - not the whole path
 export const Thumbnail = observer(
   ({ file, mounted, forceNoThumbnail, hovered, galleryVideoPlaybackMode }: ItemProps) => {
-    const { uiStore, imageLoader } = useStore();
+    const { uiStore, imageLoader, backend } = useStore();
     const { thumbnailPath, isBroken } = file;
     const [isPlaying, setIsPlaying] = useState<boolean | undefined>(undefined);
     const [useVideo, setUseVideo] = useState<boolean>(false);
@@ -153,8 +153,12 @@ export const Thumbnail = observer(
 
         if (useThumbnail) {
           //this line will throw an exception if the thumbnail generation gets rejected / throw
-          await imageLoader.ensureThumbnail(file);
-          return getThumbnail(file);
+          const generated = await imageLoader.ensureThumbnail(file);
+          const thumb = getThumbnail(file);
+          if (generated && isFileExtension3DModel(file.extension)) {
+            backend.embedFileFromThumbnail(file.id, thumb.split('?')[0]).catch(console.warn);
+          }
+          return thumb;
         } else {
           const src = await imageLoader.getImageSrc(file);
           if (src !== undefined) {

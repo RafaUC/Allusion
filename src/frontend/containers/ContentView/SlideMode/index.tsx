@@ -3,8 +3,9 @@ import { autorun, reaction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import SysPath from 'path';
 import React, { useEffect, useMemo } from 'react';
-import { encodeFilePath, isFileExtensionVideo } from 'common/fs';
+import { encodeFilePath, isFileExtension3DModel, isFileExtensionVideo } from 'common/fs';
 import { Button, IconSet, Split } from 'widgets';
+import ModelViewer from './ModelViewer';
 import { useStore } from '../../../contexts/StoreContext';
 import { ClientFile } from '../../../entities/File';
 import { useAction, useComputed } from '../../../hooks/mobx';
@@ -231,6 +232,9 @@ const ZoomableImage: React.FC<ZoomableImageProps> = ({
   // Image src can be set asynchronously: keep track of it in a state
   // Needed for image formats not natively supported by the browser (e.g. tiff): will be converted to another format
   const source = usePromise(file, thumbnailSrc, async (file, thumbnailPath) => {
+    if (isFileExtension3DModel(file.extension)) {
+      return thumbnailPath;
+    }
     const src = await imageLoader.getImageSrc(file);
     return src ?? thumbnailPath;
   });
@@ -298,6 +302,15 @@ const ZoomableImage: React.FC<ZoomableImageProps> = ({
             dimension: createDimension(imgWidth, imgHeight),
           };
     const minScale = Math.min(0.1, Math.min(width / dimension[0], height / dimension[1]));
+
+    // Interactive 3D viewer for model files
+    if (isFileExtension3DModel(file.extension)) {
+      return (
+        <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111' }}>
+          <ModelViewer absolutePath={file.absolutePath} width={width} height={height} />
+        </div>
+      );
+    }
 
     // Alternative case for videos
     if (isFileExtensionVideo(file.extension)) {

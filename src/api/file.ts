@@ -73,6 +73,15 @@ export const IMG_EXTENSIONS = [
   // 'avif',
   // 'heic', // not supported by Sharp out of the box https://github.com/lovell/sharp/issues/2871
   // TODO: 'blend', raw, etc.?
+  'ply',
+  'spz',
+  'splat',
+  'ksplat',
+  'sog',
+  'rad',
+  'glb',
+  'gltf',
+  'obj',
   'mp4',
   'webm',
   'ogg',

@@ -2,6 +2,15 @@ import fse from 'fs-extra';
 
 import { thumbnailFormat, thumbnailMaxSize } from 'common/config';
 import { IThumbnailMessage, IThumbnailMessageResponse } from '../image/ThumbnailGeneration';
+import {
+  isRenderable3DModelPath,
+  renderModelPreviewBlob,
+} from 'src/rendering/ModelPreviewRenderer';
+
+if (typeof window === 'undefined') {
+  // @ts-ignore
+  globalThis.window = globalThis;
+}
 
 // TODO: Merge this with the generateThumbnail func from frontend/image/utils.ts, it's duplicate code
 const generateThumbnailData = async (
@@ -19,6 +28,9 @@ const generateThumbnailData = async (
   try {
     if (imageBitmap !== undefined) {
       img = imageBitmap;
+    } else if (isRenderable3DModelPath(filePath)) {
+      inputBlob = await renderModelPreviewBlob(filePath, thumbnailMaxSize);
+      img = await createImageBitmap(inputBlob);
     } else {
       inputBuffer = await fse.readFile(filePath);
       inputBlob = new Blob([inputBuffer]);

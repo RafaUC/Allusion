@@ -111,3 +111,7 @@ declare module 'node-exiftool' {
 
   export default exiftool;
 }
+
+declare module 'three';
+declare module 'three/examples/jsm/loaders/GLTFLoader.js';
+declare module 'three/examples/jsm/loaders/OBJLoader.js';

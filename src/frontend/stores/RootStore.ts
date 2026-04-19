@@ -31,9 +31,9 @@ configure({ observableRequiresReaction: true, reactionRequiresObservable: true }
  * 3. Makes complex unit tests easy as you just have to instantiate a root store.
  */
 class RootStore {
-  readonly #backend: DataStorage;
   readonly #backup: DataBackup;
 
+  readonly backend: DataStorage;
   readonly tagStore: TagStore;
   readonly extraPropertyStore: ExtraPropertyStore;
   readonly fileStore: FileStore;
@@ -55,7 +55,7 @@ class RootStore {
     this.locationStore = new LocationStore(backend, this);
     this.uiStore = new UiStore(this);
     this.searchStore = new SearchStore(backend, this);
-    this.#backend = backend;
+    this.backend = backend;
     this.#backup = backup;
     this.exifTool = new ExifIO(localStorage.getItem('hierarchical-separator') || undefined);
     this.imageLoader = new ImageLoader(this.exifTool);
@@ -201,7 +201,7 @@ class RootStore {
   }
 
   async clearDatabase(): Promise<void> {
-    await this.#backend.clear();
+    await this.backend.clear();
     RendererMessenger.clearDatabase();
     this.uiStore.clearPersistentPreferences();
     this.fileStore.clearPersistentPreferences();
