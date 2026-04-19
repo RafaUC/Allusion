@@ -538,13 +538,13 @@ export default class Backend implements DataStorage {
   ): Promise<FileDTO[]> {
     const topK = Math.max(1, options?.topK ?? 128);
     const minScore = options?.minScore ?? -1;
-    const candidateLimit = Math.min(Math.max(topK * 32, 4096), 20000);
 
+    // IMPORTANT: do not pre-limit by recency for semantic search.
+    // A recency window biases the candidate pool and causes incorrect matches.
     const candidates = await this.queryFiles(options?.criteria, {
       order: 'dateModifiedOS',
       direction: OrderDirection.Desc,
       useNaturalOrdering: false,
-      limit: candidateLimit,
       pagination: 'after',
     });
 

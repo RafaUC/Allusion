@@ -43,7 +43,7 @@ export class SemanticEmbedder {
       max_length: 64,
     });
     const output = await this.#textModel(inputs);
-    const parsed = parseTextEmbeddingOutput(output);
+    const parsed = parseTextEmbeddingOutput(output, inputs?.attention_mask);
     if (parsed.length === 0) {
       throw new Error('SemanticEmbedder: Text embedding returned an empty vector.');
     }
@@ -52,7 +52,9 @@ export class SemanticEmbedder {
 
   async embedImage(absolutePath: string): Promise<number[]> {
     await this.ensureInitialized();
-    const output = await this.#imagePipeline(absolutePath, { pooling: 'mean', normalize: true });
+    // For transformers.js image-feature-extraction, `pool: true` returns `pooler_output`.
+    // `pooling` / `normalize` are not recognized options for this pipeline.
+    const output = await this.#imagePipeline(absolutePath, { pool: true });
     const parsed = parseImageEmbeddingOutput(output);
     if (parsed.length === 0) {
       throw new Error(
@@ -267,7 +269,7 @@ export function parseEmbeddingOutput(output: unknown): number[] {
   return [];
 }
 
-function parseTextEmbeddingOutput(output: any): number[] {
+function parseTextEmbeddingOutput(output: any, attentionMask?: unknown): number[] {
   const direct = parseEmbeddingOutput(output?.text_embeds ?? output?.pooler_output);
   if (direct.length > 0) {
     return direct;
@@ -279,7 +281,7 @@ function parseTextEmbeddingOutput(output: any): number[] {
     return parseEmbeddingOutput(output);
   }
 
-  const pooled = meanPoolHiddenState(hiddenFlat, hidden?.dims);
+  const pooled = meanPoolHiddenState(hiddenFlat, hidden?.dims, attentionMask);
   if (pooled.length > 0) {
     return pooled;
   }
@@ -307,7 +309,7 @@ function parseImageEmbeddingOutput(output: any): number[] {
   return hiddenFlat;
 }
 
-function meanPoolHiddenState(flat: number[], rawDims: unknown): number[] {
+function meanPoolHiddenState(flat: number[], rawDims: unknown, attentionMask?: unknown): number[] {
   const dims = Array.isArray(rawDims)
     ? rawDims.filter((n: unknown) => typeof n === 'number' && Number.isFinite(n))
     : [];
@@ -323,15 +325,27 @@ function meanPoolHiddenState(flat: number[], rawDims: unknown): number[] {
   }
 
   // Mean-pool token embeddings for the first batch item.
+  // For text embeddings, prefer the tokenizer attention mask so padding tokens do not dilute the vector.
+  const mask = parseEmbeddingOutput(attentionMask);
+  const maskForFirstBatch = mask.length >= sequenceLength ? mask.slice(0, sequenceLength) : [];
+
   const pooled = new Array<number>(dim).fill(0);
+  let pooledTokenCount = 0;
   for (let token = 0; token < sequenceLength; token++) {
+    if (maskForFirstBatch.length > 0 && maskForFirstBatch[token] <= 0) {
+      continue;
+    }
     const tokenOffset = token * dim;
     for (let i = 0; i < dim; i++) {
       pooled[i] += flat[tokenOffset + i];
     }
+    pooledTokenCount++;
+  }
+  if (pooledTokenCount <= 0) {
+    return [];
   }
   for (let i = 0; i < dim; i++) {
-    pooled[i] /= sequenceLength;
+    pooled[i] /= pooledTokenCount;
   }
   return pooled;
 }
