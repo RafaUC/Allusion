@@ -18,6 +18,9 @@ dist/
 target/
 
 resources/semantic-model-cache/
+resources/ffmpeg/.version
+resources/ffmpeg/ffmpeg
+resources/ffmpeg/ffmpeg.exe
 resources/sqlite-vector/.version
 resources/sqlite-vector/vector.dylib
 resources/sqlite-vector/vector.so

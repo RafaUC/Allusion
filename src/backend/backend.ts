@@ -21,7 +21,10 @@ import {
 } from './schemaTypes';
 import SQLite from 'better-sqlite3';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import {
   Kysely,
   SqliteDialect,
@@ -64,6 +67,7 @@ import { generateId, ID } from 'src/api/id';
 import { LocationDTO, SubLocationDTO } from 'src/api/location';
 import { ROOT_TAG_ID, TagDTO } from 'src/api/tag';
 import { jsonArrayFrom } from 'kysely/helpers/sqlite';
+import { isFileExtensionVideo } from 'common/fs';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
 import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
@@ -79,6 +83,8 @@ const USE_TIMING_PROXY = IS_DEV;
 const USE_QUERY_LOGGER = false ? IS_DEV : false;
 const SQLITE_VECTOR_TABLE = 'file_embeddings';
 const SQLITE_VECTOR_COLUMN = 'embedding_blob';
+const SEMANTIC_VIDEO_FRAME_COUNT = 4;
+const SEMANTIC_VIDEO_FRAME_SAMPLE_RATIOS = [0.1, 0.35, 0.6, 0.85] as const;
 
 export default class Backend implements DataStorage {
   readonly MAX_VARS!: number;
@@ -101,6 +107,7 @@ export default class Backend implements DataStorage {
   #semanticIndexTotal = 0;
   #semanticIndexCompleted = 0;
   #semanticIndexFailed = 0;
+  #bundledFfmpegPath: string | null | undefined;
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -236,6 +243,35 @@ export default class Backend implements DataStorage {
     }
 
     return undefined;
+  }
+
+  private resolveBundledFfmpegPath(): string | undefined {
+    const configured = process.env.ALLUSION_FFMPEG_PATH?.trim();
+    if (configured && fs.existsSync(configured)) {
+      return configured;
+    }
+
+    const executableName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const roots = [
+      path.resolve(process.cwd(), 'resources', 'ffmpeg'),
+      path.resolve(process.resourcesPath || '', 'ffmpeg'),
+    ];
+
+    for (const root of roots) {
+      const candidate = path.resolve(root, executableName);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  }
+
+  private getBundledFfmpegPath(): string | undefined {
+    if (this.#bundledFfmpegPath === undefined) {
+      this.#bundledFfmpegPath = this.resolveBundledFfmpegPath() ?? null;
+    }
+    return this.#bundledFfmpegPath ?? undefined;
   }
 
   private async ensureSqliteVectorInitialized(dimension: number): Promise<void> {
@@ -726,7 +762,9 @@ export default class Backend implements DataStorage {
       }
     }
 
-    const embedding = await this.#semanticEmbedder.embedImage(file.absolutePath);
+    const embedding = isFileExtensionVideo(file.extension)
+      ? await this.embedVideoSemanticEmbedding(file, expectedDimension)
+      : await this.#semanticEmbedder.embedImage(file.absolutePath);
     if (expectedDimension && embedding.length !== expectedDimension) {
       throw new Error(
         `Semantic image embedding dimension mismatch for ${file.absolutePath}: expected ${expectedDimension}, got ${embedding.length}.`,
@@ -758,6 +796,50 @@ export default class Backend implements DataStorage {
     this.#sqliteVectorQuantizeDirty = true;
 
     return embedding;
+  }
+
+  private async embedVideoSemanticEmbedding(
+    file: FileDTO,
+    expectedDimension?: number,
+  ): Promise<number[]> {
+    const ffmpegPath = this.getBundledFfmpegPath();
+    if (!ffmpegPath) {
+      throw new Error(
+        `Semantic video embedding requires a bundled ffmpeg binary, but none was found for ${file.absolutePath}.`,
+      );
+    }
+
+    const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'allusion-semantic-video-'));
+    try {
+      const framePaths = await extractVideoFrames(
+        ffmpegPath,
+        file.absolutePath,
+        tempDir,
+        SEMANTIC_VIDEO_FRAME_SAMPLE_RATIOS,
+      );
+      if (framePaths.length === 0) {
+        throw new Error(`Could not extract semantic frames from ${file.absolutePath}.`);
+      }
+
+      const frameEmbeddings: number[][] = [];
+      for (const framePath of framePaths.slice(0, SEMANTIC_VIDEO_FRAME_COUNT)) {
+        const embedding = await this.#semanticEmbedder.embedImage(framePath);
+        if (expectedDimension && embedding.length !== expectedDimension) {
+          throw new Error(
+            `Semantic video embedding dimension mismatch for ${file.absolutePath}: expected ${expectedDimension}, got ${embedding.length}.`,
+          );
+        }
+        frameEmbeddings.push(embedding);
+      }
+
+      if (frameEmbeddings.length === 0) {
+        throw new Error(`Semantic video embedding produced no frame vectors for ${file.absolutePath}.`);
+      }
+
+      return meanPoolEmbeddings(frameEmbeddings);
+    } finally {
+      await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   async fetchFilesByID(ids: ID[]): Promise<FileDTO[]> {
@@ -1772,6 +1854,154 @@ function stableHash(id: string, seed: number): number {
 
 function generateSeed() {
   return Date.now() >>> 0;
+}
+
+async function extractVideoFrames(
+  ffmpegPath: string,
+  videoPath: string,
+  outputDir: string,
+  ratios: readonly number[],
+): Promise<string[]> {
+  const duration = await probeVideoDurationSeconds(ffmpegPath, videoPath);
+  const timestamps = computeSampleTimestamps(duration, ratios);
+  const framePaths: string[] = [];
+
+  for (let i = 0; i < timestamps.length; i++) {
+    const framePath = path.resolve(outputDir, `frame-${String(i + 1).padStart(2, '0')}.jpg`);
+    const args = [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-ss',
+      timestamps[i].toFixed(3),
+      '-i',
+      videoPath,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      framePath,
+    ];
+
+    await runProcess(ffmpegPath, args);
+    const exists = await fsp
+      .stat(framePath)
+      .then((info) => info.isFile())
+      .catch(() => false);
+    if (exists) {
+      framePaths.push(framePath);
+    }
+  }
+
+  return framePaths;
+}
+
+async function probeVideoDurationSeconds(ffmpegPath: string, videoPath: string): Promise<number> {
+  const args = ['-hide_banner', '-i', videoPath];
+  const result = await runProcess(ffmpegPath, args, [0, 1]);
+  const match = /Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(result.stderr);
+  if (!match) {
+    return 0;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return 0;
+  }
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function computeSampleTimestamps(durationSeconds: number, ratios: readonly number[]): number[] {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return [0, 1, 2, 3].slice(0, ratios.length);
+  }
+
+  const maxTimestamp = Math.max(0, durationSeconds - 0.05);
+  return ratios.map((ratio) => {
+    const normalizedRatio = Math.min(1, Math.max(0, ratio));
+    return Math.min(maxTimestamp, durationSeconds * normalizedRatio);
+  });
+}
+
+function meanPoolEmbeddings(embeddings: number[][]): number[] {
+  const first = embeddings[0];
+  const sum = first.slice();
+
+  for (let i = 1; i < embeddings.length; i++) {
+    const current = embeddings[i];
+    if (current.length !== sum.length) {
+      throw new Error('Cannot aggregate semantic video frame embeddings with mismatched sizes.');
+    }
+    for (let dim = 0; dim < sum.length; dim++) {
+      sum[dim] += current[dim];
+    }
+  }
+
+  for (let dim = 0; dim < sum.length; dim++) {
+    sum[dim] /= embeddings.length;
+  }
+
+  let norm = 0;
+  for (const value of sum) {
+    norm += value * value;
+  }
+  if (norm <= 0) {
+    return sum;
+  }
+
+  const scale = 1 / Math.sqrt(norm);
+  return sum.map((value) => value * scale);
+}
+
+async function runProcess(
+  executable: string,
+  args: string[],
+  allowedExitCodes: readonly number[] = [0],
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on('error', (error) => {
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      const exitCode = typeof code === 'number' ? code : -1;
+      if (allowedExitCodes.includes(exitCode)) {
+        resolve({ stdout, stderr });
+        return;
+      }
+
+      const stderrTrimmed = stderr.trim();
+      reject(
+        new Error(
+          `Process failed (${executable} ${args.join(' ')}), exit=${exitCode}${
+            stderrTrimmed ? `: ${stderrTrimmed}` : ''
+          }`,
+        ),
+      );
+    });
+  });
 }
 
 ///////////////////
