@@ -64,6 +64,8 @@ import { ROOT_TAG_ID, TagDTO } from 'src/api/tag';
 import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
+import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
+import { cosineSimilarity, SemanticEmbedder, sourceHashForFile } from './semantic';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -79,6 +81,7 @@ export default class Backend implements DataStorage {
   #isQueryDirty: boolean = true;
   // Seed used to have deterministic order when order by random
   #seed: number = generateSeed();
+  readonly #semanticEmbedder = new SemanticEmbedder();
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -335,6 +338,147 @@ export default class Backend implements DataStorage {
       cursor,
       extraPropertyID,
     });
+  }
+
+  async semanticSearchByText(query: string, options?: SemanticSearchOptions): Promise<FileDTO[]> {
+    const cleaned = query.trim();
+    if (!cleaned) {
+      return [];
+    }
+
+    const queryEmbedding = await this.#semanticEmbedder.embedText(cleaned);
+    return this.semanticSearchByEmbedding(queryEmbedding, undefined, options);
+  }
+
+  async semanticSearchByImage(fileId: ID, options?: SemanticSearchOptions): Promise<FileDTO[]> {
+    const files = await this.fetchFilesByID([fileId]);
+    const queryFile = files.at(0);
+    if (!queryFile) {
+      return [];
+    }
+
+    const queryEmbedding = await this.ensureEmbeddingForFile(queryFile);
+    return this.semanticSearchByEmbedding(queryEmbedding, fileId, options);
+  }
+
+  async warmupSemanticModel(): Promise<void> {
+    await this.#semanticEmbedder.warmup();
+  }
+
+  async reindexSemanticEmbeddings(fileIds?: ID[]): Promise<number> {
+    let files: FileDTO[];
+    if (fileIds && fileIds.length > 0) {
+      files = await this.fetchFilesByID(fileIds);
+    } else {
+      files = await this.queryFiles(undefined, {
+        order: 'dateModifiedOS',
+        direction: OrderDirection.Desc,
+        useNaturalOrdering: false,
+      });
+    }
+
+    let indexed = 0;
+    for (const file of files) {
+      try {
+        await this.ensureEmbeddingForFile(file, true);
+        indexed++;
+      } catch (error) {
+        console.warn('Semantic reindex skipped unreadable file', file.absolutePath, error);
+      }
+    }
+    return indexed;
+  }
+
+  async fetchSemanticStatus(): Promise<SemanticSearchStatus> {
+    return this.#semanticEmbedder.getStatus();
+  }
+
+  private async semanticSearchByEmbedding(
+    queryEmbedding: number[],
+    queryFileId?: ID,
+    options?: SemanticSearchOptions,
+  ): Promise<FileDTO[]> {
+    const topK = Math.max(1, options?.topK ?? 256);
+    const minScore = options?.minScore ?? -1;
+    const candidateLimit = Math.max(topK * 8, 1000);
+
+    const candidates = await this.queryFiles(options?.criteria, {
+      order: 'dateModifiedOS',
+      direction: OrderDirection.Desc,
+      useNaturalOrdering: false,
+      limit: candidateLimit,
+      pagination: 'after',
+    });
+
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const scored: Array<{ file: FileDTO; score: number }> = [];
+    for (const file of candidates) {
+      if (!options?.includeQueryFile && queryFileId && file.id === queryFileId) {
+        continue;
+      }
+
+      try {
+        const embedding = await this.ensureEmbeddingForFile(file);
+        const score = cosineSimilarity(queryEmbedding, embedding);
+        if (score >= minScore) {
+          scored.push({ file, score });
+        }
+      } catch (error) {
+        console.warn('Semantic search skipped unreadable file', file.absolutePath, error);
+      }
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, topK).map((entry) => entry.file);
+  }
+
+  private async ensureEmbeddingForFile(file: FileDTO, forceReindex = false): Promise<number[]> {
+    const sourceHash = sourceHashForFile(file);
+    const modelId = this.#semanticEmbedder.modelId;
+
+    const existing = await this.#db
+      .selectFrom('fileEmbeddings')
+      .select(['embeddingJson', 'sourceHash', 'modelId'])
+      .where('fileId', '=', file.id)
+      .executeTakeFirst();
+
+    if (
+      !forceReindex &&
+      existing &&
+      existing.sourceHash === sourceHash &&
+      existing.modelId === modelId
+    ) {
+      try {
+        return JSON.parse(existing.embeddingJson) as number[];
+      } catch {
+        // Recompute below if JSON is malformed.
+      }
+    }
+
+    const embedding = await this.#semanticEmbedder.embedImage(file.absolutePath);
+    await this.#db
+      .insertInto('fileEmbeddings')
+      .values({
+        fileId: file.id,
+        modelId,
+        embeddingJson: JSON.stringify(embedding),
+        sourceHash,
+        updatedAt: Date.now(),
+      })
+      .onConflict((oc) =>
+        oc.column('fileId').doUpdateSet({
+          modelId,
+          embeddingJson: JSON.stringify(embedding),
+          sourceHash,
+          updatedAt: Date.now(),
+        }),
+      )
+      .execute();
+
+    return embedding;
   }
 
   async fetchFilesByID(ids: ID[]): Promise<FileDTO[]> {
@@ -1796,9 +1940,9 @@ async function upsertTable<
 
   let query;
   if (isExpression) {
-    query = db.insertInto(table as keyof AllusionDB_SQL & string).expression(values as any);
+    query = db.insertInto(table).expression(values as any);
   } else {
-    query = db.insertInto(table as keyof AllusionDB_SQL & string);
+    query = db.insertInto(table);
   }
 
   if (columnsToUpdate.length === 0) {

@@ -52,7 +52,7 @@ import { RowProps } from 'widgets/combobox/Grid';
 import ReactDOM from 'react-dom';
 
 const QuickSearchList = observer(() => {
-  const { uiStore, tagStore } = useStore();
+  const { uiStore, tagStore, fileStore } = useStore();
 
   const selection = useComputed(() => {
     const selectedItems: ClientTag[] = [];
@@ -93,8 +93,19 @@ const QuickSearchList = observer(() => {
         resetTextBox={resetTextBox}
       />,
       <Row
-        id="search-in-path-option"
+        id="semantic-search-option"
         index={1}
+        key="semantic-search"
+        value={`Semantic search for "${query}"`}
+        icon={IconSet.SEARCH}
+        onClick={() => {
+          resetTextBox();
+          void fileStore.semanticSearchByText(query);
+        }}
+      />,
+      <Row
+        id="search-in-path-option"
+        index={2}
         key="search-in-path"
         value={`Search in file paths for "${query}"`}
         onClick={() => {
@@ -106,7 +117,7 @@ const QuickSearchList = observer(() => {
       />,
       <Row
         id="advanced-search-option"
-        index={2}
+        index={3}
         key="advanced-search"
         value="Advanced search"
         onClick={uiStore.toggleAdvancedSearch}

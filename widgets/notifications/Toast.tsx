@@ -10,7 +10,7 @@ interface IToast {
   type?: 'info' | 'success' | 'warning' | 'error';
 }
 
-export const Toast = ({ message, clickAction, onDismiss, type = "info" }: IToast) => {
+export const Toast = ({ message, clickAction, onDismiss, type = 'info' }: IToast) => {
   return (
     <div className={`toast toast-${type}`}>
       <span>{message}</span>

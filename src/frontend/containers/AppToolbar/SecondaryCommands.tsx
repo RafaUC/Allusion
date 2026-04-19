@@ -7,7 +7,8 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import { useStore } from 'src/frontend/contexts/StoreContext';
 
 const SecondaryCommands = observer(() => {
-  const { uiStore } = useStore();
+  const { uiStore, fileStore } = useStore();
+  const hasQueryFile = uiStore.fileSelection.size > 0 || uiStore.firstItemIndex >= 0;
   return (
     <MenuButton
       icon={IconSet.MORE}
@@ -21,6 +22,14 @@ const SecondaryCommands = observer(() => {
         onClick={uiStore.toggleAdvancedSearch}
         text="Advanced Search"
         accelerator={<KeyCombo combo={uiStore.hotkeyMap.advancedSearch} />}
+      />
+      <MenuItem
+        icon={IconSet.SEARCH}
+        onClick={() => {
+          void fileStore.semanticSearchBySelection();
+        }}
+        text="Find Similar"
+        disabled={!hasQueryFile}
       />
       <MenuItem
         icon={IconSet.HELPCENTER}

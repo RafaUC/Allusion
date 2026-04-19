@@ -1,0 +1,285 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { FileDTO } from 'src/api/file';
+import { SemanticSearchStatus, SemanticStatusState } from 'src/api/semantic-search';
+
+const DEFAULT_SEMANTIC_MODEL_ID = 'Xenova/siglip-base-patch16-224';
+const SEMANTIC_CACHE_DIR_NAME = 'semantic-model-cache';
+
+export class SemanticEmbedder {
+  readonly #modelId: string;
+  #textTokenizer: any;
+  #textModel: any;
+  #imagePipeline: any;
+  #initPromise: Promise<void> | undefined;
+  #status: SemanticStatusState = 'idle';
+  #initError: Error | undefined;
+
+  constructor(modelId = DEFAULT_SEMANTIC_MODEL_ID) {
+    this.#modelId = modelId;
+  }
+
+  get modelId(): string {
+    return this.#modelId;
+  }
+
+  getStatus(): SemanticSearchStatus {
+    return {
+      modelId: this.#modelId,
+      state: this.#status,
+      error: this.#initError?.message,
+    };
+  }
+
+  async warmup(): Promise<void> {
+    await this.ensureInitialized();
+  }
+
+  async embedText(text: string): Promise<number[]> {
+    await this.ensureInitialized();
+    const inputs = await this.#textTokenizer(text, {
+      padding: 'max_length',
+      truncation: true,
+      max_length: 64,
+    });
+    const output = await this.#textModel(inputs);
+    const parsed = parseEmbeddingOutput(output?.text_embeds ?? output?.pooler_output ?? output);
+    if (parsed.length === 0) {
+      throw new Error('SemanticEmbedder: Text embedding returned an empty vector.');
+    }
+    return normalizeVector(parsed);
+  }
+
+  async embedImage(absolutePath: string): Promise<number[]> {
+    await this.ensureInitialized();
+    const output = await this.#imagePipeline(absolutePath, { pooling: 'mean', normalize: true });
+    const parsed = parseEmbeddingOutput(output);
+    if (parsed.length === 0) {
+      throw new Error(
+        `SemanticEmbedder: Image embedding returned an empty vector for ${absolutePath}.`,
+      );
+    }
+    return normalizeVector(parsed);
+  }
+
+  private async ensureInitialized(): Promise<void> {
+    if (this.#status === 'ready') {
+      return;
+    }
+
+    if (this.#initPromise !== undefined) {
+      await this.#initPromise;
+      return;
+    }
+
+    this.#status = 'loading';
+    this.#initError = undefined;
+
+    this.#initPromise = this.initializeModel();
+    try {
+      await this.#initPromise;
+    } finally {
+      this.#initPromise = undefined;
+    }
+  }
+
+  private async initializeModel(): Promise<void> {
+
+    const isPackaged = isPackagedRuntime();
+    const cacheDir = resolveSemanticCacheDir(isPackaged);
+    const modelCachePath = resolveModelCachePath(cacheDir, this.#modelId);
+
+    try {
+      const transformers = await import('@huggingface/transformers');
+      if (transformers.env) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        transformers.env.allowLocalModels = true;
+        transformers.env.useBrowserCache = false;
+        transformers.env.useFSCache = true;
+        transformers.env.cacheDir = cacheDir;
+        transformers.env.localModelPath = cacheDir;
+        transformers.env.allowRemoteModels = !isPackaged;
+      }
+
+      try {
+        const modelOptions = { dtype: 'q8' as const };
+        this.#textTokenizer = await transformers.AutoTokenizer.from_pretrained(this.#modelId);
+        this.#textModel = await loadSiglipTextModel(transformers, this.#modelId, modelOptions);
+        this.#imagePipeline = await transformers.pipeline(
+          'image-feature-extraction',
+          this.#modelId,
+          modelOptions,
+        );
+      } catch (initError) {
+        if (!isPackaged && shouldRepairCorruptedModelCache(initError)) {
+          fs.rmSync(modelCachePath, { recursive: true, force: true });
+          const modelOptions = { dtype: 'q8' as const };
+          this.#textTokenizer = await transformers.AutoTokenizer.from_pretrained(this.#modelId);
+          this.#textModel = await loadSiglipTextModel(transformers, this.#modelId, modelOptions);
+          this.#imagePipeline = await transformers.pipeline(
+            'image-feature-extraction',
+            this.#modelId,
+            modelOptions,
+          );
+        } else {
+          throw initError;
+        }
+      }
+      this.#status = 'ready';
+      this.#initError = undefined;
+    } catch (error) {
+      this.#initError =
+        error instanceof Error ? error : new Error('SemanticEmbedder: Unknown init error');
+      this.#status = 'error';
+      throw new Error(
+        `SemanticEmbedder: Could not initialize model "${this.#modelId}". ${
+          this.#initError.message
+        }${
+          isPackagedRuntime()
+            ? ' Run `yarn prefetch:semantic-model` before packaging so the model cache is bundled.'
+            : ''
+        }`,
+      );
+    }
+  }
+}
+
+async function loadSiglipTextModel(
+  transformers: any,
+  modelId: string,
+  modelOptions: { dtype: 'q8' },
+): Promise<any> {
+  if (typeof transformers.SiglipTextModel?.from_pretrained === 'function') {
+    return transformers.SiglipTextModel.from_pretrained(modelId, modelOptions);
+  }
+
+  // Fallback for older/newer transformers.js builds where SiglipTextModel is not exported.
+  return transformers.AutoModel.from_pretrained(modelId, modelOptions);
+}
+
+function isPackagedRuntime(): boolean {
+  const env = process.env.NODE_ENV;
+  if (env === 'development' || env === 'test') {
+    return false;
+  }
+
+  const argvHasAsar = process.argv.some((arg) => arg.includes('app.asar'));
+  const dirnameHasAsar = __dirname.includes('app.asar');
+  return argvHasAsar || dirnameHasAsar;
+}
+
+function resolveSemanticCacheDir(isPackaged: boolean): string {
+  if (isPackaged) {
+    return path.resolve(process.resourcesPath, SEMANTIC_CACHE_DIR_NAME);
+  }
+  return path.resolve(process.cwd(), 'resources', SEMANTIC_CACHE_DIR_NAME);
+}
+
+function resolveModelCachePath(cacheDir: string, modelId: string): string {
+  return path.resolve(cacheDir, modelId);
+}
+
+function shouldRepairCorruptedModelCache(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return message.includes('protobuf parsing failed') || message.includes('unexpected end of data');
+}
+
+export function sourceHashForFile(file: FileDTO): string {
+  const parts = [
+    file.absolutePath,
+    String(file.size),
+    String(file.width),
+    String(file.height),
+    String(file.dateModifiedOS.getTime()),
+  ];
+  return fnv1a(parts.join('|'));
+}
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  const len = Math.min(a.length, b.length);
+  if (len === 0) {
+    return 0;
+  }
+
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < len; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+
+  if (normA <= 0 || normB <= 0) {
+    return 0;
+  }
+
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+export function normalizeVector(vector: number[]): number[] {
+  let norm = 0;
+  for (const value of vector) {
+    norm += value * value;
+  }
+  if (norm <= 0) {
+    return vector;
+  }
+  const scale = 1 / Math.sqrt(norm);
+  return vector.map((value) => value * scale);
+}
+
+export function parseEmbeddingOutput(output: unknown): number[] {
+  if (!output) {
+    return [];
+  }
+
+  if (Array.isArray(output)) {
+    return flattenNumericArray(output);
+  }
+
+  const outputAsRecord = output as { tolist?: () => unknown; data?: ArrayLike<number> };
+
+  if (typeof outputAsRecord.tolist === 'function') {
+    return flattenNumericArray(outputAsRecord.tolist());
+  }
+
+  if (outputAsRecord.data && typeof outputAsRecord.data.length === 'number') {
+    return Array.from(outputAsRecord.data);
+  }
+
+  return [];
+}
+
+function flattenNumericArray(value: any): number[] {
+  const result: number[] = [];
+  const stack: any[] = [value];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (Array.isArray(current)) {
+      for (let i = current.length - 1; i >= 0; i--) {
+        stack.push(current[i]);
+      }
+      continue;
+    }
+
+    if (typeof current === 'number' && Number.isFinite(current)) {
+      result.push(current);
+    }
+  }
+
+  return result;
+}
+
+function fnv1a(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.codePointAt(i) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}

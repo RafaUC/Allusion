@@ -105,8 +105,15 @@ class RootStore {
             await rootStore.fileStore.fetchFilesByQuery();
           };
 
-    // Load the files already in the database so user instantly sees their images
-    fileStoreInit();
+    // Load the files already in the database before starting refresh/watch flows.
+    // This avoids overlapping startup refetches that can trigger redundant queries.
+    await fileStoreInit();
+    rootStore.fileStore.refreshSemanticStatus().catch((error) => {
+      console.warn('Could not initialize semantic status', error);
+    });
+    rootStore.fileStore.warmupSemanticModel().catch((error) => {
+      console.warn('Could not warm up semantic model', error);
+    });
 
     // If slide mode was recovered from a previous session, it was disabled by setContentQuery.
     // Watch fileStore.numLoadedFiles until there are files in view to re-enable slide mode.
@@ -123,9 +130,10 @@ class RootStore {
       );
     }
 
-    // look for any new or removed images, handled by parcel/watcher
-    rootStore.locationStore.watchLocations();
-    rootStore.initStartupLoads().catch(console.error);
+    // Run startup refresh first and only then start file watching to reduce duplicated refresh/refetch calls.
+    rootStore.initStartupLoads().catch(console.error).finally(() => {
+      rootStore.locationStore.watchLocations();
+    });
 
     return rootStore;
   }

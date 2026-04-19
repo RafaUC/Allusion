@@ -43,7 +43,10 @@ let mainConfig = {
   },
   externals: {
     "better-sqlite3": "require('better-sqlite3')",
-    "@parcel/watcher": "require('@parcel/watcher')"
+    "@parcel/watcher": "require('@parcel/watcher')",
+    "@huggingface/transformers": "require('@huggingface/transformers')",
+    "onnxruntime-node": "require('onnxruntime-node')",
+    sharp: "require('sharp')"
   }
 };
 
@@ -138,7 +141,10 @@ let rendererConfig = {
   ],
   externals: {
     "better-sqlite3": "require('better-sqlite3')",
-    "@parcel/watcher": "require('@parcel/watcher')"
+    "@parcel/watcher": "require('@parcel/watcher')",
+    "@huggingface/transformers": "require('@huggingface/transformers')",
+    "onnxruntime-node": "require('onnxruntime-node')",
+    sharp: "require('sharp')"
   }
 };
 

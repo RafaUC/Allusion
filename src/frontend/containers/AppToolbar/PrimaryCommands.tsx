@@ -34,6 +34,8 @@ const PrimaryCommands = observer(() => {
       <FileSelectionCommand />
 
       <Searchbar />
+      <SemanticStatusCommand />
+      <FindSimilarCommand />
 
       {/* TODO: Put back tag button (or just the T hotkey) */}
       {fileStore.showsMissingContent ? (
@@ -105,6 +107,53 @@ const FileSelectionCommand = observer(() => {
       text={fileCount == 0 ? '0' : selectionCount + ' / ' + fileCount}
       tooltip={`Selects or deselects all images, (${fileLoadedCount} loaded files)`}
       disabled={fileCount === 0}
+    />
+  );
+});
+
+const FindSimilarCommand = observer(() => {
+  const { fileStore, uiStore } = useStore();
+  const hasQueryFile = uiStore.fileSelection.size > 0 || uiStore.firstItemIndex >= 0;
+
+  return (
+    <ToolbarButton
+      isCollapsible={false}
+      icon={IconSet.SEARCH}
+      text="Find Similar"
+      tooltip="Find visually similar images"
+      disabled={!hasQueryFile}
+      onClick={() => {
+        void fileStore.semanticSearchBySelection();
+      }}
+    />
+  );
+});
+
+const SemanticStatusCommand = observer(() => {
+  const { fileStore } = useStore();
+
+  const statusIcon =
+    fileStore.semanticStatusState === 'ready'
+      ? IconSet.SELECT_CHECKED
+      : fileStore.semanticStatusState === 'loading'
+        ? IconSet.LOADING
+        : fileStore.semanticStatusState === 'error'
+          ? IconSet.WARNING
+          : IconSet.INFO;
+
+  const tooltip = fileStore.semanticStatusError
+    ? `Semantic search status: ${fileStore.semanticStatusLabel} (${fileStore.semanticStatusError})`
+    : `Semantic search status: ${fileStore.semanticStatusLabel}`;
+
+  return (
+    <ToolbarButton
+      isCollapsible={false}
+      icon={statusIcon}
+      text={fileStore.semanticStatusLabel}
+      tooltip={tooltip}
+      onClick={() => {
+        void fileStore.refreshSemanticStatus();
+      }}
     />
   );
 });

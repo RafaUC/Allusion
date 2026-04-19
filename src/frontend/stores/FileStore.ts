@@ -36,6 +36,7 @@ import { InheritedTagsVisibilityModeType } from './UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
 import { serializeDate } from 'src/backend/schemaTypes';
+import { SemanticSearchStatus, SemanticStatusState } from 'src/api/semantic-search';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
 
@@ -61,7 +62,9 @@ type PersistentPreferenceFields =
   | 'numUntaggedFiles'
   | 'dirtyUntaggedFiles'
   | 'numMissingFiles'
-  | 'dirtyMissingFiles';
+  | 'dirtyMissingFiles'
+  | 'semanticTopK'
+  | 'semanticMinScore';
 
 export const enum Content {
   All,
@@ -117,6 +120,11 @@ class FileStore {
   @observable dirtyMissingFiles = true;
   @observable numFilteredFiles = 0;
   @observable numLoadedFiles = 0;
+  @observable semanticStatusState: SemanticStatusState = 'idle';
+  @observable semanticStatusError: string | undefined;
+  @observable semanticModelId = '';
+  @observable semanticTopK = 256;
+  @observable semanticMinScore = 0.15;
   /**
    * ID pair for the current backend fetch task.
    * Helps identify if a new task has started and allows aborting previous ones.
@@ -138,6 +146,88 @@ class FileStore {
     this.debouncedRefetch = debounce(this.refetch, 800).bind(this);
     this.debouncedSaveFilesToSave = debounce(this.saveFilesToSave, 200).bind(this);
     // reaction to keep updated properties "related" to fileList
+  }
+
+  @computed get semanticStatusLabel(): string {
+    switch (this.semanticStatusState) {
+      case 'ready':
+        return 'Semantic Ready';
+      case 'loading':
+        return 'Semantic Loading';
+      case 'error':
+        return 'Semantic Error';
+      default:
+        return 'Semantic Idle';
+    }
+  }
+
+  @computed get isSemanticReady(): boolean {
+    return this.semanticStatusState === 'ready';
+  }
+
+  @action.bound setSemanticTopK(value: number): void {
+    const rounded = Math.round(value);
+    this.semanticTopK = clamp(rounded, 1, 1000);
+    this.persistPreferences();
+  }
+
+  @action.bound setSemanticMinScore(value: number): void {
+    this.semanticMinScore = clamp(value, -1, 1);
+    this.persistPreferences();
+  }
+
+  private persistPreferences(): void {
+    try {
+      localStorage.setItem(FILE_STORAGE_KEY, JSON.stringify(this.getPersistentPreferences()));
+    } catch (error) {
+      console.warn('Could not save file preferences', error);
+    }
+  }
+
+  @action.bound async refreshSemanticStatus(): Promise<SemanticSearchStatus> {
+    const status = await this.backend.fetchSemanticStatus();
+    runInAction(() => {
+      this.semanticStatusState = status.state;
+      this.semanticStatusError = status.error;
+      this.semanticModelId = status.modelId;
+    });
+    return status;
+  }
+
+  @action.bound async warmupSemanticModel(): Promise<void> {
+    try {
+      this.semanticStatusState = 'loading';
+      await this.backend.warmupSemanticModel();
+      await this.refreshSemanticStatus();
+    } catch (error) {
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic warmup error.';
+      AppToaster.show({
+        message,
+        timeout: 8000,
+        type: 'error',
+      });
+    }
+  }
+
+  @action.bound async reindexSemanticEmbeddings(): Promise<void> {
+    try {
+      this.semanticStatusState = 'loading';
+      AppToaster.show({ message: 'Reindexing semantic embeddings...', timeout: 0 }, 'semantic-reindex');
+      const count = await this.backend.reindexSemanticEmbeddings();
+      await this.refreshSemanticStatus();
+      AppToaster.show(
+        { message: `Semantic reindex complete (${count} files).`, timeout: 5000, type: 'success' },
+        'semantic-reindex',
+      );
+    } catch (error) {
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const msg = error instanceof Error ? error.message : 'Unknown semantic reindex error.';
+      AppToaster.show(
+        { message: `Semantic reindex failed: ${msg}`, timeout: 8000, type: 'error' },
+        'semantic-reindex',
+      );
+    }
   }
 
   @action.bound async readTagsFromSelectedFiles(): Promise<void> {
@@ -1056,6 +1146,90 @@ class FileStore {
     }
   }
 
+  @action.bound async semanticSearchByText(query: string): Promise<void> {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const { uiStore } = this.rootStore;
+    const criteria =
+      uiStore.searchRootGroup.children.length > 0
+        ? uiStore.searchRootGroup.toCondition(this.rootStore)
+        : undefined;
+    const semanticTopK = this.semanticTopK;
+    const semanticMinScore = this.semanticMinScore;
+
+    try {
+      this.setContentQuery();
+      const start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.semanticSearchByText(trimmed, {
+        criteria,
+        topK: semanticTopK,
+        minScore: semanticMinScore,
+      });
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        await this.updateFromBackend(fetchedFiles);
+      }
+      await this.refreshSemanticStatus().catch(() => undefined);
+    } catch (error) {
+      console.error('Semantic text search failed', error);
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic search error.';
+      AppToaster.show({
+        message,
+        timeout: 8000,
+        type: 'error',
+      });
+    }
+  }
+
+  @action.bound async semanticSearchBySelection(): Promise<void> {
+    const { uiStore } = this.rootStore;
+    const selected = uiStore.fileSelection.values().next().value as ClientFile | undefined;
+    const queryFile = selected ?? this.fileList[uiStore.firstItemIndex];
+    if (!queryFile) {
+      AppToaster.show({ message: 'Select an image first.', timeout: 2500 });
+      return;
+    }
+
+    const criteria =
+      uiStore.searchRootGroup.children.length > 0
+        ? uiStore.searchRootGroup.toCondition(this.rootStore)
+        : undefined;
+    const semanticTopK = this.semanticTopK;
+    const semanticMinScore = this.semanticMinScore;
+
+    try {
+      this.setContentQuery();
+      const start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.semanticSearchByImage(queryFile.id, {
+        criteria,
+        topK: semanticTopK,
+        minScore: semanticMinScore,
+      });
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        await this.updateFromBackend(fetchedFiles);
+      }
+      await this.refreshSemanticStatus().catch(() => undefined);
+    } catch (error) {
+      console.error('Semantic image search failed', error);
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic image search error.';
+      AppToaster.show({
+        message,
+        timeout: 8000,
+        type: 'error',
+      });
+    }
+  }
+
   @action.bound async jumpToFirst(): Promise<void> {
     //logic: set an empty cursor and do a refetch.
     this.rootStore.uiStore.clearFileSelection();
@@ -1233,6 +1407,8 @@ class FileStore {
         this.dirtyTotalFiles = Boolean(prefs.dirtyTotalFiles ?? true);
         this.dirtyUntaggedFiles = Boolean(prefs.dirtyUntaggedFiles ?? true);
         this.dirtyMissingFiles = Boolean(prefs.dirtyMissingFiles ?? true);
+        this.setSemanticTopK(Number(prefs.semanticTopK ?? this.semanticTopK));
+        this.setSemanticMinScore(Number(prefs.semanticMinScore ?? this.semanticMinScore));
         console.info('View recovered preferences:', prefs);
       } catch (e) {
         console.error('Cannot parse persistent preferences:', FILE_STORAGE_KEY, e);
@@ -1253,6 +1429,8 @@ class FileStore {
       dirtyUntaggedFiles: this.dirtyUntaggedFiles,
       numMissingFiles: this.numMissingFiles,
       dirtyMissingFiles: this.dirtyMissingFiles,
+      semanticTopK: this.semanticTopK,
+      semanticMinScore: this.semanticMinScore,
     };
     return preferences;
   }

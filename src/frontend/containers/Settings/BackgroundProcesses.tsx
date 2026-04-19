@@ -11,7 +11,7 @@ import { useGalleryInputKeydownHandler } from 'src/frontend/hooks/useHandleInput
 import UiStore from 'src/frontend/stores/UiStore';
 
 export const BackgroundProcesses = observer(() => {
-  const { uiStore, locationStore } = useStore();
+  const { uiStore, locationStore, fileStore } = useStore();
 
   const importDirectory = uiStore.importDirectory;
   const browseImportDirectory = async ([newDir]: [string, ...string[]]) => {
@@ -84,6 +84,52 @@ export const BackgroundProcesses = observer(() => {
       </div>
       <br />
       <br />
+
+        <h3>Semantic Search</h3>
+        <Callout icon={IconSet.INFO}>
+          Semantic model status: <strong>{fileStore.semanticStatusLabel}</strong>
+          {fileStore.semanticModelId ? ` (${fileStore.semanticModelId})` : ''}
+        </Callout>
+        {fileStore.semanticStatusError ? (
+          <Callout icon={IconSet.WARNING}>{fileStore.semanticStatusError}</Callout>
+        ) : null}
+        <label>
+          Semantic Result Count
+          <select
+            value={fileStore.semanticTopK}
+            onChange={(event) => fileStore.setSemanticTopK(Number(event.target.value))}
+          >
+            {[50, 100, 256, 512, 1000].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <br />
+        <label>
+          Semantic Score Threshold
+          <input
+            type="number"
+            min={-1}
+            max={1}
+            step={0.01}
+            value={fileStore.semanticMinScore}
+            onChange={(event) => fileStore.setSemanticMinScore(Number(event.target.value))}
+          />
+        </label>
+        <br />
+        <button className="btn-minimal" onClick={() => void fileStore.refreshSemanticStatus()}>
+          Refresh Semantic Status
+        </button>
+        <button className="btn-minimal" onClick={() => void fileStore.warmupSemanticModel()}>
+          Warmup Semantic Model
+        </button>
+        <button className="btn-minimal" onClick={() => void fileStore.reindexSemanticEmbeddings()}>
+          Reindex Semantic Embeddings
+        </button>
+        <br />
+        <br />
     </>
   );
 });

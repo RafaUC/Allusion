@@ -40,6 +40,7 @@ export type AllusionDB_SQL = {
   fileTags: FileTags;
   extraProperties: ExtraProperties;
   epValues: EpValues;
+  fileEmbeddings: FileEmbeddings;
   savedSearches: SavedSearches;
   searchGroups: SearchGroups;
   searchCriteria: SearchCriteria;
@@ -142,6 +143,16 @@ export type EpValues = {
   textValue: string | null;
   numberValue: number | null;
   timestampValue: DateAsNumber | null;
+};
+
+/// SEMANTIC EMBEDDINGS ///
+
+export type FileEmbeddings = {
+  fileId: ID; //pk fk
+  modelId: string;
+  embeddingJson: string;
+  sourceHash: string;
+  updatedAt: DateAsNumber;
 };
 
 /// SAVED SEARCHES ///
