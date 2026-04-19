@@ -20,6 +20,8 @@ import {
   SearchGroups,
 } from './schemaTypes';
 import SQLite from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   Kysely,
   SqliteDialect,
@@ -65,15 +67,23 @@ import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
 import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
-import { cosineSimilarity, SemanticEmbedder, sourceHashForFile } from './semantic';
+import {
+  float32BlobToVector,
+  SemanticEmbedder,
+  sourceHashForFile,
+  vectorToFloat32Blob,
+} from './semantic';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
 const USE_QUERY_LOGGER = false ? IS_DEV : false;
+const SQLITE_VECTOR_TABLE = 'file_embeddings';
+const SQLITE_VECTOR_COLUMN = 'embedding_blob';
 
 export default class Backend implements DataStorage {
   readonly MAX_VARS!: number;
   #db!: Kysely<AllusionDB_SQL>;
+  #sqlite!: SQLite.Database;
   #dbPath!: string;
   #notifyChange!: () => void;
   #restoreEmpty!: () => Promise<void>;
@@ -81,6 +91,10 @@ export default class Backend implements DataStorage {
   #isQueryDirty: boolean = true;
   // Seed used to have deterministic order when order by random
   #seed: number = generateSeed();
+  #sqliteVectorAvailable = false;
+  #sqliteVectorInitializedDimension: number | undefined;
+  #sqliteVectorQuantizeDirty = true;
+  #semanticEmbeddingDimension: number | undefined;
   readonly #semanticEmbedder = new SemanticEmbedder();
 
   constructor() {
@@ -115,6 +129,7 @@ export default class Backend implements DataStorage {
     // Instead of initializing this through the constructor, set the class properties here,
     // this allows us to use the class as a worker having async await calls at init.
     this.#db = db;
+    this.#sqlite = database;
     this.#dbPath = dbPath;
     this.#notifyChange = notifyChange;
     this.#restoreEmpty = restoreEmpty;
@@ -124,6 +139,8 @@ export default class Backend implements DataStorage {
     if (mode === 'default' || mode === 'migrate') {
       await migrateToLatest(db, { jsonToImport });
     }
+
+    this.#sqliteVectorAvailable = this.tryLoadSqliteVectorExtension(database);
 
     if (mode === 'migrate' || mode === 'readonly') {
       return;
@@ -162,6 +179,104 @@ export default class Backend implements DataStorage {
         .execute();
     }
     await this.preAggregateJSON();
+  }
+
+  private tryLoadSqliteVectorExtension(database: SQLite.Database): boolean {
+    const extensionPath = this.resolveSqliteVectorExtensionPath();
+    if (!extensionPath) {
+      return false;
+    }
+
+    try {
+      database.loadExtension(extensionPath);
+      const row = database.prepare('SELECT vector_version() AS version').get() as
+        | { version?: string }
+        | undefined;
+      console.info(
+        `SQLite: sqlite-vector extension loaded from "${extensionPath}" (${row?.version ?? 'unknown version'}).`,
+      );
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`SQLite: sqlite-vector extension failed to load (${message}).`);
+      return false;
+    }
+  }
+
+  private resolveSqliteVectorExtensionPath(): string | undefined {
+    const configured = process.env.ALLUSION_SQLITE_VECTOR_PATH?.trim();
+    if (configured && fs.existsSync(configured)) {
+      return configured;
+    }
+
+    let ext = '.so';
+    if (process.platform === 'win32') {
+      ext = '.dll';
+    } else if (process.platform === 'darwin') {
+      ext = '.dylib';
+    }
+    const candidateNames = [`vector${ext}`, 'vector'];
+    const roots = [
+      path.resolve(process.cwd(), 'resources', 'sqlite-vector'),
+      path.resolve(process.resourcesPath || '', 'sqlite-vector'),
+    ];
+
+    for (const root of roots) {
+      for (const name of candidateNames) {
+        const candidate = path.resolve(root, name);
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private async ensureSqliteVectorInitialized(dimension: number): Promise<void> {
+    if (!this.#sqliteVectorAvailable) {
+      throw new Error(
+        'sqlite-vector extension is not available. Ensure resources/sqlite-vector contains the native vector binary.',
+      );
+    }
+
+    if (dimension <= 0) {
+      throw new Error('sqlite-vector initialization failed: invalid vector dimension.');
+    }
+
+    if (this.#sqliteVectorInitializedDimension === dimension) {
+      return;
+    }
+
+    try {
+      const options = `dimension=${dimension},type=FLOAT32,distance=COSINE`;
+      await sql`SELECT vector_init(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN}, ${options})`.execute(
+        this.#db,
+      );
+      this.#sqliteVectorInitializedDimension = dimension;
+      this.#sqliteVectorQuantizeDirty = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`sqlite-vector initialization failed: ${message}`);
+    }
+  }
+
+
+  private async ensureSqliteVectorQuantized(): Promise<void> {
+    if (!this.#sqliteVectorQuantizeDirty) {
+      return;
+    }
+
+    try {
+      await sql`SELECT vector_quantize(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN})`.execute(this.#db);
+      await sql`SELECT vector_quantize_preload(${SQLITE_VECTOR_TABLE}, ${SQLITE_VECTOR_COLUMN})`.execute(
+        this.#db,
+      );
+      this.#sqliteVectorQuantizeDirty = false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`sqlite-vector quantization failed: ${message}`);
+    }
   }
 
   async setSeed(seed?: number): Promise<void> {
@@ -347,6 +462,7 @@ export default class Backend implements DataStorage {
     }
 
     const queryEmbedding = await this.#semanticEmbedder.embedText(cleaned);
+    this.#semanticEmbeddingDimension = queryEmbedding.length;
     return this.semanticSearchByEmbedding(queryEmbedding, undefined, options);
   }
 
@@ -357,7 +473,13 @@ export default class Backend implements DataStorage {
       return [];
     }
 
-    const queryEmbedding = await this.ensureEmbeddingForFile(queryFile);
+    const expectedDimension = await this.getSemanticEmbeddingDimension();
+    const queryEmbedding = await this.ensureEmbeddingForFile(
+      queryFile,
+      false,
+      undefined,
+      expectedDimension,
+    );
     return this.semanticSearchByEmbedding(queryEmbedding, fileId, options);
   }
 
@@ -377,10 +499,12 @@ export default class Backend implements DataStorage {
       });
     }
 
+    const expectedDimension = await this.getSemanticEmbeddingDimension();
+
     let indexed = 0;
     for (const file of files) {
       try {
-        await this.ensureEmbeddingForFile(file, true);
+        await this.ensureEmbeddingForFile(file, true, undefined, expectedDimension);
         indexed++;
       } catch (error) {
         console.warn('Semantic reindex skipped unreadable file', file.absolutePath, error);
@@ -393,6 +517,20 @@ export default class Backend implements DataStorage {
     return this.#semanticEmbedder.getStatus();
   }
 
+  private async getSemanticEmbeddingDimension(): Promise<number> {
+    if (this.#semanticEmbeddingDimension && this.#semanticEmbeddingDimension > 0) {
+      return this.#semanticEmbeddingDimension;
+    }
+
+    const probe = await this.#semanticEmbedder.embedText('dimension probe');
+    if (probe.length <= 0) {
+      throw new Error('Semantic embedding dimension probe returned an empty vector.');
+    }
+
+    this.#semanticEmbeddingDimension = probe.length;
+    return this.#semanticEmbeddingDimension;
+  }
+
   private async semanticSearchByEmbedding(
     queryEmbedding: number[],
     queryFileId?: ID,
@@ -400,7 +538,7 @@ export default class Backend implements DataStorage {
   ): Promise<FileDTO[]> {
     const topK = Math.max(1, options?.topK ?? 128);
     const minScore = options?.minScore ?? -1;
-    const candidateLimit = Math.min(Math.max(topK * 4, 256), 1024);
+    const candidateLimit = Math.min(Math.max(topK * 32, 4096), 20000);
 
     const candidates = await this.queryFiles(options?.criteria, {
       order: 'dateModifiedOS',
@@ -425,7 +563,7 @@ export default class Backend implements DataStorage {
 
     const existingEmbeddings = await this.#db
       .selectFrom('fileEmbeddings')
-      .select(['fileId', 'embeddingJson', 'sourceHash', 'modelId'])
+      .select(['fileId', 'embeddingBlob', 'embeddingJson', 'sourceHash', 'modelId'])
       .where('fileId', 'in', uniqueCandidates.map((file) => file.id))
       .execute();
     const existingByFileId = new Map<ID, (typeof existingEmbeddings)[number]>();
@@ -433,35 +571,102 @@ export default class Backend implements DataStorage {
       existingByFileId.set(row.fileId, row);
     }
 
-    const scored: Array<{ file: FileDTO; score: number }> = [];
-    const scoredAll: Array<{ file: FileDTO; score: number }> = [];
     for (const file of uniqueCandidates) {
       if (!options?.includeQueryFile && queryFileId && file.id === queryFileId) {
         continue;
       }
 
       try {
-        const embedding = await this.ensureEmbeddingForFile(file, false, existingByFileId.get(file.id));
-        const score = cosineSimilarity(queryEmbedding, embedding);
-        scoredAll.push({ file, score });
-        if (score >= minScore) {
-          scored.push({ file, score });
-        }
+        await this.ensureEmbeddingForFile(
+          file,
+          false,
+          existingByFileId.get(file.id),
+          queryEmbedding.length,
+        );
       } catch (error) {
         console.warn('Semantic search skipped unreadable file', file.absolutePath, error);
       }
     }
 
-    scoredAll.sort((a, b) => b.score - a.score);
-    scored.sort((a, b) => b.score - a.score);
-    const selected = scored.length > 0 || minScore <= -1 ? scored : scoredAll;
-    return selected.slice(0, topK).map((entry) => entry.file);
+    return this.semanticSearchByEmbeddingSqliteVector(
+      queryEmbedding,
+      uniqueCandidates,
+      queryFileId,
+      topK,
+      minScore,
+      options?.includeQueryFile,
+    );
+  }
+
+  private async semanticSearchByEmbeddingSqliteVector(
+    queryEmbedding: number[],
+    candidates: FileDTO[],
+    queryFileId: ID | undefined,
+    topK: number,
+    minScore: number,
+    includeQueryFile: boolean | undefined,
+  ): Promise<FileDTO[]> {
+    await this.ensureSqliteVectorInitialized(queryEmbedding.length);
+    await this.ensureSqliteVectorQuantized();
+
+    const candidateById = new Map<ID, FileDTO>();
+    for (const file of candidates) {
+      candidateById.set(file.id, file);
+    }
+    const candidateIds = Array.from(candidateById.keys());
+    if (candidateIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = candidateIds.map(() => '?').join(', ');
+    const shouldExcludeQueryFile = !includeQueryFile && queryFileId !== undefined;
+
+    const query = `
+      SELECT fe.file_id as fileId, v.distance as distance
+      FROM vector_quantize_scan('${SQLITE_VECTOR_TABLE}', '${SQLITE_VECTOR_COLUMN}', ?) AS v
+      JOIN file_embeddings fe ON fe.rowid = v.rowid
+      WHERE fe.model_id = ?
+        AND fe.embedding_blob IS NOT NULL
+        AND fe.file_id IN (${placeholders})
+        ${shouldExcludeQueryFile ? 'AND fe.file_id <> ?' : ''}
+      ORDER BY v.distance ASC
+      LIMIT ?
+    `;
+
+    const params: Array<string | Uint8Array | number> = [
+      vectorToFloat32Blob(queryEmbedding),
+      this.#semanticEmbedder.modelId,
+      ...candidateIds,
+    ];
+    if (shouldExcludeQueryFile && queryFileId !== undefined) {
+      params.push(queryFileId);
+    }
+    params.push(Math.min(candidateIds.length, Math.max(topK * 4, topK)));
+
+    type ResultRow = { fileId: ID; distance: number };
+    const rows = this.#sqlite.prepare(query).all(...params) as ResultRow[];
+
+    const filtered = rows
+      .map((row) => {
+        const score = 1 - row.distance;
+        return { file: candidateById.get(row.fileId), score };
+      })
+      .filter((entry): entry is { file: FileDTO; score: number } => entry.file !== undefined)
+      .filter((entry) => minScore <= -1 || entry.score >= minScore);
+
+    return filtered.slice(0, topK).map((entry) => entry.file);
   }
 
   private async ensureEmbeddingForFile(
     file: FileDTO,
     forceReindex = false,
-    existingEmbedding?: { embeddingJson: string; sourceHash: string; modelId: string },
+    existingEmbedding?: {
+      embeddingBlob: Uint8Array | null;
+      embeddingJson: string;
+      sourceHash: string;
+      modelId: string;
+    },
+    expectedDimension?: number,
   ): Promise<number[]> {
     const sourceHash = sourceHashForFile(file);
     const modelId = this.#semanticEmbedder.modelId;
@@ -470,7 +675,7 @@ export default class Backend implements DataStorage {
       existingEmbedding ??
       (await this.#db
         .selectFrom('fileEmbeddings')
-        .select(['embeddingJson', 'sourceHash', 'modelId'])
+        .select(['embeddingBlob', 'embeddingJson', 'sourceHash', 'modelId'])
         .where('fileId', '=', file.id)
         .executeTakeFirst());
 
@@ -479,32 +684,57 @@ export default class Backend implements DataStorage {
       existing?.sourceHash === sourceHash &&
       existing?.modelId === modelId
     ) {
+      if (existing.embeddingBlob) {
+        const vector = float32BlobToVector(existing.embeddingBlob);
+        if (vector.length > 0 && (!expectedDimension || vector.length === expectedDimension)) {
+          return vector;
+        }
+      }
+
       try {
-        return JSON.parse(existing.embeddingJson) as number[];
+        const vector = JSON.parse(existing.embeddingJson) as number[];
+        if (
+          Array.isArray(vector) &&
+          vector.length > 0 &&
+          (!expectedDimension || vector.length === expectedDimension)
+        ) {
+          return vector;
+        }
       } catch {
-        // Recompute below if JSON is malformed.
+        // Ignore malformed legacy JSON and regenerate below.
       }
     }
 
     const embedding = await this.#semanticEmbedder.embedImage(file.absolutePath);
+    if (expectedDimension && embedding.length !== expectedDimension) {
+      throw new Error(
+        `Semantic image embedding dimension mismatch for ${file.absolutePath}: expected ${expectedDimension}, got ${embedding.length}.`,
+      );
+    }
+    const embeddingBlob = vectorToFloat32Blob(embedding);
+    const embeddingJson = JSON.stringify(embedding);
     await this.#db
       .insertInto('fileEmbeddings')
       .values({
         fileId: file.id,
         modelId,
-        embeddingJson: JSON.stringify(embedding),
+        embeddingJson,
+        embeddingBlob,
         sourceHash,
         updatedAt: Date.now(),
       })
       .onConflict((oc) =>
         oc.column('fileId').doUpdateSet({
           modelId,
-          embeddingJson: JSON.stringify(embedding),
+          embeddingJson,
+          embeddingBlob,
           sourceHash,
           updatedAt: Date.now(),
         }),
       )
       .execute();
+
+    this.#sqliteVectorQuantizeDirty = true;
 
     return embedding;
   }

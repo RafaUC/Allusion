@@ -18,3 +18,7 @@ dist/
 target/
 
 resources/semantic-model-cache/
+resources/sqlite-vector/.version
+resources/sqlite-vector/vector.dylib
+resources/sqlite-vector/vector.so
+resources/sqlite-vector/vector.dll

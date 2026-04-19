@@ -53,7 +53,7 @@ export class SemanticEmbedder {
   async embedImage(absolutePath: string): Promise<number[]> {
     await this.ensureInitialized();
     const output = await this.#imagePipeline(absolutePath, { pooling: 'mean', normalize: true });
-    const parsed = parseEmbeddingOutput(output);
+    const parsed = parseImageEmbeddingOutput(output);
     if (parsed.length === 0) {
       throw new Error(
         `SemanticEmbedder: Image embedding returned an empty vector for ${absolutePath}.`,
@@ -198,6 +198,19 @@ export function sourceHashForFile(file: FileDTO): string {
   return fnv1a(parts.join('|'));
 }
 
+export function vectorToFloat32Blob(vector: number[]): Uint8Array {
+  const float32 = Float32Array.from(vector);
+  return new Uint8Array(float32.buffer, float32.byteOffset, float32.byteLength);
+}
+
+export function float32BlobToVector(blob: Uint8Array): number[] {
+  if (blob.byteLength === 0 || blob.byteLength % 4 !== 0) {
+    return [];
+  }
+  const float32 = new Float32Array(blob.buffer, blob.byteOffset, Math.floor(blob.byteLength / 4));
+  return Array.from(float32);
+}
+
 export function cosineSimilarity(a: number[], b: number[]): number {
   const len = Math.min(a.length, b.length);
   if (len === 0) {
@@ -267,6 +280,26 @@ function parseTextEmbeddingOutput(output: any): number[] {
   }
 
   const pooled = meanPoolHiddenState(hiddenFlat, hidden?.dims);
+  if (pooled.length > 0) {
+    return pooled;
+  }
+
+  return hiddenFlat;
+}
+
+function parseImageEmbeddingOutput(output: any): number[] {
+  const direct = parseEmbeddingOutput(output?.image_embeds ?? output?.pooler_output);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const hidden = output?.last_hidden_state ?? output;
+  const hiddenFlat = parseEmbeddingOutput(hidden);
+  if (hiddenFlat.length === 0) {
+    return [];
+  }
+
+  const pooled = meanPoolHiddenState(hiddenFlat, hidden?.dims ?? output?.dims);
   if (pooled.length > 0) {
     return pooled;
   }

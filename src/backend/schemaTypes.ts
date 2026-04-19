@@ -151,6 +151,7 @@ export type FileEmbeddings = {
   fileId: ID; //pk fk
   modelId: string;
   embeddingJson: string;
+  embeddingBlob: Uint8Array | null;
   sourceHash: string;
   updatedAt: DateAsNumber;
 };
