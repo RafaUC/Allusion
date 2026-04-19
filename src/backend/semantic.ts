@@ -43,7 +43,7 @@ export class SemanticEmbedder {
       max_length: 64,
     });
     const output = await this.#textModel(inputs);
-    const parsed = parseEmbeddingOutput(output?.text_embeds ?? output?.pooler_output ?? output);
+    const parsed = parseTextEmbeddingOutput(output);
     if (parsed.length === 0) {
       throw new Error('SemanticEmbedder: Text embedding returned an empty vector.');
     }
@@ -252,6 +252,55 @@ export function parseEmbeddingOutput(output: unknown): number[] {
   }
 
   return [];
+}
+
+function parseTextEmbeddingOutput(output: any): number[] {
+  const direct = parseEmbeddingOutput(output?.text_embeds ?? output?.pooler_output);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const hidden = output?.last_hidden_state;
+  const hiddenFlat = parseEmbeddingOutput(hidden);
+  if (hiddenFlat.length === 0) {
+    return parseEmbeddingOutput(output);
+  }
+
+  const pooled = meanPoolHiddenState(hiddenFlat, hidden?.dims);
+  if (pooled.length > 0) {
+    return pooled;
+  }
+
+  return hiddenFlat;
+}
+
+function meanPoolHiddenState(flat: number[], rawDims: unknown): number[] {
+  const dims = Array.isArray(rawDims)
+    ? rawDims.filter((n: unknown) => typeof n === 'number' && Number.isFinite(n))
+    : [];
+
+  if (dims.length < 2) {
+    return [];
+  }
+
+  const dim = dims.at(-1) ?? 0;
+  const sequenceLength = dims.at(-2) ?? 0;
+  if (dim <= 0 || sequenceLength <= 0 || flat.length < sequenceLength * dim) {
+    return [];
+  }
+
+  // Mean-pool token embeddings for the first batch item.
+  const pooled = new Array<number>(dim).fill(0);
+  for (let token = 0; token < sequenceLength; token++) {
+    const tokenOffset = token * dim;
+    for (let i = 0; i < dim; i++) {
+      pooled[i] += flat[tokenOffset + i];
+    }
+  }
+  for (let i = 0; i < dim; i++) {
+    pooled[i] /= sequenceLength;
+  }
+  return pooled;
 }
 
 function flattenNumericArray(value: any): number[] {

@@ -36,7 +36,11 @@ import { InheritedTagsVisibilityModeType } from './UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
 import { serializeDate } from 'src/backend/schemaTypes';
-import { SemanticSearchStatus, SemanticStatusState } from 'src/api/semantic-search';
+import {
+  SemanticSearchOptions,
+  SemanticSearchStatus,
+  SemanticStatusState,
+} from 'src/api/semantic-search';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
 
@@ -49,6 +53,18 @@ type FetchArgs = [
   Cursor | undefined, //cursor
   string, //extraPropertyID
 ];
+
+type ActiveSemanticQuery =
+  | {
+      mode: 'text';
+      query: string;
+      options: SemanticSearchOptions;
+    }
+  | {
+      mode: 'image';
+      fileId: ID;
+      options: SemanticSearchOptions;
+    };
 
 /** These fields are stored and recovered when the application opens up */
 type PersistentPreferenceFields =
@@ -123,8 +139,9 @@ class FileStore {
   @observable semanticStatusState: SemanticStatusState = 'idle';
   @observable semanticStatusError: string | undefined;
   @observable semanticModelId = '';
-  @observable semanticTopK = 256;
-  @observable semanticMinScore = 0.15;
+  @observable semanticTopK = 64;
+  @observable semanticMinScore = 0;
+  private activeSemanticQuery: ActiveSemanticQuery | undefined;
   /**
    * ID pair for the current backend fetch task.
    * Helps identify if a new task has started and allows aborting previous ones.
@@ -700,6 +717,10 @@ class FileStore {
     return this.content === Content.Query;
   }
 
+  @computed get isSemanticQueryActive(): boolean {
+    return this.showsQueryContent && this.activeSemanticQuery !== undefined;
+  }
+
   @action.bound switchOrderDirection(): void {
     this.setOrderDirection(
       this.orderDirection === OrderDirection.Desc ? OrderDirection.Asc : OrderDirection.Desc,
@@ -904,6 +925,12 @@ class FileStore {
     return now;
   }
 
+  @action.bound private finalizeFetchTask(fetchId: number): void {
+    if (this.fetchTaskIdPair[0] === fetchId) {
+      this.fetchTaskIdPair[1] = 0;
+    }
+  }
+
   @action.bound async fetchPage(direction: PaginationDirection): Promise<void> {
     if (this.showsMissingContent) {
       return;
@@ -1045,6 +1072,7 @@ class FileStore {
 
   @action.bound async fetchAllFiles(): Promise<void> {
     try {
+      this.activeSemanticQuery = undefined;
       this.setContentAll();
       // Indicate a new fetch process
       const start = await this.newFetchTaskId();
@@ -1066,6 +1094,7 @@ class FileStore {
 
   @action.bound async fetchUntaggedFiles(): Promise<void> {
     try {
+      this.activeSemanticQuery = undefined;
       this.setContentUntagged();
       // Indicate a new fetch process
       const { uiStore } = this.rootStore;
@@ -1090,6 +1119,7 @@ class FileStore {
 
   @action.bound async fetchMissingFiles(): Promise<void> {
     try {
+      this.activeSemanticQuery = undefined;
       const {
         rootStore: { uiStore },
       } = this;
@@ -1123,8 +1153,13 @@ class FileStore {
   @action.bound async fetchFilesByQuery(): Promise<void> {
     const { uiStore } = this.rootStore;
     if (uiStore.searchRootGroup.children.length === 0) {
+      if (this.activeSemanticQuery) {
+        return;
+      }
       return this.fetchAllFiles();
     }
+
+    this.activeSemanticQuery = undefined;
 
     const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
     try {
@@ -1159,23 +1194,35 @@ class FileStore {
         : undefined;
     const semanticTopK = this.semanticTopK;
     const semanticMinScore = this.semanticMinScore;
+    const options: SemanticSearchOptions = {
+      criteria,
+      topK: semanticTopK,
+      minScore: semanticMinScore,
+    };
+    let start: number | undefined;
 
     try {
       this.setContentQuery();
-      const start = await this.newFetchTaskId();
-      const fetchedFiles = await this.backend.semanticSearchByText(trimmed, {
-        criteria,
-        topK: semanticTopK,
-        minScore: semanticMinScore,
-      });
+      this.activeSemanticQuery = {
+        mode: 'text',
+        query: trimmed,
+        options,
+      };
+      start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.semanticSearchByText(trimmed, options);
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
         await this.updateFromBackend(fetchedFiles);
+      } else {
+        this.finalizeFetchTask(start);
       }
       await this.refreshSemanticStatus().catch(() => undefined);
     } catch (error) {
+      if (start !== undefined) {
+        this.finalizeFetchTask(start);
+      }
       console.error('Semantic text search failed', error);
       await this.refreshSemanticStatus().catch(() => undefined);
       const message = error instanceof Error ? error.message : 'Unknown semantic search error.';
@@ -1202,23 +1249,35 @@ class FileStore {
         : undefined;
     const semanticTopK = this.semanticTopK;
     const semanticMinScore = this.semanticMinScore;
+    const options: SemanticSearchOptions = {
+      criteria,
+      topK: semanticTopK,
+      minScore: semanticMinScore,
+    };
+    let start: number | undefined;
 
     try {
       this.setContentQuery();
-      const start = await this.newFetchTaskId();
-      const fetchedFiles = await this.backend.semanticSearchByImage(queryFile.id, {
-        criteria,
-        topK: semanticTopK,
-        minScore: semanticMinScore,
-      });
+      this.activeSemanticQuery = {
+        mode: 'image',
+        fileId: queryFile.id,
+        options,
+      };
+      start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.semanticSearchByImage(queryFile.id, options);
       const end = performance.now();
       this.setAverageFetchTime(end - start);
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
         await this.updateFromBackend(fetchedFiles);
+      } else {
+        this.finalizeFetchTask(start);
       }
       await this.refreshSemanticStatus().catch(() => undefined);
     } catch (error) {
+      if (start !== undefined) {
+        this.finalizeFetchTask(start);
+      }
       console.error('Semantic image search failed', error);
       await this.refreshSemanticStatus().catch(() => undefined);
       const message = error instanceof Error ? error.message : 'Unknown semantic image search error.';
@@ -1284,14 +1343,28 @@ class FileStore {
    * - Count of loaded (defined) files
    */
   @action.bound replaceFileList(newFiles: (ClientFile | undefined)[]): void {
+    const uniqueFiles: (ClientFile | undefined)[] = [];
+    const seenIds = new Set<ID>();
+    for (const file of newFiles) {
+      if (!file) {
+        uniqueFiles.push(file);
+        continue;
+      }
+      if (seenIds.has(file.id)) {
+        continue;
+      }
+      seenIds.add(file.id);
+      uniqueFiles.push(file);
+    }
+
     this.index.clear();
-    for (let index = 0; index < newFiles.length; index++) {
-      const file = newFiles[index];
+    for (let index = 0; index < uniqueFiles.length; index++) {
+      const file = uniqueFiles[index];
       if (file) {
         this.index.set(file.id, index);
       }
     }
-    this.fileList.replace(newFiles);
+    this.fileList.replace(uniqueFiles);
     this.fileDimensions.replace(
       this.fileList.map((f) => ({
         width: f ? f.width : 100,
@@ -1565,6 +1638,16 @@ class FileStore {
 
     // Filter out images with hidden tags
     // TODO: could also do it in search query, this is simpler though (maybe also more performant)
+    // Also deduplicate by ID to avoid unstable React keys when backend queries overlap.
+    const seenIds = new Set<ID>();
+    backendFiles = backendFiles.filter((file) => {
+      if (seenIds.has(file.id)) {
+        return false;
+      }
+      seenIds.add(file.id);
+      return true;
+    });
+
     const hiddenTagIds = new Set(
       this.rootStore.tagStore.tagList.filter((t) => t.isHidden).map((t) => t.id),
     );

@@ -398,9 +398,9 @@ export default class Backend implements DataStorage {
     queryFileId?: ID,
     options?: SemanticSearchOptions,
   ): Promise<FileDTO[]> {
-    const topK = Math.max(1, options?.topK ?? 256);
+    const topK = Math.max(1, options?.topK ?? 128);
     const minScore = options?.minScore ?? -1;
-    const candidateLimit = Math.max(topK * 8, 1000);
+    const candidateLimit = Math.min(Math.max(topK * 4, 256), 1024);
 
     const candidates = await this.queryFiles(options?.criteria, {
       order: 'dateModifiedOS',
@@ -414,15 +414,36 @@ export default class Backend implements DataStorage {
       return [];
     }
 
+    const uniqueCandidates: FileDTO[] = [];
+    const seenCandidateIds = new Set<ID>();
+    for (const candidate of candidates) {
+      if (!seenCandidateIds.has(candidate.id)) {
+        seenCandidateIds.add(candidate.id);
+        uniqueCandidates.push(candidate);
+      }
+    }
+
+    const existingEmbeddings = await this.#db
+      .selectFrom('fileEmbeddings')
+      .select(['fileId', 'embeddingJson', 'sourceHash', 'modelId'])
+      .where('fileId', 'in', uniqueCandidates.map((file) => file.id))
+      .execute();
+    const existingByFileId = new Map<ID, (typeof existingEmbeddings)[number]>();
+    for (const row of existingEmbeddings) {
+      existingByFileId.set(row.fileId, row);
+    }
+
     const scored: Array<{ file: FileDTO; score: number }> = [];
-    for (const file of candidates) {
+    const scoredAll: Array<{ file: FileDTO; score: number }> = [];
+    for (const file of uniqueCandidates) {
       if (!options?.includeQueryFile && queryFileId && file.id === queryFileId) {
         continue;
       }
 
       try {
-        const embedding = await this.ensureEmbeddingForFile(file);
+        const embedding = await this.ensureEmbeddingForFile(file, false, existingByFileId.get(file.id));
         const score = cosineSimilarity(queryEmbedding, embedding);
+        scoredAll.push({ file, score });
         if (score >= minScore) {
           scored.push({ file, score });
         }
@@ -431,25 +452,32 @@ export default class Backend implements DataStorage {
       }
     }
 
+    scoredAll.sort((a, b) => b.score - a.score);
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, topK).map((entry) => entry.file);
+    const selected = scored.length > 0 || minScore <= -1 ? scored : scoredAll;
+    return selected.slice(0, topK).map((entry) => entry.file);
   }
 
-  private async ensureEmbeddingForFile(file: FileDTO, forceReindex = false): Promise<number[]> {
+  private async ensureEmbeddingForFile(
+    file: FileDTO,
+    forceReindex = false,
+    existingEmbedding?: { embeddingJson: string; sourceHash: string; modelId: string },
+  ): Promise<number[]> {
     const sourceHash = sourceHashForFile(file);
     const modelId = this.#semanticEmbedder.modelId;
 
-    const existing = await this.#db
-      .selectFrom('fileEmbeddings')
-      .select(['embeddingJson', 'sourceHash', 'modelId'])
-      .where('fileId', '=', file.id)
-      .executeTakeFirst();
+    const existing =
+      existingEmbedding ??
+      (await this.#db
+        .selectFrom('fileEmbeddings')
+        .select(['embeddingJson', 'sourceHash', 'modelId'])
+        .where('fileId', '=', file.id)
+        .executeTakeFirst());
 
     if (
       !forceReindex &&
-      existing &&
-      existing.sourceHash === sourceHash &&
-      existing.modelId === modelId
+      existing?.sourceHash === sourceHash &&
+      existing?.modelId === modelId
     ) {
       try {
         return JSON.parse(existing.embeddingJson) as number[];

@@ -50,6 +50,11 @@ function isWatchmanInstalled(): boolean {
 class LocationStore {
   private readonly backend: DataStorage;
   private readonly rootStore: RootStore;
+  private readonly dbLookupCacheTtlMs = 4000;
+  private readonly dbFileByPathCache = new Map<string, { file: FileDTO | undefined; expiresAt: number }>();
+  private readonly dbFileByInoCache = new Map<FileDTO['ino'], { file: FileDTO | undefined; expiresAt: number }>();
+  private readonly dbFileByPathInFlight = new Map<string, Promise<FileDTO | undefined>>();
+  private readonly dbFileByInoInFlight = new Map<FileDTO['ino'], Promise<FileDTO | undefined>>();
   watcherSnapshotDirectory!: string;
   PARCEL_WATCHER_BACKEND!: BackendType;
 
@@ -123,6 +128,112 @@ class LocationStore {
 
   save(loc: LocationDTO): void {
     this.backend.saveLocation(loc);
+  }
+
+  private requestRefetch(): void {
+    if (this.rootStore.fileStore.isSemanticQueryActive) {
+      return;
+    }
+    void this.rootStore.fileStore.refetch();
+  }
+
+  private requestDebouncedRefetch(): void {
+    if (this.rootStore.fileStore.isSemanticQueryActive) {
+      return;
+    }
+    this.rootStore.fileStore.debouncedRefetch();
+  }
+
+  private getCachedDbFileByPath(path: string): FileDTO | undefined | null {
+    const cached = this.dbFileByPathCache.get(path);
+    if (!cached) {
+      return null;
+    }
+    if (cached.expiresAt <= Date.now()) {
+      this.dbFileByPathCache.delete(path);
+      return null;
+    }
+    return cached.file;
+  }
+
+  private getCachedDbFileByIno(ino: FileDTO['ino']): FileDTO | undefined | null {
+    const cached = this.dbFileByInoCache.get(ino);
+    if (!cached) {
+      return null;
+    }
+    if (cached.expiresAt <= Date.now()) {
+      this.dbFileByInoCache.delete(ino);
+      return null;
+    }
+    return cached.file;
+  }
+
+  private cacheDbLookup(path: string, ino: FileDTO['ino'], file: FileDTO | undefined): void {
+    const expiresAt = Date.now() + this.dbLookupCacheTtlMs;
+    this.dbFileByPathCache.set(path, { file, expiresAt });
+    this.dbFileByInoCache.set(ino, { file, expiresAt });
+  }
+
+  private async lookupDbFileByPath(path: string): Promise<FileDTO | undefined> {
+    const cached = this.getCachedDbFileByPath(path);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const inFlight = this.dbFileByPathInFlight.get(path);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const request = this.backend
+      .fetchFilesByKey('absolutePath', path)
+      .then((files) => {
+        const file = files[0];
+        if (file) {
+          this.cacheDbLookup(path, file.ino, file);
+        } else {
+          this.dbFileByPathCache.set(path, {
+            file: undefined,
+            expiresAt: Date.now() + this.dbLookupCacheTtlMs,
+          });
+        }
+        return file;
+      })
+      .finally(() => {
+        this.dbFileByPathInFlight.delete(path);
+      });
+
+    this.dbFileByPathInFlight.set(path, request);
+    return request;
+  }
+
+  private async lookupDbFileByIno(
+    ino: FileDTO['ino'],
+    pathForCache: string,
+  ): Promise<FileDTO | undefined> {
+    const cached = this.getCachedDbFileByIno(ino);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const inFlight = this.dbFileByInoInFlight.get(ino);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const request = this.backend
+      .fetchFilesByKey('ino', ino)
+      .then((files) => {
+        const file = files[0];
+        this.cacheDbLookup(pathForCache, ino, file);
+        return file;
+      })
+      .finally(() => {
+        this.dbFileByInoInFlight.delete(ino);
+      });
+
+    this.dbFileByInoInFlight.set(ino, request);
+    return request;
   }
 
   retryToastTimeout: NodeJS.Timeout | undefined;
@@ -228,7 +339,7 @@ class LocationStore {
     locs.forEach((loc) => (loc.isRefreshing = true));
     const foundNewFiles = await this.compareLocations(locs);
     if (foundNewFiles) {
-      this.rootStore.fileStore.refetch();
+      this.requestRefetch();
     }
     return foundNewFiles;
   }
@@ -493,7 +604,7 @@ class LocationStore {
     await this.initLocation(newLocation);
     await this.backend.saveLocation(newLocation.serialize());
     // Refetch files in case some were from this location and could not be found before
-    this.rootStore.fileStore.refetch();
+    this.requestRefetch();
 
     // Dismiss the 'Cannot find location' toast if it is still open
     AppToaster.dismiss(`missing-loc-${newLocation.id}`);
@@ -578,7 +689,7 @@ class LocationStore {
     await this.backend.createFilesFromPath(location.path, files);
 
     AppToaster.show({ message: `Location "${location.name}" is ready!`, timeout: 5000 }, toastKey);
-    this.rootStore.fileStore.refetch();
+    this.requestRefetch();
     this.rootStore.fileStore.refetchFileCounts();
   }
 
@@ -595,7 +706,7 @@ class LocationStore {
       // Remove location locally
       this.locationList.remove(location);
     });
-    this.rootStore.fileStore.refetch();
+    this.requestRefetch();
     this.rootStore.fileStore.refetchFileCounts();
   }
 
@@ -619,16 +730,17 @@ class LocationStore {
 
     // Check if file is being moved/renamed (which is detected as a "add" event followed by "remove" event)
     const match = runInAction(() => fileStore.fileList.find((f) => f && f.ino === fileStats.ino));
-    const dbMatch = match
-      ? undefined
-      : (await this.backend.fetchFilesByKey('ino', fileStats.ino))[0];
     const dbMatchOverwrite = match
       ? undefined
-      : (await this.backend.fetchFilesByKey('absolutePath', fileStats.absolutePath))[0];
+      : await this.lookupDbFileByPath(fileStats.absolutePath);
+    const dbMatch =
+      match || dbMatchOverwrite
+        ? undefined
+        : await this.lookupDbFileByIno(fileStats.ino, fileStats.absolutePath);
 
     if (match) {
       if (fileStats.absolutePath === match.absolutePath) {
-        fileStore.debouncedRefetch();
+        this.requestDebouncedRefetch();
         return;
       }
       fileStore.replaceMovedFile(match, file);
@@ -647,22 +759,18 @@ class LocationStore {
       AppToaster.show({ message: 'New images have been detected.', timeout: 5000 }, 'new-images');
       // might be called a lot when moving many images into a folder, so debounce it
     }
-    fileStore.debouncedRefetch();
+    this.requestDebouncedRefetch();
   }
 
   @action async updateFile(fileStats: FileStats): Promise<void> {
     const fileStore = this.rootStore.fileStore;
-    const dbMatchOverwrites = await this.backend.fetchFilesByKey(
-      'absolutePath',
-      fileStats.absolutePath,
-    );
-    const dbMatchOverwrite = dbMatchOverwrites.length > 0 ? dbMatchOverwrites[0] : undefined;
+    const dbMatchOverwrite = await this.lookupDbFileByPath(fileStats.absolutePath);
     if (dbMatchOverwrite) {
       await this.updateChangedFiles(
         [dbMatchOverwrite],
         new Map<string, FileStats>([[fileStats.absolutePath, fileStats]]),
       );
-      fileStore.debouncedRefetch();
+      this.requestDebouncedRefetch();
     }
   }
 
@@ -676,7 +784,7 @@ class LocationStore {
     fileStore.setDirtyMissingFiles(true);
     if (clientFile) {
       fileStore.hideFile(clientFile);
-      fileStore.debouncedRefetch();
+      this.requestDebouncedRefetch();
     }
   }
 
@@ -712,7 +820,7 @@ class LocationStore {
       false,
     );
     await this.backend.removeFiles(files.map((f) => f.id));
-    this.rootStore.fileStore.refetch();
+    this.requestRefetch();
   }
 
   /** Source is moved to where Target currently is */
