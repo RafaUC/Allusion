@@ -932,7 +932,7 @@ class FileStore {
   }
 
   @action.bound async fetchPage(direction: PaginationDirection): Promise<void> {
-    if (this.showsMissingContent) {
+    if (this.showsMissingContent || this.isSemanticQueryActive) {
       return;
     }
     const { uiStore } = this.rootStore;

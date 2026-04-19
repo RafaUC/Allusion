@@ -51,6 +51,7 @@ const VirtualizedRenderer = observer(
     const [endRenderIndex, setEndRenderIndex] = useState(0);
     const numImages = fileStore.fileDimensions.length;
     const { isSlideMode, firstItemIndex: firstItem } = uiStore;
+    const isSemanticQueryActive = fileStore.isSemanticQueryActive;
 
     const determineRenderRegion = useCallback(
       (numImages: number, overdraw: number, setFirstItem = true) => {
@@ -124,6 +125,9 @@ const VirtualizedRenderer = observer(
       if (!elem || hasRefreshed.current) {
         return;
       }
+      if (isSemanticQueryActive) {
+        return;
+      }
       const { scrollTop, scrollHeight, clientHeight } = elem;
       const needsLoadNext = scrollTop + clientHeight >= scrollHeight - SCROLL_PAGE_THRESHOLD;
       const needsLoadPrev = scrollTop <= SCROLL_PAGE_THRESHOLD;
@@ -138,7 +142,7 @@ const VirtualizedRenderer = observer(
         loadingPage.current = 'before';
         fileStore.fetchBefore();
       }
-    }, [fileStore]);
+    }, [fileStore, isSemanticQueryActive]);
 
     const handleScroll = useCallback(() => {
       throttledRedetermine.current(
