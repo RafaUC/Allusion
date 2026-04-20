@@ -146,6 +146,14 @@ export default class Backend implements DataStorage {
     if (mode === 'migrate' || mode === 'readonly') {
       return;
     }
+    // PRAGMAs only for default mode — avoid creating WAL/SHM files in readonly/migrate modes
+    await sql`PRAGMA journal_mode = WAL;`.execute(this.#db);
+    await sql`PRAGMA case_sensitive_like = ON;`.execute(this.#db);
+    await sql`PRAGMA synchronous = NORMAL;`.execute(this.#db);
+    await sql`PRAGMA temp_store = MEMORY;`.execute(this.#db);
+    await sql`PRAGMA automatic_index = ON;`.execute(this.#db);
+    await sql`PRAGMA cache_size = -64000;`.execute(this.#db);
+    await sql`PRAGMA OPTIMIZE;`.execute(this.#db);
     // Create Root Tag if not exists.
     const rootTag = await db
       .selectFrom('tags')

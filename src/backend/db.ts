@@ -8,10 +8,9 @@ import {
 } from 'kysely';
 import { kyselyLogger, PAD_STRING_LENGTH } from './config';
 import { AllusionDB_SQL } from './schemaTypes';
-import { IS_DEV } from 'common/process';
 
 // Defined here (NOT imported from backend.ts) to avoid circular import
-const USE_QUERY_LOGGER = false ? IS_DEV : false;
+const USE_QUERY_LOGGER = false;
 
 export interface DBInitResult {
   db: Kysely<AllusionDB_SQL>;
@@ -32,16 +31,6 @@ export async function initDB(dbPath: string): Promise<DBInitResult> {
     plugins: [new ParseJSONResultsPlugin(), new CamelCasePlugin()],
     log: USE_QUERY_LOGGER ? kyselyLogger : undefined, // Used only for debugging.
   });
-
-  // Configure PRAGMA settings (these can create WAL/SHM files)
-  // Enable WAL mode to not wait for writes and optimize database
-  await sql`PRAGMA journal_mode = WAL;`.execute(db);
-  await sql`PRAGMA case_sensitive_like = ON;`.execute(db);
-  await sql`PRAGMA synchronous = NORMAL;`.execute(db);
-  await sql`PRAGMA temp_store = MEMORY;`.execute(db);
-  await sql`PRAGMA automatic_index = ON;`.execute(db);
-  await sql`PRAGMA cache_size = -64000;`.execute(db);
-  await sql`PRAGMA OPTIMIZE;`.execute(db);
 
   return { db, sqlite: database };
 }
