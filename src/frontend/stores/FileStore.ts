@@ -149,6 +149,7 @@ class FileStore {
   @observable semanticMinScore = 0;
   readonly similarFiles = observable<ClientFile>([]);
   @observable similarFilesStatus: 'idle' | 'loading' | 'done' | 'error' = 'idle';
+  private similarFilesRequestId = 0;
   private semanticStatusPollTimeout: ReturnType<typeof setTimeout> | undefined;
   private activeSemanticQuery: ActiveSemanticQuery | undefined;
   /**
@@ -1389,6 +1390,9 @@ class FileStore {
   }
 
   @action.bound clearSimilarFiles(): void {
+    for (const file of this.similarFiles) {
+      file.dispose();
+    }
     this.similarFiles.clear();
     this.similarFilesStatus = 'idle';
   }
@@ -1397,12 +1401,17 @@ class FileStore {
     if (!this.isSemanticReady) {
       return;
     }
+    const requestId = ++this.similarFilesRequestId;
     this.similarFilesStatus = 'loading';
     try {
       const dtos = await this.backend.semanticSearchByImage(fileId, { topK: 20 });
+      if (requestId !== this.similarFilesRequestId) {
+        return;
+      }
       const filtered = dtos.filter((dto) => dto.id !== fileId);
       const files = filtered.map((dto) => {
         const file = new ClientFile(this, dto);
+        file.dispose(); // kill autoSave before any mutation
         runInAction(() => {
           file.setThumbnailPath(
             this.rootStore.imageLoader.needsThumbnail(dto)
@@ -1410,7 +1419,6 @@ class FileStore {
               : dto.absolutePath,
           );
         });
-        file.dispose();
         return file;
       });
       runInAction(() => {
@@ -1418,6 +1426,9 @@ class FileStore {
         this.similarFilesStatus = 'done';
       });
     } catch (error) {
+      if (requestId !== this.similarFilesRequestId) {
+        return;
+      }
       runInAction(() => {
         this.similarFilesStatus = 'error';
       });
