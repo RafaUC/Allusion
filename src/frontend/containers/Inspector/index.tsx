@@ -8,6 +8,7 @@ import { IconButton, IconSet } from 'widgets';
 import { shell } from 'electron';
 import { IS_PREVIEW_WINDOW } from 'common/window';
 import FileExtraPropertiesEditor from '../../components/FileExtraPropertiesEditor';
+import SimilarFilesPanel from './SimilarFilesPanel';
 
 const Inspector = observer(() => {
   const { uiStore, fileStore } = useStore();
@@ -61,6 +62,7 @@ const Inspector = observer(() => {
           </section>
         </>
       )}
+      <SimilarFilesPanel />
     </aside>
   );
 });
