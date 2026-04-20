@@ -142,3 +142,36 @@ table#file-info {
     width: 100%;
   }
 }
+
+.similar-files-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+}
+
+.similar-file-thumb {
+  all: unset;
+  cursor: pointer;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 2px;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  &:hover img {
+    opacity: 0.85;
+  }
+}
+
+.similar-files-loading,
+.similar-files-message {
+  padding: 8px;
+  font-size: 0.85em;
+  color: var(--text-color-muted, #888);
+}

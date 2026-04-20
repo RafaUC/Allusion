@@ -157,6 +157,16 @@ const SlideView = observer(({ width, height }: SlideViewProps) => {
     };
   }, [fileStore, isFirst, isLast, uiStore, imageLoader]);
 
+  useEffect(() => {
+    if (!file) {
+      return;
+    }
+    void fileStore.loadSimilarFiles(file.id);
+    return () => {
+      fileStore.clearSimilarFiles();
+    };
+  }, [file?.id, fileStore]);
+
   const transitionStart: SlideTransform | undefined = useMemo(() => {
     if (!file) {
       return undefined;

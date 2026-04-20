@@ -147,6 +147,9 @@ class FileStore {
   @observable semanticIndexingProgress = 0;
   @observable semanticTopK = 64;
   @observable semanticMinScore = 0;
+  readonly similarFiles = observable<ClientFile>([]);
+  @observable similarFilesStatus: 'idle' | 'loading' | 'done' | 'error' = 'idle';
+  private similarFilesRequestId = 0;
   private semanticStatusPollTimeout: ReturnType<typeof setTimeout> | undefined;
   private activeSemanticQuery: ActiveSemanticQuery | undefined;
   /**
@@ -1384,6 +1387,53 @@ class FileStore {
       throw new Error('Invalid Database State: Cannot have less than 0 untagged files.');
     }
     this.numUntaggedFiles--;
+  }
+
+  @action.bound clearSimilarFiles(): void {
+    for (const file of this.similarFiles) {
+      file.dispose();
+    }
+    this.similarFiles.clear();
+    this.similarFilesStatus = 'idle';
+  }
+
+  @action.bound async loadSimilarFiles(fileId: ID): Promise<void> {
+    if (!this.isSemanticReady) {
+      return;
+    }
+    const requestId = ++this.similarFilesRequestId;
+    this.similarFilesStatus = 'loading';
+    try {
+      const dtos = await this.backend.semanticSearchByImage(fileId, { topK: 20 });
+      if (requestId !== this.similarFilesRequestId) {
+        return;
+      }
+      const filtered = dtos.filter((dto) => dto.id !== fileId);
+      const files = filtered.map((dto) => {
+        const file = new ClientFile(this, dto);
+        file.dispose(); // kill autoSave before any mutation
+        runInAction(() => {
+          file.setThumbnailPath(
+            this.rootStore.imageLoader.needsThumbnail(dto)
+              ? getThumbnailPath(dto.absolutePath, this.rootStore.uiStore.thumbnailDirectory)
+              : dto.absolutePath,
+          );
+        });
+        return file;
+      });
+      runInAction(() => {
+        this.similarFiles.replace(files);
+        this.similarFilesStatus = 'done';
+      });
+    } catch (error) {
+      if (requestId !== this.similarFilesRequestId) {
+        return;
+      }
+      runInAction(() => {
+        this.similarFilesStatus = 'error';
+      });
+      console.error('Failed to load similar files', error);
+    }
   }
 
   // Removes all items from fileList
