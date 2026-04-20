@@ -153,9 +153,9 @@ export const Thumbnail = observer(
 
         if (useThumbnail) {
           //this line will throw an exception if the thumbnail generation gets rejected / throw
-          const generated = await imageLoader.ensureThumbnail(file);
+          await imageLoader.ensureThumbnail(file);
           const thumb = getThumbnail(file);
-          if (generated && isFileExtension3DModel(file.extension)) {
+          if (isFileExtension3DModel(file.extension)) {
             backend.embedFileFromThumbnail(file.id, thumb.split('?')[0]).catch(console.warn);
           }
           return thumb;

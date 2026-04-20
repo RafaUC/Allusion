@@ -233,7 +233,7 @@ export default class Backend implements DataStorage {
     const candidateNames = [`vector${ext}`, 'vector'];
     const roots = [
       path.resolve(process.cwd(), 'resources', 'sqlite-vector'),
-      path.resolve(process.resourcesPath || '', 'sqlite-vector'),
+      path.resolve(process.resourcesPath || '', 'resources', 'sqlite-vector'),
     ];
 
     for (const root of roots) {
@@ -257,7 +257,7 @@ export default class Backend implements DataStorage {
     const executableName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
     const roots = [
       path.resolve(process.cwd(), 'resources', 'ffmpeg'),
-      path.resolve(process.resourcesPath || '', 'ffmpeg'),
+      path.resolve(process.resourcesPath || '', 'resources', 'ffmpeg'),
     ];
 
     for (const root of roots) {
@@ -564,6 +564,16 @@ export default class Backend implements DataStorage {
 
     const sourceHash = sourceHashForFile(file);
     const modelId = this.#semanticEmbedder.modelId;
+
+    const existing = await this.#db
+      .selectFrom('fileEmbeddings')
+      .select(['sourceHash', 'modelId'])
+      .where('fileId', '=', fileId)
+      .executeTakeFirst();
+    if (existing?.sourceHash === sourceHash && existing.modelId === modelId) {
+      return;
+    }
+
     const embedding = await this.#semanticEmbedder.embedImage(thumbnailPath);
     const embeddingBlob = vectorToFloat32Blob(embedding);
     const embeddingJson = JSON.stringify(embedding);
@@ -670,7 +680,9 @@ export default class Backend implements DataStorage {
           queryEmbedding.length,
         );
       } catch (error) {
-        console.warn('Semantic search skipped unreadable file', file.absolutePath, error);
+        if (!(error instanceof Error && error.message.startsWith('3D format not supported'))) {
+          console.warn('Semantic search skipped unreadable file', file.absolutePath, error);
+        }
       }
     }
 

@@ -93,10 +93,18 @@
       "node_modules/onnxruntime-node/**/*",
       "node_modules/onnxruntime-web/**/*",
       "node_modules/onnxruntime-common/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/semver/**/*",
       "build/**/*",
       "package.json"
     ],
-    "asar": true
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/onnxruntime-node/**/*"
+    ]
   },
   "repository": {
     "type": "git",
