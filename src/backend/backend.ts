@@ -146,16 +146,6 @@ export default class Backend implements DataStorage {
     if (mode === 'migrate' || mode === 'readonly') {
       return;
     }
-    // Configure PRAGMA settings (these can create WAL/SHM files)
-    // Enable WAL mode to not wait for writes and optimize database
-    await sql`PRAGMA journal_mode = WAL;`.execute(db);
-    await sql`PRAGMA case_sensitive_like = ON;`.execute(db);
-    await sql`PRAGMA synchronous = NORMAL;`.execute(db);
-    await sql`PRAGMA temp_store = MEMORY;`.execute(db);
-    await sql`PRAGMA automatic_index = ON;`.execute(db);
-    await sql`PRAGMA cache_size = -64000;`.execute(db);
-    await sql`PRAGMA OPTIMIZE;`.execute(db);
-
     // Create Root Tag if not exists.
     const rootTag = await db
       .selectFrom('tags')
