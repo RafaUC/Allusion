@@ -27,9 +27,6 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
   Kysely,
-  SqliteDialect,
-  ParseJSONResultsPlugin,
-  CamelCasePlugin,
   sql,
   SelectQueryBuilder,
   SqlBool,
@@ -40,7 +37,15 @@ import {
   Expression,
   RawBuilder,
 } from 'kysely';
-import { kyselyLogger, migrateToLatest, PAD_STRING_LENGTH } from './config';
+import { migrateToLatest } from './config';
+import {
+  initDB,
+  generateSeed,
+  getSqliteMaxVariables,
+  computeBatchSize,
+  PadString,
+  stableHash,
+} from './db';
 import { DataStorage } from 'src/api/data-storage';
 import {
   OrderBy,
@@ -81,7 +86,6 @@ import { isRenderable3DModelPath } from 'src/rendering/ModelPreviewRenderer';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
-const USE_QUERY_LOGGER = false ? IS_DEV : false;
 const SQLITE_VECTOR_TABLE = 'file_embeddings';
 const SQLITE_VECTOR_COLUMN = 'embedding_blob';
 const SEMANTIC_VIDEO_FRAME_COUNT = 4;
@@ -122,27 +126,11 @@ export default class Backend implements DataStorage {
     restoreEmpty: () => Promise<void>,
     mode: 'default' | 'migrate' | 'readonly' = 'default',
   ): Promise<void> {
-    console.info(`SQLite3: Initializing database "${dbPath}"...`);
-    // For some reason, if initializing the better-sqlite3 db with readonly true, later when disposing the instance,
-    // it does not remove the WAL files, which is bothersome to leave in the backup directory.
-    //const isReadOnly = mode === 'readonly';
-    const database = new SQLite(dbPath, { timeout: 50000 }); //, readonly: isReadOnly });
-
-    // HACK Use a padded string to do natural sorting
-    database.function('pad_string', { deterministic: true }, PadString);
-    database.function('stable_hash', { deterministic: true }, stableHash);
-
-    const dialect = new SqliteDialect({ database });
-    const db = new Kysely<AllusionDB_SQL>({
-      dialect: dialect,
-      plugins: [new ParseJSONResultsPlugin(), new CamelCasePlugin()],
-      log: USE_QUERY_LOGGER ? kyselyLogger : undefined, // Used only for debugging.
-    });
-
     // Instead of initializing this through the constructor, set the class properties here,
     // this allows us to use the class as a worker having async await calls at init.
+    const { db, sqlite } = await initDB(dbPath);
     this.#db = db;
-    this.#sqlite = database;
+    this.#sqlite = sqlite;
     this.#dbPath = dbPath;
     this.#notifyChange = notifyChange;
     this.#restoreEmpty = restoreEmpty;
@@ -153,7 +141,7 @@ export default class Backend implements DataStorage {
       await migrateToLatest(db, { jsonToImport });
     }
 
-    this.#sqliteVectorAvailable = this.tryLoadSqliteVectorExtension(database);
+    this.#sqliteVectorAvailable = this.tryLoadSqliteVectorExtension(sqlite);
 
     if (mode === 'migrate' || mode === 'readonly') {
       return;
@@ -1870,25 +1858,6 @@ function mapToDTO(dbFile: FileDTO | { [x: string]: any }): FileDTO {
   };
 }
 
-export async function getSqliteMaxVariables(db: Kysely<AllusionDB_SQL>): Promise<number> {
-  const rows = (await sql`PRAGMA compile_options`.execute(db)).rows;
-  const opt: any = rows.find((r: any) => r.compileOptions?.includes('MAX_VARIABLE_NUMBER'));
-  if (!opt) {
-    console.warn('MAX_VARIABLE_NUMBER not found, using 22766');
-    return 22766;
-  }
-  const maxVars = parseInt(opt.compileOptions.split('=')[1], 10);
-  return isNaN(maxVars) ? 22766 : maxVars;
-}
-
-export function computeBatchSize(maxVars: number, sampleObject?: Record<string, any>): number {
-  if (!sampleObject) {
-    return 501;
-  }
-  const numCols = Object.keys(sampleObject).length;
-  return Math.floor(maxVars / numCols);
-}
-
 function isValidCursor(cursor: any): cursor is Cursor {
   if (typeof cursor === 'object' && 'orderValue' in cursor && 'id' in cursor) {
     if (typeof cursor.id === 'string' && cursor.orderValue !== undefined) {
@@ -1896,25 +1865,6 @@ function isValidCursor(cursor: any): cursor is Cursor {
     }
   }
   return false;
-}
-
-function PadString(str: string): string {
-  return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
-}
-
-function stableHash(id: string, seed: number): number {
-  let h = seed | 0;
-
-  for (let i = 0; i < id.length; i++) {
-    h = Math.imul(h ^ id.charCodeAt(i), 0x5bd1e995);
-    h ^= h >>> 15;
-  }
-
-  return h >>> 0;
-}
-
-function generateSeed() {
-  return Date.now() >>> 0;
 }
 
 async function extractVideoFrames(

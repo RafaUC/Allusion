@@ -23,7 +23,7 @@ import {
   SearchGroups,
 } from '../schemaTypes';
 import { ExtraPropertyType } from 'src/api/extraProperty';
-import { computeBatchSize, getSqliteMaxVariables } from 'src/backend/backend';
+import { computeBatchSize, getSqliteMaxVariables } from 'src/backend/db';
 
 export default (context: { jsonToImport?: string }) => ({
   async up(db: Kysely<any>): Promise<void> {
