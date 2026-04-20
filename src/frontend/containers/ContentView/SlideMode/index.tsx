@@ -306,7 +306,16 @@ const ZoomableImage: React.FC<ZoomableImageProps> = ({
     // Interactive 3D viewer for model files
     if (isFileExtension3DModel(file.extension)) {
       return (
-        <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111' }}>
+        <div
+          style={{
+            width,
+            height,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#111',
+          }}
+        >
           <ModelViewer absolutePath={file.absolutePath} width={width} height={height} />
         </div>
       );

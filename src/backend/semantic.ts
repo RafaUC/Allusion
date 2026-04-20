@@ -180,7 +180,7 @@ function isPackagedRuntime(): boolean {
 
 function resolveSemanticCacheDir(isPackaged: boolean): string {
   if (isPackaged) {
-    return path.resolve(process.resourcesPath, SEMANTIC_CACHE_DIR_NAME);
+    return path.resolve(process.resourcesPath, 'resources', SEMANTIC_CACHE_DIR_NAME);
   }
   return path.resolve(process.cwd(), 'resources', SEMANTIC_CACHE_DIR_NAME);
 }

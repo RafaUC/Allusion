@@ -27,6 +27,7 @@
     "appId": "com.allusion-app.allusion",
     "productName": "Allusion",
     "mac": {
+      "identity": "F4AC1C366D6C14DD4B4DBA3EC0B1815E74F6F49B",
       "category": "public.app-category.graphics-design",
       "extraResources": [
         "resources/exiftool/exiftool.pl",
@@ -87,6 +88,11 @@
       "node_modules/better-sqlite3/**/*",
       "node_modules/bindings/**/*",
       "node_modules/file-uri-to-path/**/*",
+      "node_modules/@huggingface/transformers/**/*",
+      "node_modules/@huggingface/jinja/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/onnxruntime-web/**/*",
+      "node_modules/onnxruntime-common/**/*",
       "build/**/*",
       "package.json"
     ],
