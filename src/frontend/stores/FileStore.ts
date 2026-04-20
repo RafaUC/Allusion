@@ -147,6 +147,8 @@ class FileStore {
   @observable semanticIndexingProgress = 0;
   @observable semanticTopK = 64;
   @observable semanticMinScore = 0;
+  readonly similarFiles = observable<ClientFile>([]);
+  @observable similarFilesStatus: 'idle' | 'loading' | 'done' | 'error' = 'idle';
   private semanticStatusPollTimeout: ReturnType<typeof setTimeout> | undefined;
   private activeSemanticQuery: ActiveSemanticQuery | undefined;
   /**
@@ -1384,6 +1386,43 @@ class FileStore {
       throw new Error('Invalid Database State: Cannot have less than 0 untagged files.');
     }
     this.numUntaggedFiles--;
+  }
+
+  @action.bound clearSimilarFiles(): void {
+    this.similarFiles.clear();
+    this.similarFilesStatus = 'idle';
+  }
+
+  @action.bound async loadSimilarFiles(fileId: ID): Promise<void> {
+    if (!this.isSemanticReady) {
+      return;
+    }
+    this.similarFilesStatus = 'loading';
+    try {
+      const dtos = await this.backend.semanticSearchByImage(fileId, { topK: 20 });
+      const filtered = dtos.filter((dto) => dto.id !== fileId);
+      const files = filtered.map((dto) => {
+        const file = new ClientFile(this, dto);
+        runInAction(() => {
+          file.setThumbnailPath(
+            this.rootStore.imageLoader.needsThumbnail(dto)
+              ? getThumbnailPath(dto.absolutePath, this.rootStore.uiStore.thumbnailDirectory)
+              : dto.absolutePath,
+          );
+        });
+        file.dispose();
+        return file;
+      });
+      runInAction(() => {
+        this.similarFiles.replace(files);
+        this.similarFilesStatus = 'done';
+      });
+    } catch (error) {
+      runInAction(() => {
+        this.similarFilesStatus = 'error';
+      });
+      console.error('Failed to load similar files', error);
+    }
   }
 
   // Removes all items from fileList
