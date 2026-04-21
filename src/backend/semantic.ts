@@ -94,7 +94,6 @@ export class SemanticEmbedder {
   }
 
   private async initializeModel(): Promise<void> {
-
     const isPackaged = isPackagedRuntime();
     const cacheDir = resolveSemanticCacheDir(isPackaged);
     const modelCachePath = resolveModelCachePath(cacheDir, this.#modelId);
@@ -195,6 +194,57 @@ function shouldRepairCorruptedModelCache(error: unknown): boolean {
   }
   const message = error.message.toLowerCase();
   return message.includes('protobuf parsing failed') || message.includes('unexpected end of data');
+}
+
+/**
+ * Computes sample timestamps (in seconds) from a video duration and a list of ratios.
+ */
+export function computeSampleTimestamps(
+  durationSeconds: number,
+  ratios: readonly number[],
+): number[] {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return [0, 1, 2, 3].slice(0, ratios.length);
+  }
+
+  const maxTimestamp = Math.max(0, durationSeconds - 0.05);
+  return ratios.map((ratio) => {
+    const normalizedRatio = Math.min(1, Math.max(0, ratio));
+    return Math.min(maxTimestamp, durationSeconds * normalizedRatio);
+  });
+}
+
+/**
+ * Computes the mean-pooled (and L2-normalized) embedding from multiple frame embeddings.
+ */
+export function meanPoolEmbeddings(embeddings: number[][]): number[] {
+  const first = embeddings[0];
+  const sum = first.slice();
+
+  for (let i = 1; i < embeddings.length; i++) {
+    const current = embeddings[i];
+    if (current.length !== sum.length) {
+      throw new Error('Cannot aggregate semantic video frame embeddings with mismatched sizes.');
+    }
+    for (let dim = 0; dim < sum.length; dim++) {
+      sum[dim] += current[dim];
+    }
+  }
+
+  for (let dim = 0; dim < sum.length; dim++) {
+    sum[dim] /= embeddings.length;
+  }
+
+  let norm = 0;
+  for (const value of sum) {
+    norm += value * value;
+  }
+  if (norm <= 0) {
+    return sum;
+  }
+
+  const scale = 1 / Math.sqrt(norm);
+  return sum.map((value) => value * scale);
 }
 
 export function sourceHashForFile(file: FileDTO): string {

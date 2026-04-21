@@ -68,17 +68,11 @@ import {
   SemanticEmbedder,
   sourceHashForFile,
   vectorToFloat32Blob,
-} from './semantic';
-import { isRenderable3DModelPath } from 'src/rendering/ModelPreviewRenderer';
-import {
-  getOrderColumnExpression,
-  ConditionWithConjunction,
-  applyFileFilters,
-  applyPagination,
   computeSampleTimestamps,
   meanPoolEmbeddings,
-  PaginationOptions,
-} from './query-builder';
+} from './semantic';
+import { isRenderable3DModelPath } from 'src/rendering/ModelPreviewRenderer';
+import { applyFileFilters, applyPagination, PaginationOptions } from './query-builder';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -542,7 +536,9 @@ export default class Backend implements DataStorage {
 
   async embedFileFromThumbnail(fileId: ID, thumbnailPath: string): Promise<void> {
     const file = (await this.fetchFilesByID([fileId])).at(0);
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     const sourceHash = sourceHashForFile(file);
     const modelId = this.#semanticEmbedder.modelId;
@@ -564,7 +560,13 @@ export default class Backend implements DataStorage {
       .insertInto('fileEmbeddings')
       .values({ fileId, modelId, embeddingJson, embeddingBlob, sourceHash, updatedAt: Date.now() })
       .onConflict((oc) =>
-        oc.column('fileId').doUpdateSet({ modelId, embeddingJson, embeddingBlob, sourceHash, updatedAt: Date.now() }),
+        oc.column('fileId').doUpdateSet({
+          modelId,
+          embeddingJson,
+          embeddingBlob,
+          sourceHash,
+          updatedAt: Date.now(),
+        }),
       )
       .execute();
 
@@ -785,7 +787,7 @@ export default class Backend implements DataStorage {
     if (isFileExtensionVideo(file.extension)) {
       embedding = await this.embedVideoSemanticEmbedding(file, expectedDimension);
     } else {
-      let embeddingSourcePath = file.absolutePath;
+      const embeddingSourcePath = file.absolutePath;
       let cleanupPreviewPath: string | undefined;
       if (isRenderable3DModelPath(file.absolutePath)) {
         // Three.js and Spark both need `window` (WebGL), which isn't available in the
