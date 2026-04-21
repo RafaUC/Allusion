@@ -58,6 +58,9 @@ import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-se
 import { applyFileFilters, applyPagination, PaginationOptions } from './query-builder';
 import { SemanticRepository } from './repositories/SemanticRepository';
 import { TagRepository } from './repositories/TagRepository';
+import { LocationRepository } from './repositories/LocationRepository';
+import { SearchRepository } from './repositories/SearchRepository';
+import { ExtraPropertyRepository } from './repositories/ExtraPropertyRepository';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -73,6 +76,9 @@ export default class Backend implements DataStorage {
   #seed: number = generateSeed();
   #semantic!: SemanticRepository;
   #tags!: TagRepository;
+  #locations!: LocationRepository;
+  #searches!: SearchRepository;
+  #extraProperties!: ExtraPropertyRepository;
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -108,6 +114,13 @@ export default class Backend implements DataStorage {
       (criteria, pagOptions) => this.queryFiles(criteria, pagOptions),
     );
     this.#tags = new TagRepository(this.#db, this.MAX_VARS, this.#notifyChange);
+    this.#locations = new LocationRepository(this.#db, this.MAX_VARS, this.#notifyChange);
+    this.#searches = new SearchRepository(this.#db, this.MAX_VARS, this.#notifyChange);
+    this.#extraProperties = new ExtraPropertyRepository(
+      this.#db,
+      this.MAX_VARS,
+      this.#notifyChange,
+    );
 
     if (mode === 'migrate' || mode === 'readonly') {
       return;
