@@ -101,7 +101,9 @@ const ImageInfo = ({ file }: ImageInfoProps) => {
       ),
     );
 
-    if (isFileExtension3DModel(file.extension)) return;
+    if (isFileExtension3DModel(file.extension)) {
+      return;
+    }
     exifTool.readExifTags(file.absolutePath, exifTags).then((tagValues) => {
       const stats: Record<string, string> = {};
       tagValues.forEach((val, i) => {

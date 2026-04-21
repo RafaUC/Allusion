@@ -1,11 +1,5 @@
 import SQLite from 'better-sqlite3';
-import {
-  Kysely,
-  SqliteDialect,
-  ParseJSONResultsPlugin,
-  CamelCasePlugin,
-  sql,
-} from 'kysely';
+import { Kysely, SqliteDialect, ParseJSONResultsPlugin, CamelCasePlugin, sql } from 'kysely';
 import { kyselyLogger, PAD_STRING_LENGTH } from './config';
 import { AllusionDB_SQL } from './schemaTypes';
 
