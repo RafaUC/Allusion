@@ -2,40 +2,43 @@ import fse from 'fs-extra';
 import { action, computed, makeObservable, observable, runInAction } from 'mobx';
 //import { setTimeout as delay } from 'node:timers/promises';
 
+import { getCursorValue, buildBatchOrder, getBatchBounds, computeAbsoluteBatchStart } from './search';
+import { deduplicateById } from './selection';
+import { filterHiddenFiles } from './operations';
+
 import { getThumbnailPath } from 'common/fs';
 import { batchReducer, promiseAllLimit } from 'common/promise';
 import { debounce } from 'common/timeout';
-import { DataStorage, makeFileBatchFetcher } from '../../api/data-storage';
+import { DataStorage, makeFileBatchFetcher } from '../../../api/data-storage';
 import {
   ConditionGroupDTO,
   Cursor,
   OrderBy,
   OrderDirection,
   PaginationDirection,
-} from '../../api/data-storage-search';
-import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
-import { ID } from '../../api/id';
-import { AppToaster, IToastProps } from '../components/Toaster';
-import { ClientFile, mergeMovedFile } from '../entities/File';
-import { ClientLocation } from '../entities/Location';
+} from '../../../api/data-storage-search';
+import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../../api/file';
+import { ID } from '../../../api/id';
+import { AppToaster, IToastProps } from '../../components/Toaster';
+import { ClientFile, mergeMovedFile } from '../../entities/File';
+import { ClientLocation } from '../../entities/Location';
 import {
   ClientFileSearchCriteria,
   ClientStringSearchCriteria,
   ClientTagSearchCriteria,
-} from '../entities/SearchCriteria';
-import { ClientTag } from '../entities/Tag';
-import RootStore from './RootStore';
-import { ClientExtraProperty } from '../entities/ExtraProperty';
+} from '../../entities/SearchCriteria';
+import { ClientTag } from '../../entities/Tag';
+import RootStore from '../RootStore';
+import { ClientExtraProperty } from '../../entities/ExtraProperty';
 import { Dimensions } from '@floating-ui/core';
 import {
   detectExtraPropertyType,
   ExtraProperties,
   ExtraPropertyValue,
 } from 'src/api/extraProperty';
-import { InheritedTagsVisibilityModeType } from './UiStore';
+import { InheritedTagsVisibilityModeType } from '../UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
-import { serializeDate } from 'src/backend/schemaTypes';
 import {
   SemanticIndexingStatus,
   SemanticSearchOptions,
@@ -1052,27 +1055,12 @@ class FileStore {
   }
 
   @action.bound toCursor(file: ClientFile | FileDTO): Cursor {
-    let cursorValue: Cursor['orderValue'];
-    if (this.orderBy === 'random') {
-      cursorValue = null;
-    } else if (this.orderBy === 'extraProperty') {
-      const ep = this.rootStore.extraPropertyStore.get(this.orderByExtraProperty);
-      if (file instanceof ClientFile) {
-        cursorValue = ep ? file.extraProperties.get(ep) ?? null : null;
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        cursorValue = ep ? file.extraProperties[ep.id] ?? null : null;
-      }
-    } else {
-      const val = file[this.orderBy];
-      if (val instanceof Date) {
-        cursorValue = serializeDate(val);
-      } else if (typeof val === 'object') {
-        cursorValue = null;
-      } else {
-        cursorValue = val;
-      }
-    }
+    const cursorValue = getCursorValue(
+      file,
+      this.orderBy,
+      this.orderByExtraProperty,
+      (id) => this.rootStore.extraPropertyStore.get(id),
+    );
     return { id: file.id, orderValue: cursorValue };
   }
 
@@ -1750,19 +1738,12 @@ class FileStore {
     // Filter out images with hidden tags
     // TODO: could also do it in search query, this is simpler though (maybe also more performant)
     // Also deduplicate by ID to avoid unstable React keys when backend queries overlap.
-    const seenIds = new Set<ID>();
-    backendFiles = backendFiles.filter((file) => {
-      if (seenIds.has(file.id)) {
-        return false;
-      }
-      seenIds.add(file.id);
-      return true;
-    });
+    backendFiles = deduplicateById(backendFiles);
 
     const hiddenTagIds = new Set(
       this.rootStore.tagStore.tagList.filter((t) => t.isHidden).map((t) => t.id),
     );
-    backendFiles = backendFiles.filter((f) => !f.tags.some((t) => hiddenTagIds.has(t)));
+    backendFiles = filterHiddenFiles(backendFiles, hiddenTagIds);
 
     // For every new file coming in, either re-use the existing client file if it exists,
     // or construct a new client file
@@ -1864,35 +1845,15 @@ class FileStore {
     let status: Status = Status.success;
     const initialIndex = clamp(this.rootStore.uiStore.firstItemIndex, 0, total - 1);
 
-    // Calculate number of Batches and its order, prioritizing batches closer to the initialIndex;
-    // calculate the initial batch to process with initilIndex at his center.
-    const initialBatchStart = initialIndex - Math.floor(batchSize / 2);
-    const initialBatchIndex = Math.ceil(initialBatchStart / batchSize);
-    // Absolute start of the batches, it can be negative because of the offset when centering the initialIndex
-    // and it's used to calculate other batches with the offset
-    const absoluteBatchStart = initialBatchStart - batchSize * initialBatchIndex;
-    const totalBatches = Math.ceil((total - absoluteBatchStart) / batchSize);
-    const batchOrder: number[] = [];
-    for (let offset = 0; batchOrder.length < totalBatches; offset++) {
-      const before = initialBatchIndex - offset;
-      const after = initialBatchIndex + offset;
-      if (offset === 0) {
-        batchOrder.push(initialBatchIndex);
-      } else {
-        if (after < totalBatches) {
-          batchOrder.push(after);
-        }
-        if (before >= 0) {
-          batchOrder.push(before);
-        }
-      }
-    }
+    // Calculate number of Batches and its order, prioritizing batches closer to the initialIndex.
+    const absoluteBatchStart = computeAbsoluteBatchStart(initialIndex, batchSize);
+    const batchOrder = buildBatchOrder(initialIndex, total, batchSize);
+    // The initial batch index is the first element — it is always the priority batch.
+    const initialBatchIndex = batchOrder[0] ?? 0;
 
     for (const batchIndex of batchOrder) {
       // calculate and truncate batch boundaries to valid array range
-      const rawStart = absoluteBatchStart + batchIndex * batchSize;
-      const start = Math.max(rawStart, 0);
-      const end = Math.min(rawStart + batchSize - 1, total - 1);
+      const { start, end } = getBatchBounds(batchIndex, absoluteBatchStart, batchSize, total);
 
       runInAction(() => {
         for (let i = start; i <= end; i++) {
