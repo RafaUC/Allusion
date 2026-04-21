@@ -10,13 +10,10 @@ import {
   serializeBoolean,
   serializeDate,
   SubLocations,
-  TagAliases,
-  TagImplications,
   ExtraProperties as DbExtraProperties,
   SavedSearches,
   SearchCriteria,
   FileTags,
-  SubTags,
   SearchGroups,
 } from './schemaTypes';
 import SQLite from 'better-sqlite3';
@@ -60,6 +57,7 @@ import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
 import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
 import { applyFileFilters, applyPagination, PaginationOptions } from './query-builder';
 import { SemanticRepository } from './repositories/SemanticRepository';
+import { TagRepository } from './repositories/TagRepository';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -71,11 +69,10 @@ export default class Backend implements DataStorage {
   #dbPath!: string;
   #notifyChange!: () => void;
   #restoreEmpty!: () => Promise<void>;
-  /** State variable that indicates if we need to recompute preAggregateJSON */
-  #isQueryDirty: boolean = true;
   // Seed used to have deterministic order when order by random
   #seed: number = generateSeed();
   #semantic!: SemanticRepository;
+  #tags!: TagRepository;
 
   constructor() {
     // Must call init() before using to init the properties.
@@ -110,6 +107,7 @@ export default class Backend implements DataStorage {
       (ids) => this.fetchFilesByID(ids),
       (criteria, pagOptions) => this.queryFiles(criteria, pagOptions),
     );
+    this.#tags = new TagRepository(this.#db, this.MAX_VARS, this.#notifyChange);
 
     if (mode === 'migrate' || mode === 'readonly') {
       return;
@@ -152,96 +150,9 @@ export default class Backend implements DataStorage {
     this.#seed = seed ?? generateSeed();
   }
 
-  async fetchTags(): Promise<TagDTO[]> {
-    console.info('SQLite: Fetching tags...');
-    const tags = (
-      await this.#db
-        .selectFrom('tags')
-        .selectAll('tags')
-        .select((eb) => [
-          jsonArrayFrom(
-            eb
-              .selectFrom('subTags')
-              .select('subTags.subTagId')
-              .whereRef('subTags.tagId', '=', 'tags.id')
-              .orderBy('subTags.idx'),
-          ).as('subTags'),
-          jsonArrayFrom(
-            eb
-              .selectFrom('tagImplications')
-              .select('tagImplications.impliedTagId')
-              .whereRef('tagImplications.tagId', '=', 'tags.id'),
-          ).as('impliedTags'),
-          jsonArrayFrom(
-            eb
-              .selectFrom('tagAliases')
-              .select('tagAliases.alias')
-              .whereRef('tagAliases.tagId', '=', 'tags.id'),
-          ).as('aliases'),
-        ])
-        .execute()
-    )
-      // convert data into TagDTO format
-      .map((dbTag) => ({
-        id: dbTag.id,
-        name: dbTag.name,
-        dateAdded: deserializeDate(dbTag.dateAdded),
-        color: dbTag.color,
-        subTags: dbTag.subTags.map((st) => st.subTagId),
-        impliedTags: dbTag.impliedTags.map((it) => it.impliedTagId),
-        isHidden: deserializeBoolean(dbTag.isHidden),
-        isVisibleInherited: deserializeBoolean(dbTag.isVisibleInherited),
-        isHeader: deserializeBoolean(dbTag.isHeader),
-        aliases: dbTag.aliases.map((a) => a.alias),
-        description: dbTag.description,
-        fileCount: dbTag.fileCount,
-        isFileCountDirty: deserializeBoolean(dbTag.isFileCountDirty),
-      }));
-    return tags;
-  }
+  async fetchTags(): Promise<TagDTO[]> { return this.#tags.fetchTags(); }
 
-  // Original implementation by Pianissi
-  // Because creating the jsons takes a lot of time, let's preaggregate them everytime we save our files.
-  async preAggregateJSON(): Promise<void> {
-    console.info('SQLite: Updating temp aggregates...');
-    await sql`
-      DROP TABLE IF EXISTS file_tag_aggregates_temp;
-    `.execute(this.#db);
-    await sql`
-      DROP TABLE IF EXISTS file_ep_aggregates_temp;
-    `.execute(this.#db);
-
-    await sql`
-      CREATE TEMPORARY TABLE IF NOT EXISTS file_tag_aggregates_temp AS
-      SELECT
-        file_id,
-        json_group_array(tag_id) AS tags
-      FROM file_tags
-      GROUP BY file_id;
-    `.execute(this.#db);
-    await sql`
-      CREATE TEMPORARY TABLE IF NOT EXISTS file_ep_aggregates_temp AS
-      SELECT 
-        file_id,
-        json_group_array(json_object(
-          'file_id', file_id, 
-          'ep_id', ep_id, 
-          'text_value', text_value, 
-          'number_value', number_value, 
-          'timestamp_value', timestamp_value)) 
-        as extra_properties
-      FROM ep_values
-      GROUP BY file_id;
-    `.execute(this.#db);
-
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_file_tag_aggregates_temp_file ON file_tag_aggregates_temp(file_id);
-    `.execute(this.#db);
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_file_ep_aggregates_temp_file ON file_ep_aggregates_temp(file_id);
-    `.execute(this.#db);
-    this.#isQueryDirty = false;
-  }
+  async preAggregateJSON(): Promise<void> { return this.#tags.preAggregateJSON(); }
 
   async queryFiles<Q extends SelectQueryBuilder<any, any, any>>(
     criteria: ConditionGroupDTO<FileDTO> = { conjunction: 'and', children: [] },
@@ -249,7 +160,7 @@ export default class Backend implements DataStorage {
     modifyQuery?: (qb: Q) => Q,
   ): Promise<FileDTO[]> {
     pagOptions.seed = this.#seed;
-    if (this.#isQueryDirty) {
+    if (this.#tags.isQueryDirty) {
       await this.preAggregateJSON();
     }
     const dbWithTemp = this.#db.withTables<{
@@ -544,8 +455,7 @@ export default class Backend implements DataStorage {
   }
 
   async createTag(tag: TagDTO): Promise<void> {
-    console.info('SQLite: Creating tag...', tag);
-    return this.upsertTag(tag);
+    return this.#tags.createTag(tag);
   }
 
   // Creates many files at once, and checks for duplicates in the path they are in
@@ -574,7 +484,7 @@ export default class Backend implements DataStorage {
 
     this.#semantic.enqueueSemanticEmbeddings(filesDTO.map((file) => file.id));
 
-    this.#isQueryDirty = true;
+    this.#tags.isQueryDirty = true;
     this.#notifyChange();
     console.info('SQLite: Files created successfully');
   }
@@ -595,31 +505,11 @@ export default class Backend implements DataStorage {
   }
 
   async saveTag(tag: TagDTO): Promise<void> {
-    console.info('SQLite: Saving tag...', tag);
-    return this.upsertTag(tag);
+    return this.#tags.saveTag(tag);
   }
 
   async upsertTag(tag: TagDTO): Promise<void> {
-    const { tagIds, tags, subTags, tagImplications, tagAliases } = normalizeTags([tag]);
-    if (tags.length === 0) {
-      return;
-    }
-    await this.#db.transaction().execute(async (trx) => {
-      await trx.deleteFrom('subTags').where('tagId', 'in', tagIds).execute();
-      await trx.deleteFrom('tagImplications').where('tagId', 'in', tagIds).execute();
-      await trx.deleteFrom('tagAliases').where('tagId', 'in', tagIds).execute();
-      await upsertTable(this.MAX_VARS, trx, 'tags', tags, ['id'], ['dateAdded']);
-      if (subTags.length > 0) {
-        await upsertTable(this.MAX_VARS, trx, 'subTags', subTags, ['tagId', 'subTagId']);
-      }
-      if (tagImplications.length > 0) {
-        await upsertTable(this.MAX_VARS, trx, 'tagImplications', tagImplications, ['tagId', 'impliedTagId']); // eslint-disable-line prettier/prettier
-      }
-      if (tagAliases.length > 0) {
-        await upsertTable(this.MAX_VARS, trx, 'tagAliases', tagAliases, ['tagId', 'alias']);
-      }
-    });
-    this.#notifyChange();
+    return this.#tags.upsertTag(tag);
   }
 
   async saveFiles(filesDTO: FileDTO[]): Promise<void> {
@@ -715,7 +605,7 @@ export default class Backend implements DataStorage {
           SELECT * FROM ${sql.id(tempEpValues)}
         `.execute(trx);
         }
-        this.#isQueryDirty = true;
+        this.#tags.isQueryDirty = true;
         console.info('SQLite: Files saved successfully');
       } finally {
         // Clean temp table.
@@ -799,49 +689,11 @@ export default class Backend implements DataStorage {
   }
 
   async mergeTags(tagToBeRemoved: ID, tagToMergeWith: ID): Promise<void> {
-    console.info('SQLite: Merging tags...', tagToBeRemoved, tagToMergeWith);
-
-    await this.#db.transaction().execute(async (trx) => {
-      // Merge in FileTags
-      // first delete the records that would make a duplicate
-      await trx
-        .deleteFrom('fileTags')
-        .where('tagId', '=', tagToBeRemoved)
-        .where('fileId', 'in', (eb) =>
-          eb.selectFrom('fileTags').select('fileId').where('tagId', '=', tagToMergeWith),
-        )
-        .execute();
-      // Update the thag ids
-      await trx
-        .updateTable('fileTags')
-        .set({ tagId: tagToMergeWith })
-        .where('tagId', '=', tagToBeRemoved)
-        .execute();
-      // Merge in locationTags
-      await trx
-        .deleteFrom('locationTags')
-        .where('tagId', '=', tagToBeRemoved)
-        .where('nodeId', 'in', (eb) =>
-          eb.selectFrom('locationTags').select('nodeId').where('tagId', '=', tagToMergeWith),
-        )
-        .execute();
-      await trx
-        .updateTable('locationTags')
-        .set({ tagId: tagToMergeWith })
-        .where('tagId', '=', tagToBeRemoved)
-        .execute();
-
-      // delete the tag
-      await trx.deleteFrom('tags').where('id', '=', tagToBeRemoved).execute();
-    });
-    this.#notifyChange();
+    return this.#tags.mergeTags(tagToBeRemoved, tagToMergeWith);
   }
 
   async removeTags(tags: ID[]): Promise<void> {
-    console.info('SQLite: Removing tags...', tags);
-    // Cascade delte in other tables deleting from tags table.
-    await this.#db.deleteFrom('tags').where('id', 'in', tags).execute();
-    this.#notifyChange();
+    return this.#tags.removeTags(tags);
   }
 
   async removeFiles(files: ID[]): Promise<void> {
@@ -897,7 +749,7 @@ export default class Backend implements DataStorage {
       .onConflict((oc) => oc.doNothing())
       .execute();
 
-    this.#isQueryDirty = true;
+    this.#tags.isQueryDirty = true;
   }
 
   async removeTagsFromFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
@@ -912,7 +764,7 @@ export default class Backend implements DataStorage {
       .where('tagId', 'in', tagIds)
       .execute();
 
-    this.#isQueryDirty = true;
+    this.#tags.isQueryDirty = true;
   }
 
   async clearTagsFromFiles(criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
@@ -921,7 +773,7 @@ export default class Backend implements DataStorage {
 
     await this.#db.deleteFrom('fileTags').where('fileId', 'in', fileSubquery).execute();
 
-    this.#isQueryDirty = true;
+    this.#tags.isQueryDirty = true;
   }
 
   async countFiles(
@@ -1239,7 +1091,7 @@ function mapToDTO(dbFile: FileDTO | { [x: string]: any }): FileDTO {
 ///// HELPERS /////
 ///////////////////
 
-async function upsertTable<
+export async function upsertTable<
   Table extends keyof AllusionDB_SQL,
   Columns extends ReadonlyArray<AnyColumn<AllusionDB_SQL, Table>>,
 >(
@@ -1250,7 +1102,7 @@ async function upsertTable<
   conflictColumns: Columns,
   excludeFromUpdate?: (keyof Insertable<AllusionDB_SQL[Table]>)[],
   sampleObject?: Insertable<AllusionDB_SQL[Table]>,
-) {
+): Promise<void> {
   const isExpression = !Array.isArray(values);
   if (!isExpression && values.length === 0) {
     return;
@@ -1292,57 +1144,17 @@ async function upsertTable<
   }
 
   if (isExpression) {
-    return query.execute();
+    await query.execute();
+    return;
   }
 
   // batching logic for arrays
   const batchSize = computeBatchSize(maxVars, referenceRow);
-  const results = [];
 
   for (let i = 0; i < values.length; i += batchSize) {
     const batch = values.slice(i, i + batchSize);
-    const batchQuery = query.values(batch as any);
-    results.push(await batchQuery.execute());
+    await query.values(batch as any).execute();
   }
-
-  return results;
-}
-
-function normalizeTags(tags: TagDTO[]) {
-  const tagIds: ID[] = [];
-  const subTags: Insertable<SubTags>[] = [];
-  const tagImplications: Insertable<TagImplications>[] = [];
-  const tagAliases: Insertable<TagAliases>[] = [];
-
-  for (const tag of tags) {
-    tagIds.push(tag.id);
-    for (const [index, subTagId] of (Array.isArray(tag.subTags) ? tag.subTags : []).entries()) {
-      subTags.push({ tagId: tag.id, subTagId: subTagId, idx: index });
-    }
-    for (const impliedTagId of Array.isArray(tag.impliedTags) ? tag.impliedTags : []) {
-      tagImplications.push({ tagId: tag.id, impliedTagId: impliedTagId });
-    }
-    // Convert to Set to get rid of duplicates.
-    const aliases = new Set<string>(Array.isArray(tag.aliases) ? tag.aliases : []);
-    for (const alias of aliases) {
-      tagAliases.push({ tagId: tag.id, alias: alias });
-    }
-  }
-
-  const normalizedTags = tags.map((tag) => ({
-    id: tag.id,
-    name: tag.name,
-    color: tag.color,
-    isHidden: serializeBoolean(tag.isHidden),
-    isVisibleInherited: serializeBoolean(tag.isVisibleInherited),
-    isHeader: serializeBoolean(tag.isHeader),
-    description: tag.description,
-    dateAdded: serializeDate(tag.dateAdded),
-    fileCount: tag.fileCount,
-    isFileCountDirty: serializeBoolean(tag.isFileCountDirty),
-  }));
-
-  return { tagIds, tags: normalizedTags, subTags, tagImplications, tagAliases };
 }
 
 function normalizeLocations(sourcelocations: LocationDTO[]) {
