@@ -162,6 +162,8 @@ export type SavedSearches = {
   id: ColumnType<ID, ID, never>; //pk
   name: string;
   idx: number;
+  /** JSON-serialized ActiveSemanticQuery, or null for structured-only saved searches */
+  semanticQueryJson: string | null;
 };
 
 export type SearchGroups = {

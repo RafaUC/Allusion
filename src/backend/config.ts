@@ -27,6 +27,7 @@ class InlineMigrationProvider implements MigrationProvider {
       '001_migrateJSON': (await import('./migrations/001_migrateJSON')).default(context),
       '002_semantic_embeddings': await import('./migrations/002_semantic_embeddings'),
       '003_semantic_embedding_blob': await import('./migrations/003_semantic_embedding_blob'),
+      '004_semantic_saved_searches': await import('./migrations/004_semantic_saved_searches'),
     };
   }
 }
