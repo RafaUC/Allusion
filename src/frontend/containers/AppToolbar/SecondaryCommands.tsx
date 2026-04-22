@@ -26,7 +26,11 @@ const SecondaryCommands = observer(() => {
       <MenuItem
         icon={IconSet.SEARCH}
         onClick={() => {
-          void fileStore.semanticSearchBySelection();
+          if (uiStore.fileSelection.size > 1) {
+            void fileStore.semanticSearchBySelectionBatch();
+          } else {
+            void fileStore.semanticSearchBySelection();
+          }
         }}
         text="Find Similar"
         disabled={!hasQueryFile}

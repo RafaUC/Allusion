@@ -115,15 +115,25 @@ const FindSimilarCommand = observer(() => {
   const { fileStore, uiStore } = useStore();
   const hasQueryFile = uiStore.fileSelection.size > 0 || uiStore.firstItemIndex >= 0;
 
+  const selectionSize = uiStore.fileSelection.size;
+
   return (
     <ToolbarButton
       isCollapsible={false}
       icon={IconSet.SEARCH}
       text="Find Similar"
-      tooltip="Find visually similar images"
+      tooltip={
+        selectionSize > 1
+          ? `Find similar to ${selectionSize} selected images (centroid)`
+          : 'Find visually similar images'
+      }
       disabled={!hasQueryFile}
       onClick={() => {
-        void fileStore.semanticSearchBySelection();
+        if (selectionSize > 1) {
+          void fileStore.semanticSearchBySelectionBatch();
+        } else {
+          void fileStore.semanticSearchBySelection();
+        }
       }}
     />
   );
