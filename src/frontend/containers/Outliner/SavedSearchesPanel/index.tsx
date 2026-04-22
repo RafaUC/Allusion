@@ -176,7 +176,11 @@ const SearchItem = observer(
           if (sq.mode === 'text') {
             void fileStore.semanticSearchByText(sq.query);
           } else {
-            void fileStore.semanticSearchBySelection();
+            if (uiStore.fileSelection.size > 1) {
+              void fileStore.semanticSearchBySelectionBatch();
+            } else {
+              void fileStore.semanticSearchBySelection();
+            }
           }
         }
       },
