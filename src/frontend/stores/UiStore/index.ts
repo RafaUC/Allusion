@@ -79,6 +79,7 @@ import { IHotkeyMap, defaultHotkeyMap } from './hotkeys';
  *  - State of a global overlay
  */
 
+export type { PersistentPreferenceFields } from './preferences';
 import { PersistentPreferenceFields } from './preferences';
 
 class UiStore {
