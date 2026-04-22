@@ -20,7 +20,7 @@ import { ExtraPropertyValue } from 'src/api/extraProperty';
 import { createPortal } from 'react-dom';
 import { Placement } from '@floating-ui/core';
 
-export type { ExtraPropertiesCounter } from './PropertyField';
+export type { ExtraPropertiesCounter, State } from './PropertyField';
 import { ExtraPropertiesCounter, Factory, reducer } from './PropertyField';
 import { ExtraPropertyContextMenu, ExtraPropertyListEditor } from './PropertyForm';
 
@@ -295,5 +295,3 @@ const PortalButtonWrapper = ({
   );
 };
 
-// Re-export reducer for external use (e.g. tests)
-export { reducer } from './PropertyField';
