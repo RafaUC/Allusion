@@ -153,9 +153,13 @@ export default class Backend implements DataStorage {
     return this.#files.setSeed(seed);
   }
 
-  async fetchTags(): Promise<TagDTO[]> { return this.#tags.fetchTags(); }
+  async fetchTags(): Promise<TagDTO[]> {
+    return this.#tags.fetchTags();
+  }
 
-  async preAggregateJSON(): Promise<void> { return this.#tags.preAggregateJSON(); }
+  async preAggregateJSON(): Promise<void> {
+    return this.#tags.preAggregateJSON();
+  }
 
   async queryFiles<Q extends SelectQueryBuilder<any, any, any>>(
     criteria: ConditionGroupDTO<FileDTO>,
