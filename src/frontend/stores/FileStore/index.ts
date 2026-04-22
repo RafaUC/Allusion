@@ -42,6 +42,7 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import {
   ActiveSemanticQuery,
   SemanticIndexingStatus,
+  SemanticMultiModalQuery,
   SemanticSearchOptions,
   SemanticSearchStatus,
   SemanticStatusState,
@@ -1379,6 +1380,98 @@ class FileStore {
         timeout: 8000,
         type: 'error',
       });
+    }
+  }
+
+  @action.bound async semanticSearchBlend(
+    textQuery: string,
+    imageFileId: ID,
+    textWeight = 0.5,
+  ): Promise<void> {
+    const trimmed = textQuery.trim();
+    if (!trimmed && !imageFileId) {
+      return;
+    }
+
+    const { uiStore } = this.rootStore;
+    const criteria =
+      uiStore.searchRootGroup.children.length > 0
+        ? uiStore.searchRootGroup.toCondition(this.rootStore)
+        : undefined;
+    const options: SemanticSearchOptions = {
+      criteria,
+      topK: this.semanticTopK,
+      minScore: this.semanticMinScore,
+    };
+
+    let start: number | undefined;
+    try {
+      this.setContentQuery();
+      this.activeSemanticQuery = trimmed
+        ? { mode: 'text', query: trimmed, options }
+        : { mode: 'image', fileId: imageFileId, options };
+      start = await this.newFetchTaskId();
+      const query: SemanticMultiModalQuery = { text: trimmed || undefined, imageFileId, textWeight };
+      const fetchedFiles = await this.backend.semanticSearchMultiModal(query, options);
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        await this.updateFromBackend(fetchedFiles);
+      } else {
+        this.finalizeFetchTask(start);
+      }
+      await this.refreshSemanticStatus().catch(() => undefined);
+    } catch (error) {
+      if (start !== undefined) {
+        this.finalizeFetchTask(start);
+      }
+      console.error('Blended semantic search failed', error);
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic search error.';
+      AppToaster.show({ message, timeout: 8000, type: 'error' });
+    }
+  }
+
+  @action.bound async semanticSearchWithNegative(
+    queryFileId: ID,
+    negativeFileId: ID,
+  ): Promise<void> {
+    const { uiStore } = this.rootStore;
+    const criteria =
+      uiStore.searchRootGroup.children.length > 0
+        ? uiStore.searchRootGroup.toCondition(this.rootStore)
+        : undefined;
+    const options: SemanticSearchOptions = {
+      criteria,
+      topK: this.semanticTopK,
+      minScore: this.semanticMinScore,
+    };
+
+    let start: number | undefined;
+    try {
+      this.setContentQuery();
+      this.activeSemanticQuery = { mode: 'image', fileId: queryFileId, options };
+      start = await this.newFetchTaskId();
+      const query: SemanticMultiModalQuery = { imageFileId: queryFileId, negativeImageFileId: negativeFileId };
+      const fetchedFiles = await this.backend.semanticSearchMultiModal(query, options);
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        await this.updateFromBackend(fetchedFiles);
+      } else {
+        this.finalizeFetchTask(start);
+      }
+      await this.refreshSemanticStatus().catch(() => undefined);
+    } catch (error) {
+      if (start !== undefined) {
+        this.finalizeFetchTask(start);
+      }
+      console.error('Negative semantic search failed', error);
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic search error.';
+      AppToaster.show({ message, timeout: 8000, type: 'error' });
     }
   }
 
