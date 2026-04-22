@@ -25,10 +25,7 @@ import { IExpansionState } from '../../../types';
 import TreeItemRevealer, { ExpansionSetter, ScrollToItemPromise } from '../../TreeItemRevealer';
 import { Action, Factory, Flag, State, reducer } from '../state';
 import { ID } from 'src/api/id';
-import { TagItem, toggleQuery, ITagItemProps } from './TagItem';
-
-// Re-export ITagItemProps for consumers that may need it
-export type { ITagItemProps };
+import { TagItem, toggleQuery } from './TagItem';
 
 export class TagsTreeItemRevealer extends TreeItemRevealer {
   public static readonly instance: TagsTreeItemRevealer = new TagsTreeItemRevealer();

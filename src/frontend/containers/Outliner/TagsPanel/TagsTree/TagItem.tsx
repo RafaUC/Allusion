@@ -14,7 +14,7 @@ import { IExpansionState } from '../../../types';
 import { HOVER_TIME_TO_EXPAND } from '../../LocationsPanel/useFileDnD';
 import { Action, Factory } from '../state';
 import SearchButton from '../SearchButton';
-import { TagItemContextMenu } from '../ContextMenu';
+import { TagItemContextMenu } from './ContextMenu';
 import { DnDHelper } from './DragDrop';
 
 interface ILabelProps {
