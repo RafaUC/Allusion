@@ -29,7 +29,7 @@ class SearchStore {
 
       this.searchList.push(
         ...fetchedSearches.map(
-          (s, i) => new ClientFileSearchItem(s.id, s.name, s.rootGroup, s.index ?? i),
+          (s, i) => new ClientFileSearchItem(s.id, s.name, s.rootGroup, s.index ?? i, s.semanticQuery),
         ),
       );
     } catch (err) {

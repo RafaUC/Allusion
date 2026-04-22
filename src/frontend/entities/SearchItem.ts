@@ -12,6 +12,7 @@ import {
 } from './SearchCriteria';
 import { ConditionGroupDTO, SearchConjunction } from 'src/api/data-storage-search';
 import { FileDTO } from 'src/api/file';
+import { ActiveSemanticQuery } from 'src/api/semantic-search';
 
 export class ClientFileSearchItem {
   id: ID;
@@ -21,14 +22,17 @@ export class ClientFileSearchItem {
   /** A custom index defined by the user for ordering the search items */
   index: number = 0;
 
+  @observable semanticQuery: ActiveSemanticQuery | undefined;
+
   // TODO: also store sort mode? (filename, descending, etc)
   // Then it wouldn't be a "Saved Search", but a "Saved view" maybe?
 
-  constructor(id: ID, name: string, rootGroup: SearchGroupDTO, index: number) {
+  constructor(id: ID, name: string, rootGroup: SearchGroupDTO, index: number, semanticQuery?: ActiveSemanticQuery) {
     this.id = id;
     this.name = name;
     this.rootGroup = ClientSearchGroup.deserialize(rootGroup);
     this.index = index;
+    this.semanticQuery = semanticQuery;
 
     makeObservable(this);
   }
@@ -52,6 +56,7 @@ export class ClientFileSearchItem {
       name: this.name,
       rootGroup: this.rootGroup.serialize(rootStore),
       index: this.index,
+      semanticQuery: this.semanticQuery,
     };
   }
 }
