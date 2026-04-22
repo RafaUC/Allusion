@@ -40,6 +40,7 @@ import { InheritedTagsVisibilityModeType } from '../UiStore';
 import { clamp } from 'common/core';
 import { RendererMessenger } from 'src/ipc/renderer';
 import {
+  ActiveSemanticQuery,
   SemanticIndexingStatus,
   SemanticSearchOptions,
   SemanticSearchStatus,
@@ -58,17 +59,6 @@ type FetchArgs = [
   string, //extraPropertyID
 ];
 
-type ActiveSemanticQuery =
-  | {
-      mode: 'text';
-      query: string;
-      options: SemanticSearchOptions;
-    }
-  | {
-      mode: 'image';
-      fileId: ID;
-      options: SemanticSearchOptions;
-    };
 
 /** These fields are stored and recovered when the application opens up */
 type PersistentPreferenceFields =
