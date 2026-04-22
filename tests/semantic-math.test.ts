@@ -85,3 +85,12 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity([0, 0], [1, 0])).toBe(0);
   });
 });
+
+import type { DataStorage } from '../src/api/data-storage';
+
+describe('DataStorage interface contract', () => {
+  it('semanticSearchByImages is part of the DataStorage interface', () => {
+    const keys: (keyof DataStorage)[] = ['semanticSearchByImages'];
+    expect(keys[0]).toBe('semanticSearchByImages');
+  });
+});

@@ -52,6 +52,7 @@ export interface DataStorage {
   ): Promise<FileDTO[]>;
   semanticSearchByText(query: string, options?: SemanticSearchOptions): Promise<FileDTO[]>;
   semanticSearchByImage(fileId: ID, options?: SemanticSearchOptions): Promise<FileDTO[]>;
+  semanticSearchByImages(fileIds: ID[], options?: SemanticSearchOptions): Promise<FileDTO[]>;
   warmupSemanticModel(): Promise<void>;
   reindexSemanticEmbeddings(fileIds?: ID[]): Promise<number>;
   embedFileFromThumbnail(fileId: ID, thumbnailPath: string): Promise<void>;

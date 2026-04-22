@@ -223,6 +223,41 @@ export class SemanticRepository {
     return this.semanticSearchByEmbedding(queryEmbedding, fileId, options);
   }
 
+  async semanticSearchByImages(fileIds: ID[], options?: SemanticSearchOptions): Promise<FileDTO[]> {
+    if (fileIds.length === 0) {
+      return [];
+    }
+    if (fileIds.length === 1) {
+      return this.semanticSearchByImage(fileIds[0], options);
+    }
+
+    const files = await this.#fetchFilesByID(fileIds);
+    if (files.length === 0) {
+      return [];
+    }
+
+    const expectedDimension = await this.getSemanticEmbeddingDimension();
+    const embeddings: number[][] = [];
+
+    for (const file of files) {
+      try {
+        const emb = await this.ensureEmbeddingForFile(file, false, undefined, expectedDimension);
+        embeddings.push(emb);
+      } catch {
+        // Skip files that cannot be embedded
+      }
+    }
+
+    if (embeddings.length === 0) {
+      return [];
+    }
+
+    const centroid = meanPoolEmbeddings(embeddings);
+    const queryFileIdSet = new Set(fileIds);
+    const results = await this.semanticSearchByEmbedding(centroid, undefined, options);
+    return results.filter((f) => !queryFileIdSet.has(f.id));
+  }
+
   async warmupSemanticModel(): Promise<void> {
     await this.#semanticEmbedder.warmup();
   }

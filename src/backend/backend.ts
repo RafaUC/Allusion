@@ -219,6 +219,10 @@ export default class Backend implements DataStorage {
     return this.#semantic.semanticSearchByImage(fileId, options);
   }
 
+  async semanticSearchByImages(fileIds: ID[], options?: SemanticSearchOptions): Promise<FileDTO[]> {
+    return this.#semantic.semanticSearchByImages(fileIds, options);
+  }
+
   async warmupSemanticModel(): Promise<void> {
     return this.#semantic.warmupSemanticModel();
   }
