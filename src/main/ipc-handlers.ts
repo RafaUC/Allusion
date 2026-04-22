@@ -1,8 +1,8 @@
 import { autoUpdater } from 'electron-updater';
-import { dialog, nativeTheme, shell } from 'electron';
+import { app, dialog, nativeTheme, shell } from 'electron';
 import { MainMessenger } from '../ipc/main';
 import { WindowSystemButtonPress } from '../ipc/messages';
-import { TagDTO } from '../api/tag';
+import { TagDTO, ROOT_TAG_ID } from '../api/tag';
 import ClipServer, { IImportItem } from '../clipper/server';
 import {
   mainWindow,
@@ -102,7 +102,7 @@ export function registerIpcHandlers(getClipServer: () => ClipServer | null) {
 
   MainMessenger.onMessageBoxSync(dialog);
 
-  MainMessenger.onGetPath((path) => require('electron').app.getPath(path));
+  MainMessenger.onGetPath((path) => app.getPath(path));
 
   MainMessenger.onTrashFile((absolutePath) => shell.trashItem(absolutePath));
 
@@ -157,7 +157,9 @@ export function registerIpcHandlers(getClipServer: () => ClipServer | null) {
     });
   });
 
-  MainMessenger.onIsCheckUpdatesOnStartupEnabled(() => preferences.checkForUpdatesOnStartup === true);
+  MainMessenger.onIsCheckUpdatesOnStartupEnabled(
+    () => preferences.checkForUpdatesOnStartup === true,
+  );
 }
 
 /** Returns whether main window is open - so whether files can be immediately imported */
@@ -180,7 +182,6 @@ export async function addTagsToFile(item: IImportItem): Promise<boolean> {
 export async function getTags(): Promise<TagDTO[]> {
   if (mainWindow !== null) {
     const { tags } = await MainMessenger.getTags(mainWindow.webContents);
-    const { ROOT_TAG_ID } = require('../api/tag') as typeof import('../api/tag');
     return tags.filter((t) => t.id !== ROOT_TAG_ID);
   }
   return [];
