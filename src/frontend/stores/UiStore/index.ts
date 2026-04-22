@@ -1,0 +1,1582 @@
+import { clipboard, nativeImage, shell } from 'electron';
+import fse from 'fs-extra';
+import { action, computed, makeObservable, observable, reaction } from 'mobx';
+
+import { maxNumberOfExternalFilesBeforeWarning } from 'common/config';
+import { clamp } from 'common/core';
+import { encodeFilePath, isNativeImageCompatible } from 'common/fs';
+import { generateId, ID } from '../../../api/id';
+import { SearchCriteria } from '../../../api/search-criteria';
+import { RendererMessenger } from '../../../ipc/renderer';
+import { ClientFile } from '../../entities/File';
+import { ClientFileSearchCriteria, ClientTagSearchCriteria } from '../../entities/SearchCriteria';
+import { ClientTag } from '../../entities/Tag';
+import { comboMatches, getKeyCombo, parseKeyCombo } from '../../hotkeyParser';
+import RootStore from '../RootStore';
+import { IExpansionState } from '../../containers/types';
+import { ROOT_TAG_ID } from 'src/api/tag';
+import { AppToaster } from '../../components/Toaster';
+import { ClientSearchGroup, isClientSearchGroup } from '../../entities/SearchItem';
+import { SearchGroupDTO } from 'src/api/file-search';
+import { Cursor, SearchConjunction } from 'src/api/data-storage-search';
+
+export const enum ViewMethod {
+  List,
+  Grid,
+  MasonryVertical,
+  MasonryHorizontal,
+}
+export const PREFERENCES_STORAGE_KEY = 'preferences';
+
+export type {
+  ThumbnailSize,
+  ThumbnailShape,
+  ThumbnailTagOverlayModeType,
+  InheritedTagsVisibilityModeType,
+  UpscaleMode,
+  GalleryVideoPlaybackMode,
+  Theme,
+  ScrollbarsStyle,
+} from './theme';
+import {
+  ThumbnailSizes,
+  ThumbnailSize,
+  ThumbnailShapes,
+  ThumbnailShape,
+  ThumbnailTagOverlayModes,
+  ThumbnailTagOverlayModeType,
+  InheritedTagsVisibilityModes,
+  InheritedTagsVisibilityModeType,
+  UpscaleModes,
+  UpscaleMode,
+  GalleryVideoPlaybackModes,
+  GalleryVideoPlaybackMode,
+  Themes,
+  Theme,
+  ScrollbarsStyles,
+  ScrollbarsStyle,
+} from './theme';
+
+export type { IHotkeyMap } from './hotkeys';
+export { defaultHotkeyMap } from './hotkeys';
+import { IHotkeyMap, defaultHotkeyMap } from './hotkeys';
+
+/**
+ * From: https://mobx.js.org/best/store.html
+ * Things you will typically find in UI stores:
+ * - Session information
+ * - Information about how far your application has loaded
+ * - Information that will not be stored in the backend
+ * - Information that affects the UI globally:
+ *  - Window dimensions
+ *  - Accessibility information
+ *  - Current language
+ *  - Currently active theme
+ * - User interface state as soon as it affects multiple, further unrelated components:
+ *  - Current selection
+ *  - Visibility of toolbars, etc.
+ *  - State of a wizard
+ *  - State of a global overlay
+ */
+
+import { PersistentPreferenceFields } from './preferences';
+
+class UiStore {
+  static MIN_OUTLINER_WIDTH = 192; // default of 12 rem
+  static MIN_INSPECTOR_WIDTH = 288; // default of 18 rem
+  static MAX_RECENTLY_USED_TAGS = 40;
+  static MAX_TAGGING_SERVICE_PARALLEL_REQUESTS = 10;
+
+  private readonly rootStore: RootStore;
+
+  // Theme
+  @observable theme: Theme = 'dark';
+  @observable scrollbarsStyle: ScrollbarsStyle = 'hover';
+
+  // UI
+  @observable zoomFactor: number = 1;
+  @observable isOutlinerOpen: boolean = true;
+  @observable isInspectorOpen: boolean = true;
+  @observable isSettingsOpen: boolean = false;
+  @observable isHelpCenterOpen: boolean = false;
+  @observable isAboutOpen: boolean = false;
+  @observable isLocationRecoveryOpen: ID | null = null;
+  @observable isPreviewOpen: boolean = false;
+  @observable isAdvancedSearchOpen: boolean = false;
+  @observable method: ViewMethod = ViewMethod.Grid;
+  @observable isSlideMode: boolean = false;
+  @observable isFullScreen: boolean = false;
+  @observable outlinerWidth: number = UiStore.MIN_OUTLINER_WIDTH;
+  readonly outlinerExpansion = observable<boolean>([true, true, true, true]);
+  readonly outlinerHeights = observable<number>([200, 200, 200, 200]);
+  @observable inspectorWidth: number = UiStore.MIN_INSPECTOR_WIDTH;
+  /** Whether to show the tags on images in the content view */
+  @observable thumbnailTagOverlayMode: ThumbnailTagOverlayModeType = 'all';
+  @observable inheritedTagsVisibilityMode: InheritedTagsVisibilityModeType =
+    'visible-when-inherited';
+  @observable isThumbnailFilenameOverlayEnabled: boolean = false;
+  @observable isThumbnailResolutionOverlayEnabled: boolean = false;
+  /** Refresh locations and detect file changes at startup  */
+  @observable isRefreshLocationsStartupEnabled: boolean = false;
+  /** Whether to restore the last search query on start-up */
+  @observable isRememberSearchEnabled: boolean = true;
+  /** Cursor that represents the first item in the viewport. Also acts as the current item shown in slide mode */
+  @observable firstItem: Cursor | undefined;
+  @observable thumbnailSize: ThumbnailSize | number = 'medium';
+  @observable thumbnailRadius: number = 1;
+  @observable largeThumbFullResThreshold: number = 3840;
+  @observable masonryItemPadding: number = 8;
+  @observable thumbnailShape: ThumbnailShape = 'square';
+  @observable upscaleMode: UpscaleMode = 'smooth';
+  @observable galleryVideoPlaybackMode: GalleryVideoPlaybackMode = 'hover';
+  @observable showTreeConnectorLines: boolean = false;
+  @observable isRefreshing: boolean = false;
+
+  @observable areFileEditorsDocked: boolean = false;
+  @observable isFileTagsEditorOpen: boolean = false;
+  @observable focusTagEditor: boolean = false;
+  @observable isFileExtraPropertiesEditorOpen: boolean = false;
+  /** Dialog for removing unlinked files from Allusion's database */
+  @observable isToolbarFileRemoverOpen: boolean = false;
+  /** Dialog for moving files to the system's trash bin, and removing from Allusion's database */
+  @observable isMoveFilesToTrashOpen: boolean = false;
+  /** Dialog to warn the user when he tries to open too many files externally */
+  @observable isManyExternalFilesOpen: boolean = false;
+
+  /* Tags selected to use in a tag operation dialog panel */
+  @observable tagToEdit: ClientTag | undefined = undefined;
+  @observable tagToMerge: ClientTag | undefined = undefined;
+  @observable tagToMove: ClientTag | undefined = undefined;
+
+  // Usage preferences
+  @observable isClearTagSelectorsOnSelectEnabled: boolean = false;
+
+  //recently used tags feature
+  @observable recentlyUsedTagsMaxLength: number = 10;
+  readonly recentlyUsedTags = observable<ClientTag>([]);
+
+  // Selections
+  // Observable arrays recommended like this here https://github.com/mobxjs/mobx/issues/669#issuecomment-269119270.
+  // However, sets are more suitable because they have quicker lookup performance.
+  readonly fileSelection = observable(new Set<ClientFile>());
+  @observable isAllFilesSelected = false;
+  readonly tagSelection = observable(new Set<ClientTag>());
+
+  @observable searchRootGroup: ClientSearchGroup = new ClientSearchGroup(
+    generateId(),
+    '',
+    'and',
+    [],
+  ); // eslint-disable-line prettier/prettier
+
+  //// tag clipboard feature ////
+  // No need to be observable because it's only used internally
+  private tagClipboard: ClientTag[][] = [];
+
+  @observable thumbnailDirectory: string = '';
+  @observable importDirectory: string = ''; // for browser extension. Must be a (sub-folder of a) Location
+
+  @observable taggingServiceURL: string = '';
+  @observable taggingServiceParallelRequests: number = 4;
+
+  @observable readonly hotkeyMap: IHotkeyMap = observable(defaultHotkeyMap);
+
+  constructor(rootStore: RootStore) {
+    this.rootStore = rootStore;
+    makeObservable(this);
+    this.initReactions();
+  }
+
+  /////////////////// UI Reactions /////////////////
+  initReactions(): void {
+    reaction(
+      () => this.isFileTagsEditorOpen,
+      (isOpen) => {
+        if (isOpen) {
+          this.isFileExtraPropertiesEditorOpen = false;
+        }
+      },
+    );
+
+    reaction(
+      () => this.isFileExtraPropertiesEditorOpen,
+      (isOpen) => {
+        if (isOpen) {
+          this.isFileTagsEditorOpen = false;
+        }
+      },
+    );
+
+    // Deselect isAllFilesSelected when file selection changes;
+    reaction(
+      () => ({
+        listLength: this.rootStore.fileStore.fileList.length,
+        selectionSize: this.fileSelection.size,
+      }),
+      (sizes) => {
+        if (sizes.listLength !== sizes.selectionSize) {
+          this.isAllFilesSelected = false;
+        }
+      },
+    );
+  }
+
+  /////////////////// UI Actions ///////////////////
+  @computed get isList(): boolean {
+    return this.method === ViewMethod.List;
+  }
+
+  @computed get isGrid(): boolean {
+    return this.method === ViewMethod.Grid;
+  }
+
+  @computed get isMasonryVertical(): boolean {
+    return this.method === ViewMethod.MasonryVertical;
+  }
+
+  @computed get isMasonryHorizontal(): boolean {
+    return this.method === ViewMethod.MasonryHorizontal;
+  }
+
+  @action.bound setThumbnailSize(size: ThumbnailSize): void {
+    if (typeof size === 'string' && !ThumbnailSizes.includes(size)) {
+      console.warn(size, '- Invalid thumbnailSize value, keeping previous value');
+      return;
+    }
+    this.thumbnailSize = size;
+  }
+
+  @action.bound setThumbnailRadius(size: number): void {
+    this.thumbnailRadius = clamp(size, 0, 50);
+  }
+
+  @action.bound setMasonryItemPadding(size: number): void {
+    // constrain between 0 to 30
+    this.masonryItemPadding = clamp(size, 0, 30);
+  }
+
+  @action.bound setThumbnailShape(shape: ThumbnailShape): void {
+    if (!ThumbnailShapes.includes(shape)) {
+      console.warn(shape, '- Invalid thumbnailShape value, keeping previous value');
+      return;
+    }
+    this.thumbnailShape = shape;
+  }
+
+  @action.bound setUpscaleModeSmooth(): void {
+    this.setUpscaleMode('smooth');
+  }
+
+  @action.bound setUpscaleModePixelated(): void {
+    this.setUpscaleMode('pixelated');
+  }
+
+  @action.bound setUpscaleMode(mode: UpscaleMode): void {
+    if (!UpscaleModes.includes(mode)) {
+      console.warn(mode, '- Invalid upscaleMode value, keeping previous value');
+      return;
+    }
+    this.upscaleMode = mode;
+  }
+
+  @action.bound setGalleryVideoPlaybackModeAuto(): void {
+    this.setGalleryVideoPlaybackMode('auto');
+  }
+
+  @action.bound setGalleryVideoPlaybackModeHover(): void {
+    this.setGalleryVideoPlaybackMode('hover');
+  }
+
+  @action.bound setGalleryVideoPlaybackModeDisabled(): void {
+    this.setGalleryVideoPlaybackMode('disabled');
+  }
+
+  @action.bound setGalleryVideoPlaybackMode(mode: GalleryVideoPlaybackMode): void {
+    if (!GalleryVideoPlaybackModes.includes(mode)) {
+      console.warn(mode, '- Invalid galleryVideoPlaybackMode value, keeping previous value');
+      return;
+    }
+    this.galleryVideoPlaybackMode = mode;
+  }
+
+  @action.bound toggleShowTreeConnectorLines(): void {
+    this.showTreeConnectorLines = !this.showTreeConnectorLines;
+  }
+
+  @action private setIsRefreshing(val: boolean) {
+    this.isRefreshing = val;
+  }
+
+  @action.bound async refresh(): Promise<void> {
+    if (this.isRefreshing) {
+      return;
+    }
+    this.setIsRefreshing(true);
+    // await to make mobx reaction take effect.
+    await new Promise((r) => setTimeout(r, 0));
+    this.setIsRefreshing(false);
+    await new Promise((r) => setTimeout(r, 0));
+    this.rootStore.fileStore.refetch();
+  }
+
+  @action.bound async refreshLocations(): Promise<void> {
+    await this.rootStore.locationStore.updateLocations();
+  }
+
+  @action.bound clearFirstItem(): void {
+    this.firstItem = undefined;
+  }
+
+  @action.bound setFirstItem(
+    item: number | ClientFile | undefined = 0,
+    validate: boolean = true,
+  ): void {
+    if (item instanceof ClientFile) {
+      this.firstItem = this.rootStore.fileStore.toCursor(item);
+      return;
+    }
+    if (!isFinite(item)) {
+      return;
+    }
+    const maxIndex = validate
+      ? Math.max(0, this.rootStore.fileStore.fileList.length - 1)
+      : Infinity;
+    const index = clamp(item, 0, maxIndex);
+    const file = this.rootStore.fileStore.fileList[index];
+    this.firstItem = file ? this.rootStore.fileStore.toCursor(file) : undefined;
+  }
+
+  @action setMethod(method: ViewMethod): void {
+    this.method = method;
+  }
+
+  @action.bound setMethodList(): void {
+    this.method = ViewMethod.List;
+  }
+
+  @action.bound setMethodGrid(): void {
+    this.method = ViewMethod.Grid;
+  }
+
+  @action.bound setMethodMasonryVertical(): void {
+    this.method = ViewMethod.MasonryVertical;
+  }
+
+  @action.bound setMethodMasonryHorizontal(): void {
+    this.method = ViewMethod.MasonryHorizontal;
+  }
+
+  @action.bound enableSlideMode(): void {
+    this.isSlideMode = true;
+  }
+
+  @action.bound disableSlideMode(): void {
+    this.isSlideMode = false;
+  }
+
+  @action.bound toggleSlideMode(): void {
+    this.isSlideMode = !this.isSlideMode;
+  }
+
+  /** This does not actually set the window to full-screen, just for bookkeeping! Use RendererMessenger instead */
+  @action.bound setFullScreen(val: boolean): void {
+    this.isFullScreen = val;
+  }
+
+  /** This does not actually set the window zoomFactor, just for bookkeeping and restore the preference on load! Use RendererMessenger instead */
+  @action.bound setZoomFactor(val: number): void {
+    this.zoomFactor = val;
+    RendererMessenger.setZoomFactor(this.zoomFactor);
+  }
+
+  @action.bound setThumbnailTagOverlayMode(val: ThumbnailTagOverlayModeType): void {
+    if (!ThumbnailTagOverlayModes.includes(val)) {
+      console.warn(val, '- Invalid thumbnailTagOverlayMode value, keeping previous value');
+      return;
+    }
+    this.thumbnailTagOverlayMode = val;
+  }
+
+  @action.bound setInheritedTagsVisibilityMode(val: InheritedTagsVisibilityModeType): void {
+    if (!InheritedTagsVisibilityModes.includes(val)) {
+      console.warn(val, '- Invalid inheritedTagsVisibilityMode value, keeping previous value');
+      return;
+    }
+    this.inheritedTagsVisibilityMode = val;
+  }
+
+  @action.bound toggleThumbnailFilenameOverlay(): void {
+    this.isThumbnailFilenameOverlayEnabled = !this.isThumbnailFilenameOverlayEnabled;
+  }
+
+  @action.bound toggleThumbnailResolutionOverlay(): void {
+    this.isThumbnailResolutionOverlayEnabled = !this.isThumbnailResolutionOverlayEnabled;
+  }
+
+  @action.bound setLargeThumbFullResThreshold(value: number): void {
+    this.largeThumbFullResThreshold = value;
+  }
+
+  @action.bound toggleRefreshLocationStartup(): void {
+    this.isRefreshLocationsStartupEnabled = !this.isRefreshLocationsStartupEnabled;
+  }
+
+  @action.bound toggleRememberSearchQuery(): void {
+    this.isRememberSearchEnabled = !this.isRememberSearchEnabled;
+  }
+
+  @action.bound openOutliner(): void {
+    this.setIsOutlinerOpen(true);
+  }
+
+  @action.bound toggleOutliner(): void {
+    this.setIsOutlinerOpen(!this.isOutlinerOpen);
+  }
+
+  @action.bound openPreviewWindow(): void {
+    // Don't open when no files have been selected
+    if (this.fileSelection.size === 0) {
+      return;
+    }
+
+    // If only one image was selected, open all images, but focus on the selected image. Otherwise, open selected images
+    // TODO: FIXME: Disabled for now: makes it a lot less "snappy", takes a while for the message to come through
+    // this.fileSelection.size === 1
+    //   ? this.rootStore.fileStore.fileList
+    //   : Array.from(this.fileSelection);
+
+    RendererMessenger.sendPreviewFiles({
+      ids: Array.from(this.fileSelection, (file) => file.id),
+      activeImgId: this.getFirstSelectedFileId(),
+      thumbnailDirectory: this.thumbnailDirectory,
+      viewMethod: this.method,
+    });
+
+    this.isPreviewOpen = true;
+
+    // remove focus from element so closing preview with spacebar does not trigger any ui elements
+    if (document.activeElement && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }
+
+  @action.bound async copyImageToClipboard(): Promise<void> {
+    if (this.fileSelection.size === 0) {
+      return;
+    }
+    const file = Array.from(this.fileSelection)[0];
+    if (file.isBroken) {
+      return;
+    }
+    const copyToastKey = 'copy-toast';
+
+    try {
+      AppToaster.show({ message: 'Copying image to clipboard...', timeout: 60000 }, copyToastKey);
+      const src = await this.rootStore.imageLoader.getImageSrc(file);
+      if (src !== undefined) {
+        let buffer: Buffer;
+        if (isNativeImageCompatible(file.extension)) {
+          // read image from file system
+          buffer = await fse.readFile(src);
+        } else if (src.startsWith('blob:')) {
+          // use blob data
+          const blob = await fetch(src).then((r) => r.blob());
+          buffer = Buffer.from(await blob.arrayBuffer());
+        } else {
+          // try to convert into compatible type using canvas.
+          const image = new Image();
+          image.src = encodeFilePath(src);
+          await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('Failed to load image for canvas.'));
+          });
+          const canvas = new OffscreenCanvas(image.width, image.height);
+          const ctx2D = canvas.getContext('2d');
+          if (!ctx2D) {
+            throw new Error('Context2D not available!');
+          }
+          ctx2D.drawImage(image, 0, 0);
+          const blob = await canvas.convertToBlob({ type: 'image/png' });
+          buffer = Buffer.from(await blob.arrayBuffer());
+        }
+        const natImage = nativeImage.createFromBuffer(buffer);
+        if (natImage.isEmpty()) {
+          throw new Error('Could not load nativeImage');
+        }
+        clipboard.writeImage(natImage);
+        AppToaster.show(
+          { type: 'success', message: 'Image copied to clipboard.', timeout: 2000 },
+          copyToastKey,
+        );
+      } else {
+        AppToaster.show(
+          {
+            type: 'error',
+            message: 'Failed to copy image to clipboard. (Extension is not supported.)',
+            timeout: 4000,
+          },
+          copyToastKey,
+        );
+        throw new Error('Failed to get image data. (Extension is not supported.)');
+      }
+    } catch (e) {
+      AppToaster.show(
+        { type: 'error', message: 'Failed to copy image to clipboard.', timeout: 4000 },
+        copyToastKey,
+      );
+      console.error('Could not copy image to clipboard', e);
+    }
+  }
+
+  @action.bound openExternal(warnIfTooManyFiles: boolean = true): void {
+    // Don't open when no files have been selected
+    if (this.fileSelection.size === 0) {
+      return;
+    }
+
+    if (warnIfTooManyFiles && this.fileSelection.size > maxNumberOfExternalFilesBeforeWarning) {
+      this.isManyExternalFilesOpen = true;
+      return;
+    }
+
+    const absolutePaths = Array.from(this.fileSelection, (file) => file.absolutePath);
+    absolutePaths.forEach((path) => shell.openPath(`file://${path}`).catch(console.error));
+  }
+
+  @action.bound toggleInspector(): void {
+    this.isInspectorOpen = !this.isInspectorOpen;
+  }
+
+  @action.bound openInspector(): void {
+    this.isInspectorOpen = true;
+  }
+
+  @action.bound toggleSettings(): void {
+    this.isSettingsOpen = !this.isSettingsOpen;
+  }
+
+  @action.bound closeSettings(): void {
+    this.isSettingsOpen = false;
+  }
+
+  @action.bound toggleHelpCenter(): void {
+    this.isHelpCenterOpen = !this.isHelpCenterOpen;
+  }
+
+  @action.bound closeHelpCenter(): void {
+    this.isHelpCenterOpen = false;
+  }
+
+  @action.bound toggleAbout(): void {
+    this.isAboutOpen = !this.isAboutOpen;
+  }
+
+  @action.bound closeAbout(): void {
+    this.isAboutOpen = false;
+  }
+
+  @action.bound openToolbarFileRemover(): void {
+    if (!this.rootStore.fileStore.showsMissingContent) {
+      this.rootStore.fileStore.fetchMissingFiles();
+    }
+    this.isToolbarFileRemoverOpen = true;
+  }
+
+  @action.bound closeToolbarFileRemover(): void {
+    this.isToolbarFileRemoverOpen = false;
+  }
+
+  @action.bound openMoveFilesToTrash(): void {
+    this.isMoveFilesToTrashOpen = true;
+  }
+
+  @action.bound closeMoveFilesToTrash(): void {
+    this.isMoveFilesToTrashOpen = false;
+  }
+
+  @action.bound openTagPropertiesEditor(tag: ClientTag): void {
+    this.tagToEdit = tag;
+  }
+
+  @action.bound closeTagPropertiesEditor(): void {
+    this.tagToEdit = undefined;
+  }
+
+  @action.bound toggleEditTagProperties(): void {
+    if (this.tagToEdit === undefined) {
+      const tag: ClientTag | undefined =
+        this.tagSelection.size > 0
+          ? this.tagSelection.values().next().value
+          : this.recentlyUsedTags.at(0);
+      if (tag !== undefined) {
+        this.openTagPropertiesEditor(tag);
+      }
+    } else {
+      this.closeTagPropertiesEditor();
+    }
+  }
+
+  @action.bound openTagMergePanel(tag: ClientTag): void {
+    this.tagToMerge = tag;
+  }
+
+  @action.bound closeTagMergePanel(): void {
+    this.tagToMerge = undefined;
+  }
+
+  @action.bound openTagMovePanel(tag: ClientTag): void {
+    this.tagToMove = tag;
+  }
+
+  @action.bound closeTagMovePanel(): void {
+    this.tagToMove = undefined;
+  }
+
+  @action.bound closeManyExternalFiles(): void {
+    this.isManyExternalFilesOpen = false;
+  }
+
+  @action.bound toggleFileEditorsDocked(): void {
+    this.areFileEditorsDocked = !this.areFileEditorsDocked;
+  }
+
+  @action.bound setFileEditorsDocked(val: boolean): void {
+    this.areFileEditorsDocked = val;
+  }
+
+  @action.bound toggleFileTagsEditor(): void {
+    this.isFileTagsEditorOpen = !this.isFileTagsEditorOpen;
+    this.focusTagEditor = true;
+  }
+
+  @action.bound openFileTagsEditor(): void {
+    this.isFileTagsEditorOpen = true;
+    this.focusTagEditor = true;
+  }
+
+  @action.bound closeFileTagsEditor(): void {
+    this.isFileTagsEditorOpen = false;
+  }
+
+  @action.bound setFocusTagEditor(value: boolean): void {
+    this.focusTagEditor = value;
+  }
+
+  @action.bound toggleFileExtraPropertiesEditor(): void {
+    this.isFileExtraPropertiesEditorOpen = !this.isFileExtraPropertiesEditorOpen;
+  }
+
+  @action.bound openFileExtraPropertiesEditor(): void {
+    if (this.fileSelection.size > 0) {
+      this.isFileExtraPropertiesEditorOpen = true;
+    }
+  }
+
+  @action.bound closeFileExtraPropertiesEditor(): void {
+    this.isFileExtraPropertiesEditorOpen = false;
+  }
+
+  @action.bound openLocationRecovery(locationId: ID): void {
+    this.isLocationRecoveryOpen = locationId;
+  }
+
+  @action.bound closeLocationRecovery(): void {
+    this.isLocationRecoveryOpen = null;
+  }
+
+  @action.bound closePreviewWindow(): void {
+    this.isPreviewOpen = false;
+  }
+
+  @action.bound setThumbnailDirectory(dir: string = ''): void {
+    this.thumbnailDirectory = dir;
+  }
+
+  @action.bound setTaggingServiceURL(url: string = ''): void {
+    this.taggingServiceURL = encodeURI(url);
+  }
+
+  @action.bound setTaggingServiceParallelRequests(value: number = 1): void {
+    this.taggingServiceParallelRequests = clamp(
+      value,
+      1,
+      UiStore.MAX_TAGGING_SERVICE_PARALLEL_REQUESTS,
+    );
+  }
+
+  @action.bound setImportDirectory(dir: string): void {
+    this.importDirectory = dir;
+  }
+
+  @action.bound setTheme(theme: Theme = 'dark'): void {
+    if (!Themes.includes(theme)) {
+      console.warn(theme, '- Invalid theme value, keeping previous value');
+      return;
+    }
+    this.theme = theme;
+    RendererMessenger.setTheme({ theme });
+  }
+
+  @action.bound setScrollbarsStyle(style: ScrollbarsStyle = 'hover'): void {
+    if (!ScrollbarsStyles.includes(style)) {
+      console.warn(style, '- Invalid scrollbarsStyle value, keeping previous value');
+      return;
+    }
+    this.scrollbarsStyle = style;
+  }
+
+  @action.bound toggleAdvancedSearch(): void {
+    this.isAdvancedSearchOpen = !this.isAdvancedSearchOpen;
+  }
+
+  @action.bound closeAdvancedSearch(): void {
+    this.isAdvancedSearchOpen = false;
+  }
+
+  @action.bound toggleSearchMatchAny(): void {
+    this.searchRootGroup.conjunction = this.searchRootGroup.conjunction === 'and' ? 'or' : 'and';
+  }
+
+  @computed get searchMatchAny(): boolean {
+    return this.searchRootGroup.conjunction === 'or';
+  }
+
+  @computed get searchCriteriaList(): ClientFileSearchCriteria[] {
+    return this.searchRootGroup.children.filter(
+      (c) => c instanceof ClientFileSearchCriteria,
+    ) as ClientFileSearchCriteria[];
+  }
+
+  /////////////////// Usage preferences actions //////////////////
+
+  @action.bound toggleClearTagSelectorsOnSelect(): void {
+    this.isClearTagSelectorsOnSelectEnabled = !this.isClearTagSelectorsOnSelectEnabled;
+  }
+
+  /////////////////// Recently used Tags //////////////////
+
+  @action.bound setRecentlyUsedTagsMaxLength(val: number): void {
+    this.recentlyUsedTagsMaxLength = Math.max(0, Math.min(UiStore.MAX_RECENTLY_USED_TAGS, val));
+  }
+
+  private _debounceTagsSet = new Set<ClientTag>();
+  private _debounceTimeout: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Custom debounced method that adds a tag to the recently used tags list,
+   * ensuring uniqueness and enforcing the maximum length constraint.
+   * Designed for efficiency during batch tag assignments to files.
+   */
+  @action.bound addRecentlyUsedTag(tag?: ClientTag): void {
+    if (this.recentlyUsedTagsMaxLength > 0 && tag) {
+      this._debounceTagsSet.add(tag);
+    }
+    if (this._debounceTimeout) {
+      clearTimeout(this._debounceTimeout);
+    }
+
+    this._debounceTimeout = setTimeout(
+      action(() => {
+        for (const t of this._debounceTagsSet) {
+          this.recentlyUsedTags.remove(t);
+          this.recentlyUsedTags.unshift(t);
+        }
+        // Apply max length constraint
+        while (this.recentlyUsedTags.length > this.recentlyUsedTagsMaxLength) {
+          this.recentlyUsedTags.pop();
+        }
+        // reset debounce
+        this._debounceTagsSet.clear();
+        this._debounceTimeout = null;
+      }),
+      // High debounce time for better UX, prevents list updates while the user is interacting
+      2000,
+    );
+  }
+
+  /////////////////// Tag Clipboard actions ///////////////
+
+  // Since contextual menus are recreated each time, this does not need to be a computed value.
+  // If in the future this method is used within observers or other reactive contexts,
+  // consider making `this.tagClipboard` and the methods in this section observable/actions as well.
+  isTagClipboardEmpty(): boolean {
+    return this.tagClipboard.every((subArray) => subArray.length === 0);
+  }
+
+  clearTagClipboard(): void {
+    this.tagClipboard = [];
+  }
+
+  @action.bound copyTagsToClipboard(): void {
+    this.tagClipboard = Array.from(this.fileSelection).map((file) => [...file.tags]);
+    const allTagNames = this.tagClipboard
+      .flatMap((tags) => tags)
+      .map((tag) => tag.name)
+      .join(', ');
+    clipboard.writeText(allTagNames);
+    AppToaster.show({
+      message: `Copied tags from ${this.tagClipboard.length} files.`,
+      timeout: 3000,
+    });
+  }
+
+  @action.bound pasteTags(): void {
+    const clipboard = this.tagClipboard.slice();
+    // If the file selection has the same size as the amount of tag groups copied,
+    // Copy each tag group into their parallel file.
+    if (!this.isAllFilesSelected && this.fileSelection.size === clipboard.length) {
+      let index = 0;
+      this.fileSelection.forEach((file) => {
+        file.addTags(clipboard[index]);
+        index++;
+      });
+    } else {
+      // Otherwise, assign the sum of all tag groups to each file.
+      const allTags = new Set<ClientTag>();
+      for (let i = 0; i < clipboard.length; i++) {
+        for (let j = 0; j < clipboard[i].length; j++) {
+          allTags.add(clipboard[i][j]);
+        }
+      }
+      this.addTagsToSelectedFiles(Array.from(allTags));
+    }
+  }
+
+  /////////////////// Selection actions ///////////////////
+
+  // General Dispatch to selected files function. This should be used instead of
+  // processing the file selection directly.
+  // If we want to manipulate file selection's tags, use the tag optimized methods below.
+  @action.bound async dispatchToFileSelection(
+    dispatchClientFiles: (files: ClientFile[]) => Promise<void>,
+  ): Promise<void> {
+    const isAllFilesSelected = this.isAllFilesSelected;
+    await dispatchClientFiles(Array.from(this.fileSelection));
+    if (isAllFilesSelected) {
+      await this.rootStore.fileStore.dispatchToFilteredFiles(dispatchClientFiles);
+    }
+  }
+
+  /** Adds tags to selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async addTagsToSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.addTagsToFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => f.addTags(tags));
+  }
+
+  /** Removes tags from selection. If all files are selected, it updates the filtered set in backend.*/
+  @action.bound async removeTagsFromSelectedFiles(tags: ClientTag[]): Promise<void> {
+    if (this.isAllFilesSelected) {
+      await this.rootStore.fileStore.removeTagsFromFilteredFiles(tags);
+    }
+    this.fileSelection.forEach((f) => tags.forEach((t) => f.removeTag(t)));
+  }
+
+  @action.bound selectFile(file?: ClientFile, clear?: boolean): void {
+    if (clear === true) {
+      this.clearFileSelection();
+    }
+    if (!file) {
+      return;
+    }
+    this.fileSelection.add(file);
+    this.setFirstItem(this.rootStore.fileStore.getIndex(file.id));
+  }
+
+  @action.bound deselectFile(file: ClientFile): void {
+    this.fileSelection.delete(file);
+  }
+
+  @action.bound toggleFileSelection(file: ClientFile, clear?: boolean): void {
+    if (this.fileSelection.has(file)) {
+      this.fileSelection.delete(file);
+    } else {
+      if (clear) {
+        this.fileSelection.clear();
+      }
+      this.fileSelection.add(file);
+      this.setFirstItem(this.rootStore.fileStore.getIndex(file.id));
+    }
+  }
+
+  @action.bound selectFileRange(start: number, end: number, additive?: boolean): void {
+    if (!additive) {
+      this.fileSelection.clear();
+    }
+    for (let i = start; i <= end; i++) {
+      const file = this.rootStore.fileStore.fileList[i];
+      if (file) {
+        this.fileSelection.add(file);
+        if (i === end) {
+          this.setFirstItem(this.rootStore.fileStore.getIndex(file.id));
+        }
+      }
+    }
+  }
+
+  @action.bound selectAllFiles(): void {
+    this.fileSelection.replace(this.rootStore.fileStore.definedFiles);
+    this.isAllFilesSelected = true;
+  }
+
+  @action.bound clearFileSelection(): void {
+    this.fileSelection.clear();
+  }
+
+  @action.bound selectTag(tag: ClientTag, clear?: boolean): void {
+    if (clear === true) {
+      this.clearTagSelection();
+    }
+    this.tagSelection.add(tag);
+  }
+
+  @action.bound deselectTag(tag: ClientTag): void {
+    this.tagSelection.delete(tag);
+  }
+
+  @action.bound toggleTagSelection(tag: ClientTag): void {
+    if (this.tagSelection.has(tag)) {
+      this.tagSelection.delete(tag);
+    } else {
+      this.tagSelection.add(tag);
+    }
+  }
+
+  /** Selects a range of tags, where indices correspond to the flattened tag list. */
+  @action.bound selectTagRange(
+    start: number,
+    end: number,
+    additive?: boolean,
+    // If expansions is undefined behave as deep/sub-tree selection.
+    expansions?: IExpansionState,
+  ): void {
+    const excluded = new Set<ClientTag>();
+    const tagTreeList = this.rootStore.tagStore.tagList;
+    const slice = tagTreeList.slice(start, end + 1);
+    const tagsToSelect =
+      // If expansions is avalible filter out items that are not visible because of the colapse
+      expansions !== undefined
+        ? slice.filter((tag) => {
+            if (excluded.has(tag)) {
+              return false;
+            }
+            const parentId = tag.parent.id;
+            const isValid = parentId === ROOT_TAG_ID || expansions[parentId];
+            if (!isValid) {
+              for (const st of tag.getSubTree()) {
+                excluded.add(st);
+              }
+            }
+            return isValid;
+          })
+        : slice;
+    if (!additive) {
+      this.tagSelection.replace(tagsToSelect);
+      return;
+    }
+    for (const tag of tagsToSelect) {
+      this.tagSelection.add(tag);
+    }
+  }
+
+  @action.bound selectAllTags(): void {
+    this.tagSelection.replace(this.rootStore.tagStore.tagList);
+  }
+
+  @action.bound clearTagSelection(): void {
+    this.tagSelection.clear();
+  }
+
+  @action.bound async removeSelectedTags(): Promise<void> {
+    const ctx = this.getTagContextItems();
+    return this.rootStore.tagStore.deleteTags(ctx);
+  }
+
+  @action.bound colorSelectedTagsAndCollections(activeElementId: ID, color: string): void {
+    const ctx = this.getTagContextItems(activeElementId);
+    const colorCollection = (tag: ClientTag) => {
+      tag.setColor(color);
+      // Perhaps the color should be applied only to selected tags to give the user more control.
+      //tag.subTags.forEach((tag) => tag.setColor(color));
+    };
+    ctx.forEach(colorCollection);
+  }
+
+  @action.bound VisibleInheritSelectedTagsAndCollections(activeElementId: ID, val: boolean): void {
+    const ctx = this.getTagContextItems(activeElementId);
+    const setVisibility = (tag: ClientTag) => {
+      tag.setVisibleInherited(val);
+    };
+    ctx.forEach(setVisibility);
+  }
+
+  /**
+   * Returns the tags and tag collections that are in the context of an action,
+   * e.g. all selected items when choosing to delete an item that is selected,
+   * or only a single item when moving a single tag that is not selected.
+   * @returns The collections and tags in the context. Tags belonging to collections in the context are not included,
+   * but can be easily found by getting the tags from each collection.
+   */
+  @action.bound getTagContextItems(activeItemId?: ID): ClientTag[] {
+    const { tagStore } = this.rootStore;
+
+    // If no id was given, the context is the tag selection. Else, it might be a single tag/collection
+    let isContextTheSelection = activeItemId === undefined;
+
+    const contextTags: ClientTag[] = [];
+
+    // If an id is given, check whether it belongs to a tag or collection
+    if (activeItemId) {
+      const selectedTag = tagStore.get(activeItemId);
+      if (selectedTag) {
+        if (selectedTag.isSelected) {
+          isContextTheSelection = true;
+        } else {
+          contextTags.push(selectedTag);
+        }
+      }
+    }
+
+    // If no id is given or when the selected tag or collection is selected, the context is the whole selection
+    if (isContextTheSelection) {
+      contextTags.push(...this.tagSelection);
+    }
+
+    return contextTags;
+  }
+
+  /**
+   * @param targetId Where to move the selection to
+   */
+  @action.bound moveSelectedTagItems(id: ID, pos = 0): void {
+    const { tagStore } = this.rootStore;
+
+    const target = tagStore.get(id);
+    if (!target) {
+      throw new Error('- Invalid target to move to');
+    }
+
+    // Find all tags + collections in the current context (all selected items)
+    const ctx = this.getTagContextItems();
+
+    // Move tags and collections
+    ctx.reverse().forEach((tag) => target.insertSubTag(tag, pos));
+  }
+
+  /**
+   * Sorts the selected tags without changing their parents in the hierarchy.
+   * @param direction Direction of the sort ('ascending' | 'descending').
+   * @param compareFn Optional sorting function.
+   */
+  @action.bound sortSelectedTagItems(
+    direction: 'ascending' | 'descending' = 'ascending',
+    compareFn: (a: ClientTag, b: ClientTag) => number = (a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true }),
+  ): void {
+    // Find all tags + collections in the current context (all selected items)
+    const ctx = this.getTagContextItems();
+    const parentNodes: Map<ClientTag, ClientTag[]> = new Map();
+    for (let i = 0; i < ctx.length; i++) {
+      const tag = ctx[i];
+      const selectedSubTags = parentNodes.get(tag.parent);
+      if (selectedSubTags !== undefined) {
+        selectedSubTags.push(tag);
+      } else {
+        parentNodes.set(tag.parent, [tag]);
+      }
+    }
+    parentNodes.forEach((selectedSubTags, parent) => {
+      if (selectedSubTags.length > 0) {
+        // get top most pos
+        const pos = parent.subTags.findIndex((t) => selectedSubTags.includes(t));
+        selectedSubTags.sort(compareFn);
+        // Due to the behavior of insertSubTag (if inserting at the same position, items get inserted in reverse order),
+        // we apply an additional reverse when the direction is 'ascending' instead of when it's 'descending'.
+        if (direction === 'ascending') {
+          selectedSubTags.reverse();
+        }
+        // Move sorted selected subTags into their parent at the original position of the first item.
+        selectedSubTags.forEach((tag) => parent.insertSubTag(tag, pos));
+      }
+    });
+  }
+
+  /////////////////// Search Actions ///////////////////
+  // These actions just apply not nested conjunctions into the searchRootGroup children.
+
+  @action.bound clearSearchCriteriaTree(): void {
+    this.searchRootGroup.dispose();
+    this.searchRootGroup.children.clear();
+    this.viewAllContent();
+  }
+
+  @action.bound addSearchCriteria(query: Exclude<ClientFileSearchCriteria, 'key'>): void {
+    this.searchRootGroup.children.push(query);
+    // if is a TagSearchCriteria add its tag to recent used tags
+    if (query instanceof ClientTagSearchCriteria) {
+      this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
+    }
+    this.viewQueryContent();
+  }
+
+  @action.bound addSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    if (queries instanceof ClientSearchGroup) {
+      this.searchRootGroup.children.push(
+        ClientSearchGroup.deserialize(queries.serialize(this.rootStore)),
+      );
+    } else {
+      this.searchRootGroup.children.push(...queries);
+      for (const query of queries) {
+        if (query instanceof ClientTagSearchCriteria) {
+          this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
+        }
+      }
+    }
+    this.viewQueryContent();
+  }
+
+  @action.bound toggleSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    const idsToToggle = isClientSearchGroup(queries)
+      ? [queries.id, ...queries.children.map((ch) => ch.id)]
+      : queries.map((ch) => ch.id);
+    const existingCrits = this.searchRootGroup.children.filter((other) =>
+      idsToToggle.includes(other.id),
+    );
+    if (existingCrits.length > 0) {
+      existingCrits.forEach((existing) => {
+        this.searchRootGroup.children.remove(existing);
+        existing.dispose();
+      });
+      if (this.searchRootGroup.children.length > 0) {
+        this.viewQueryContent();
+      } else {
+        this.viewAllContent();
+      }
+    } else {
+      this.addSearchCriterias(queries);
+    }
+  }
+
+  @action.bound removeSearchCriteria(query: ClientFileSearchCriteria): void {
+    query.dispose();
+    this.searchRootGroup.children.remove(query);
+    if (this.searchRootGroup.children.length > 0) {
+      this.viewQueryContent();
+    } else {
+      this.viewAllContent();
+    }
+  }
+
+  @action.bound replaceSearchCriteria(query: Exclude<ClientFileSearchCriteria, 'key'>): void {
+    this.replaceSearchCriterias([query]);
+    if (query instanceof ClientTagSearchCriteria) {
+      this.addRecentlyUsedTag(this.rootStore.tagStore.get(query.value ?? ''));
+    }
+  }
+
+  @action.bound replaceSearchCriterias(
+    queries: Exclude<ClientFileSearchCriteria[] | ClientSearchGroup, 'key'>,
+  ): void {
+    this.searchRootGroup.dispose();
+
+    if (queries instanceof ClientSearchGroup) {
+      this.searchRootGroup = ClientSearchGroup.deserialize(queries.serialize(this.rootStore));
+      this.searchRootGroup.id = generateId();
+    } else {
+      this.searchRootGroup.children.replace(queries);
+    }
+
+    if (this.searchRootGroup.children.length > 0) {
+      this.viewQueryContent();
+    } else {
+      this.viewAllContent();
+    }
+  }
+
+  @action.bound replaceSearchRootConjuction(conj: SearchConjunction): void {
+    this.searchRootGroup.conjunction = conj;
+  }
+
+  @action.bound removeSearchCriteriaByIndex(i: number): void {
+    const removedCrits = this.searchRootGroup.children.splice(i, 1);
+    removedCrits.forEach((c) => c.dispose());
+
+    if (this.searchRootGroup.children.length > 0) {
+      this.viewQueryContent();
+    } else {
+      this.viewAllContent();
+    }
+  }
+
+  @action.bound removeSearchCriteriaById(id: string): boolean {
+    const result = this.searchRootGroup.removeNode(id);
+    this.rootStore.fileStore.refetch();
+    return result;
+  }
+
+  @action.bound addTagSelectionToCriteria(): void {
+    const newCrits = Array.from(
+      this.tagSelection,
+      (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
+    );
+    this.addSearchCriterias(newCrits);
+    for (const tag of this.tagSelection) {
+      this.addRecentlyUsedTag(tag);
+    }
+    this.clearTagSelection();
+  }
+
+  @action.bound replaceCriteriaWithTagSelection(): void {
+    this.replaceSearchCriterias(
+      Array.from(
+        this.tagSelection,
+        (tag) => new ClientTagSearchCriteria(undefined, 'tags', tag.id),
+      ),
+    );
+    for (const tag of this.tagSelection) {
+      this.addRecentlyUsedTag(tag);
+    }
+    this.clearTagSelection();
+  }
+
+  @action.bound replaceCriteriaItem(
+    oldCrit: ClientFileSearchCriteria,
+    crit: ClientFileSearchCriteria,
+  ): void {
+    const index = this.searchRootGroup.children.indexOf(oldCrit);
+    if (index !== -1) {
+      this.searchRootGroup.children[index].dispose();
+      this.searchRootGroup.children[index] = crit;
+      this.viewQueryContent();
+    }
+  }
+
+  @action.bound remapHotkey(action: keyof IHotkeyMap, combo: string): void {
+    this.hotkeyMap[action] = combo;
+  }
+
+  @action.bound processGlobalShortCuts(e: KeyboardEvent): void {
+    if ((e.target as HTMLElement | null)?.matches('input')) {
+      return;
+    }
+    const combo = getKeyCombo(e);
+    const matches = (c: string): boolean => {
+      return comboMatches(combo, parseKeyCombo(c));
+    };
+    const { hotkeyMap } = this;
+    let isMatch = true;
+    // UI
+    if (matches(hotkeyMap.toggleOutliner)) {
+      this.toggleOutliner();
+    } else if (matches(hotkeyMap.toggleInspector)) {
+      this.toggleInspector();
+    } else if (matches(hotkeyMap.openFileTagsEditor)) {
+      this.openFileTagsEditor();
+    } else if (matches(hotkeyMap.toggleExtraPropertiesEditor)) {
+      this.toggleFileExtraPropertiesEditor();
+    } else if (matches(hotkeyMap.toggleEditTagProperties)) {
+      this.toggleEditTagProperties();
+    } else if (matches(hotkeyMap.refreshSearch)) {
+      this.refresh();
+    } else if (matches(hotkeyMap.refreshLocationsAndDetectFileChanges)) {
+      this.refreshLocations();
+    } else if (matches(hotkeyMap.toggleSettings)) {
+      this.toggleSettings();
+    } else if (matches(hotkeyMap.toggleHelpCenter)) {
+      this.toggleHelpCenter();
+    } else if (matches(hotkeyMap.openPreviewWindow)) {
+      this.openPreviewWindow();
+      e.preventDefault(); // prevent scrolling with space when opening the preview window
+    } else if (matches(hotkeyMap.openExternal)) {
+      this.openExternal();
+      // Search
+    } else if (matches(hotkeyMap.search)) {
+      (document.querySelector('.searchbar input') as HTMLElement).focus();
+    } else if (matches(hotkeyMap.advancedSearch)) {
+      this.toggleAdvancedSearch();
+      // View
+    } else if (matches(hotkeyMap.viewList)) {
+      this.setMethodList();
+    } else if (matches(hotkeyMap.viewGrid)) {
+      this.setMethodGrid();
+    } else if (matches(hotkeyMap.viewMasonryVertical)) {
+      this.setMethodMasonryVertical();
+    } else if (matches(hotkeyMap.viewMasonryHorizontal)) {
+      this.setMethodMasonryHorizontal();
+    } else if (matches(hotkeyMap.viewSlide)) {
+      this.toggleSlideMode();
+    } else {
+      isMatch = false;
+    }
+
+    if (isMatch) {
+      e.preventDefault();
+    }
+  }
+
+  @action.bound moveOutlinerSplitter(x: number, width: number): void {
+    if (this.isOutlinerOpen) {
+      const w = clamp(x, UiStore.MIN_OUTLINER_WIDTH, width * 0.75);
+      this.outlinerWidth = w;
+
+      // Automatically collapse if less than 3/4 of min-width?
+      if (x < UiStore.MIN_OUTLINER_WIDTH * 0.75) {
+        this.isOutlinerOpen = false;
+      }
+    } else if (x >= UiStore.MIN_OUTLINER_WIDTH) {
+      this.isOutlinerOpen = true;
+    }
+  }
+
+  @action.bound setOutlinerExpansion(newVal: boolean[]): void {
+    this.outlinerExpansion.replace(newVal);
+  }
+
+  @action.bound setOutlinerHeights(newVal: number[]): void {
+    this.outlinerHeights.replace(newVal);
+  }
+
+  @action.bound moveInspectorSplitter(x: number, width: number): void {
+    // The inspector is on the right side, so we need to calculate the offset.
+    const offsetX = width - x;
+    if (this.isInspectorOpen) {
+      const w = clamp(offsetX, UiStore.MIN_INSPECTOR_WIDTH, width * 0.75);
+      this.inspectorWidth = w;
+
+      if (offsetX < UiStore.MIN_INSPECTOR_WIDTH * 0.75) {
+        this.isInspectorOpen = false;
+      }
+    } else if (offsetX >= UiStore.MIN_INSPECTOR_WIDTH) {
+      this.isInspectorOpen = true;
+    }
+  }
+
+  // Storing preferences
+  @action recoverPersistentPreferences(): void {
+    const prefsString = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (prefsString) {
+      try {
+        const prefs = JSON.parse(prefsString);
+        if (prefs.zoomFactor) {
+          this.setZoomFactor(prefs.zoomFactor);
+        }
+        if (prefs.theme) {
+          this.setTheme(prefs.theme);
+        }
+        if (prefs.scrollbarsStyle) {
+          this.setScrollbarsStyle(prefs.scrollbarsStyle);
+        }
+        this.setIsOutlinerOpen(prefs.isOutlinerOpen);
+        this.isInspectorOpen = Boolean(prefs.isInspectorOpen);
+        if (prefs.thumbnailDirectory) {
+          this.setThumbnailDirectory(prefs.thumbnailDirectory);
+        }
+        if (prefs.taggingServiceURL) {
+          this.setTaggingServiceURL(prefs.taggingServiceURL);
+        }
+        if ('taggingServiceParallelRequests' in prefs) {
+          this.setTaggingServiceParallelRequests(prefs.taggingServiceParallelRequests);
+        }
+        if (prefs.importDirectory) {
+          this.setImportDirectory(prefs.importDirectory);
+        }
+        this.setMethod(Number(prefs.method));
+        if (prefs.thumbnailSize) {
+          this.setThumbnailSize(prefs.thumbnailSize);
+        }
+        if (prefs.thumbnailRadius) {
+          this.setThumbnailRadius(prefs.thumbnailRadius);
+        }
+        if ('largeThumbFullResThreshold' in prefs) {
+          this.setLargeThumbFullResThreshold(prefs.largeThumbFullResThreshold);
+        }
+        if ('masonryItemPadding' in prefs) {
+          this.setMasonryItemPadding(prefs.masonryItemPadding);
+        }
+        if (prefs.thumbnailShape) {
+          this.setThumbnailShape(prefs.thumbnailShape);
+        }
+        if (prefs.upscaleMode) {
+          this.setUpscaleMode(prefs.upscaleMode);
+        }
+        if (prefs.galleryVideoPlaybackMode) {
+          this.setGalleryVideoPlaybackMode(prefs.galleryVideoPlaybackMode);
+        }
+        if (prefs.outlinerExpansion) {
+          this.setOutlinerExpansion(prefs.outlinerExpansion);
+        }
+        if (prefs.outlinerHeights) {
+          this.setOutlinerHeights(prefs.outlinerHeights);
+        }
+        if (prefs.thumbnailTagOverlayMode) {
+          this.setThumbnailTagOverlayMode(prefs.thumbnailTagOverlayMode);
+        }
+        if (prefs.inheritedTagsVisibilityMode) {
+          this.setInheritedTagsVisibilityMode(prefs.inheritedTagsVisibilityMode);
+        }
+        if (prefs.recentlyUsedTagsMaxLength) {
+          this.setRecentlyUsedTagsMaxLength(prefs.recentlyUsedTagsMaxLength);
+        }
+        if (prefs.recentlyUsedTags) {
+          this.recentlyUsedTags.replace(
+            Array.from(this.rootStore.tagStore.getTags(prefs.recentlyUsedTags)),
+          );
+        }
+        this.showTreeConnectorLines = Boolean(prefs.showTreeConnectorLines ?? false);
+        this.isThumbnailFilenameOverlayEnabled = Boolean(prefs.isThumbnailFilenameOverlayEnabled ?? false); // eslint-disable-line prettier/prettier
+        this.isThumbnailResolutionOverlayEnabled = Boolean(prefs.isThumbnailResolutionOverlayEnabled ?? false); // eslint-disable-line prettier/prettier
+        this.areFileEditorsDocked = Boolean(prefs.areFileEditorsDocked ?? false);
+        this.isFileTagsEditorOpen = Boolean(prefs.isFileTagsEditorOpen ?? false);
+        this.isClearTagSelectorsOnSelectEnabled = Boolean(prefs.isClearTagSelectorsOnSelectEnabled ?? false); // eslint-disable-line prettier/prettier
+        this.isFileExtraPropertiesEditorOpen = Boolean(prefs.isFileExtraPropertiesEditorOpen ?? false); // eslint-disable-line prettier/prettier
+        this.outlinerWidth = Math.max(Number(prefs.outlinerWidth), UiStore.MIN_OUTLINER_WIDTH);
+        this.inspectorWidth = Math.max(Number(prefs.inspectorWidth), UiStore.MIN_INSPECTOR_WIDTH);
+        Object.entries<string>(prefs.hotkeyMap).forEach(
+          ([k, v]) => k in defaultHotkeyMap && (this.hotkeyMap[k as keyof IHotkeyMap] = v),
+        );
+
+        this.isRefreshLocationsStartupEnabled = Boolean(prefs.isRefreshLocationsStartupEnabled ?? false); // eslint-disable-line prettier/prettier
+        this.isRememberSearchEnabled = Boolean(prefs.isRememberSearchEnabled);
+        if (this.isRememberSearchEnabled) {
+          // If remember search criteria, restore the search criteria list...
+          const serializedCriterias: SearchGroupDTO | (SearchGroupDTO | SearchCriteria)[] =
+            // BACKWARDS_COMPATIBILITY: searchCriteriaList used to be serialized to a string
+            typeof (prefs.searchRootGroup ?? prefs.searchCriteriaList) === 'string'
+              ? JSON.parse(prefs.searchRootGroup ?? prefs.searchCriteriaList ?? '[]')
+              : prefs.searchRootGroup ?? prefs.searchCriteriaList ?? [];
+          if ('children' in serializedCriterias) {
+            this.searchRootGroup = ClientSearchGroup.deserialize(serializedCriterias);
+          } else if (Array.isArray(serializedCriterias)) {
+            this.searchRootGroup.children.push(
+              ...serializedCriterias.map((c) => {
+                if ('children' in c) {
+                  const g = ClientSearchGroup.deserialize(c);
+                  g.setParent(this.searchRootGroup);
+                  return g;
+                }
+                const crit = ClientFileSearchCriteria.deserialize(c);
+                crit.setParent(this.searchRootGroup);
+                return crit;
+              }),
+            );
+          }
+
+          // and other content-related options. So it's just like you never closed Allusion!
+          this.firstItem = prefs.firstItem;
+          this.isSlideMode = prefs.isSlideMode;
+        }
+        console.info('recovered', prefs);
+      } catch (e) {
+        console.error('Cannot parse persistent preferences', e);
+      }
+      // Set the native window theme based on the application theme
+      RendererMessenger.setTheme({ theme: this.theme === 'dark' ? 'dark' : 'light' });
+    }
+
+    // Set default thumbnail directory in case none was specified
+    if (this.thumbnailDirectory.length === 0) {
+      RendererMessenger.getDefaultThumbnailDirectory().then((defaultThumbDir) => {
+        this.setThumbnailDirectory(defaultThumbDir);
+        fse.ensureDirSync(this.thumbnailDirectory);
+      });
+    }
+  }
+
+  getPersistentPreferences(): Partial<Record<keyof UiStore, unknown>> {
+    const preferences: Record<PersistentPreferenceFields, unknown> = {
+      zoomFactor: this.zoomFactor,
+      theme: this.theme,
+      scrollbarsStyle: this.scrollbarsStyle,
+      isOutlinerOpen: this.isOutlinerOpen,
+      isInspectorOpen: this.isInspectorOpen,
+      areFileEditorsDocked: this.areFileEditorsDocked,
+      isFileTagsEditorOpen: this.isFileTagsEditorOpen,
+      isFileExtraPropertiesEditorOpen: this.isFileExtraPropertiesEditorOpen,
+      thumbnailDirectory: this.thumbnailDirectory,
+      taggingServiceURL: this.taggingServiceURL,
+      taggingServiceParallelRequests: this.taggingServiceParallelRequests,
+      importDirectory: this.importDirectory,
+      method: this.method,
+      thumbnailSize: this.thumbnailSize,
+      thumbnailRadius: this.thumbnailRadius,
+      largeThumbFullResThreshold: this.largeThumbFullResThreshold,
+      masonryItemPadding: this.masonryItemPadding,
+      thumbnailShape: this.thumbnailShape,
+      upscaleMode: this.upscaleMode,
+      galleryVideoPlaybackMode: this.galleryVideoPlaybackMode,
+      showTreeConnectorLines: this.showTreeConnectorLines,
+      hotkeyMap: { ...this.hotkeyMap },
+      isThumbnailFilenameOverlayEnabled: this.isThumbnailFilenameOverlayEnabled,
+      thumbnailTagOverlayMode: this.thumbnailTagOverlayMode,
+      inheritedTagsVisibilityMode: this.inheritedTagsVisibilityMode,
+      isThumbnailResolutionOverlayEnabled: this.isThumbnailResolutionOverlayEnabled,
+      outlinerExpansion: this.outlinerExpansion.slice(),
+      outlinerHeights: this.outlinerHeights.slice(),
+      outlinerWidth: this.outlinerWidth,
+      inspectorWidth: this.inspectorWidth,
+      isRefreshLocationsStartupEnabled: this.isRefreshLocationsStartupEnabled,
+      isRememberSearchEnabled: this.isRememberSearchEnabled,
+      isSlideMode: this.isSlideMode,
+      firstItem: this.firstItem,
+      searchRootGroup: this.searchRootGroup.serialize(this.rootStore),
+      recentlyUsedTags: Array.from(this.recentlyUsedTags, (t) => t.id),
+      recentlyUsedTagsMaxLength: this.recentlyUsedTagsMaxLength,
+      isClearTagSelectorsOnSelectEnabled: this.isClearTagSelectorsOnSelectEnabled,
+    };
+    return preferences;
+  }
+
+  clearPersistentPreferences(): void {
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+  }
+
+  /////////////////// Helper methods ///////////////////
+  @action.bound clearSelection(): void {
+    this.tagSelection.clear();
+    this.fileSelection.clear();
+  }
+
+  getFirstSelectedFileId(): ID | undefined {
+    return this.firstSelectedFile?.id;
+  }
+
+  @computed get firstSelectedFile(): ClientFile | undefined {
+    for (const file of this.fileSelection) {
+      return file;
+    }
+    return undefined;
+  }
+
+  @computed get firstItemIndex(): number {
+    this.rootStore.fileStore.fileDimensions.length; // Touch fileDimencions to re-compute when number of files change.
+    if (this.firstItem) {
+      return this.rootStore.fileStore.getIndex(this.firstItem.id) ?? 0;
+    }
+    return 0;
+  }
+
+  /** Return {@link UiStore.firstItemIndex}: first item visible in viewport, and the current item in SlideMode */
+  @computed get firstFileInView(): ClientFile | undefined {
+    return this.firstItem ? this.rootStore.fileStore.get(this.firstItem.id) : undefined;
+  }
+
+  @action private viewAllContent(): void {
+    if (this.rootStore.fileStore.showsQueryContent) {
+      this.rootStore.fileStore.fetchAllFiles();
+    }
+  }
+
+  @action private viewQueryContent(): void {
+    this.rootStore.fileStore.fetchFilesByQuery();
+  }
+
+  @action private setIsOutlinerOpen(value: boolean = true) {
+    this.isOutlinerOpen = value;
+  }
+}
+
+export default UiStore;
