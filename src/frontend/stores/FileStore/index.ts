@@ -779,6 +779,10 @@ class FileStore {
     return this.showsQueryContent && this.activeSemanticQuery !== undefined;
   }
 
+  @computed get currentSemanticQuery(): ActiveSemanticQuery | undefined {
+    return this.showsQueryContent ? this.activeSemanticQuery : undefined;
+  }
+
   @action.bound switchOrderDirection(): void {
     this.setOrderDirection(
       this.orderDirection === OrderDirection.Desc ? OrderDirection.Asc : OrderDirection.Desc,

@@ -142,7 +142,7 @@ const DnDHelper = createDragReorderHelper('saved-searches-dnd-preview', DnDSearc
 const SearchItem = observer(
   ({ nodeData, treeData }: { nodeData: ClientFileSearchItem; treeData: ITreeData }) => {
     const rootStore = useStore();
-    const { uiStore, searchStore } = rootStore;
+    const { uiStore, searchStore, fileStore } = rootStore;
     const { edit: onEdit, duplicate: onDuplicate, delete: onDelete, replace: onReplace } = treeData;
     const show = useContextMenu();
     const handleContextMenu = useCallback(
@@ -171,8 +171,16 @@ const SearchItem = observer(
             uiStore.toggleSearchCriterias(nodeData.rootGroup);
           }
         });
+        if (nodeData.semanticQuery) {
+          const sq = nodeData.semanticQuery;
+          if (sq.mode === 'text') {
+            void fileStore.semanticSearchByText(sq.query);
+          } else {
+            void fileStore.semanticSearchBySelection();
+          }
+        }
       },
-      [nodeData.rootGroup, uiStore],
+      [nodeData.rootGroup, nodeData.semanticQuery, uiStore, fileStore],
     );
 
     const handleEdit = useCallback(
@@ -387,7 +395,7 @@ const SavedSearchesList = ({ onDelete, onEdit, onDuplicate, onReplace }: ISearch
 
 const SavedSearchesPanel = observer((props: Partial<MultiSplitPaneProps>) => {
   const rootStore = useStore();
-  const { searchStore, uiStore } = rootStore;
+  const { searchStore, uiStore, fileStore } = rootStore;
 
   const isEmpty = searchStore.searchList.length === 0;
 
@@ -395,16 +403,24 @@ const SavedSearchesPanel = observer((props: Partial<MultiSplitPaneProps>) => {
   const [deletableSearch, setDeletableSearch] = useState<ClientFileSearchItem>();
 
   const saveCurrentSearch = async () => {
+    const semanticQuery = fileStore.currentSemanticQuery;
     const savedSearch = await searchStore.create(
       runInAction(() => {
+        const name = semanticQuery
+          ? semanticQuery.mode === 'text'
+            ? `Semantic: ${semanticQuery.query}`
+            : 'Semantic image search'
+          : uiStore.searchRootGroup
+              .getLabels(CustomKeyDict, rootStore)
+              .map((label) => label.label)
+              .join(', ') || 'New search';
+
         return new ClientFileSearchItem(
           generateId(),
-          uiStore.searchRootGroup
-            .getLabels(CustomKeyDict, rootStore)
-            .map((label) => label.label)
-            .join(', ') || 'New search',
+          name,
           uiStore.searchRootGroup.serialize(rootStore, true),
           searchStore.searchList.length,
+          semanticQuery,
         );
       }),
     );
