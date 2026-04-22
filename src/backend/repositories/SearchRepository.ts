@@ -3,6 +3,7 @@ import { AllusionDB_SQL, SavedSearches, SearchCriteria, SearchGroups } from '../
 import { FileSearchDTO, SearchGroupDTO } from 'src/api/file-search';
 import { ID } from 'src/api/id';
 import { upsertTable } from '../backend';
+import { ActiveSemanticQuery } from 'src/api/semantic-search';
 
 export class SearchRepository {
   readonly #db: Kysely<AllusionDB_SQL>;
@@ -101,6 +102,9 @@ export class SearchRepository {
         conjunction: 'and',
         children: [],
       },
+      semanticQuery: search.semanticQueryJson
+        ? (JSON.parse(search.semanticQueryJson) as ActiveSemanticQuery)
+        : undefined,
     }));
 
     return searches;
@@ -189,6 +193,7 @@ function normalizeSavedSearches(sourceSearches: FileSearchDTO[]) {
       id: search.id,
       name: search.name,
       idx: search.index,
+      semanticQueryJson: search.semanticQuery ? JSON.stringify(search.semanticQuery) : null,
     });
     normalizeGroupRecursive(search.rootGroup, search.id, null);
   }
