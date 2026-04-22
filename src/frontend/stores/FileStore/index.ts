@@ -1331,6 +1331,57 @@ class FileStore {
     }
   }
 
+  @action.bound async semanticSearchBySelectionBatch(): Promise<void> {
+    const { uiStore } = this.rootStore;
+    const selectedFiles = Array.from(uiStore.fileSelection.values()) as ClientFile[];
+
+    if (selectedFiles.length < 2) {
+      return this.semanticSearchBySelection();
+    }
+
+    const fileIds = selectedFiles.map((f) => f.id);
+    const criteria =
+      uiStore.searchRootGroup.children.length > 0
+        ? uiStore.searchRootGroup.toCondition(this.rootStore)
+        : undefined;
+    const semanticTopK = this.semanticTopK;
+    const semanticMinScore = this.semanticMinScore;
+    const options: SemanticSearchOptions = {
+      criteria,
+      topK: semanticTopK,
+      minScore: semanticMinScore,
+    };
+    let start: number | undefined;
+
+    try {
+      this.setContentQuery();
+      this.activeSemanticQuery = { mode: 'image', fileId: fileIds[0], options };
+      start = await this.newFetchTaskId();
+      const fetchedFiles = await this.backend.semanticSearchByImages(fileIds, options);
+      const end = performance.now();
+      this.setAverageFetchTime(end - start);
+      const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
+      if (start === currentFetchId) {
+        await this.updateFromBackend(fetchedFiles);
+      } else {
+        this.finalizeFetchTask(start);
+      }
+      await this.refreshSemanticStatus().catch(() => undefined);
+    } catch (error) {
+      if (start !== undefined) {
+        this.finalizeFetchTask(start);
+      }
+      console.error('Batch semantic search failed', error);
+      await this.refreshSemanticStatus().catch(() => undefined);
+      const message = error instanceof Error ? error.message : 'Unknown semantic search error.';
+      AppToaster.show({
+        message,
+        timeout: 8000,
+        type: 'error',
+      });
+    }
+  }
+
   @action.bound async jumpToFirst(): Promise<void> {
     //logic: set an empty cursor and do a refetch.
     this.rootStore.uiStore.clearFileSelection();
