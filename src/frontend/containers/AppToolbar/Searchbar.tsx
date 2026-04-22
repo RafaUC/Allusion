@@ -38,6 +38,7 @@ import {
   CustomKeyDict,
 } from 'src/frontend/entities/SearchCriteria';
 import { ClientTag } from 'src/frontend/entities/Tag';
+import { ClientFile } from 'src/frontend/entities/File';
 
 import { IconButton, IconSet, Row, Tag } from 'widgets';
 
@@ -83,6 +84,10 @@ const QuickSearchList = observer(() => {
   });
 
   const renderCreateOption = useRef((query: string, resetTextBox: () => void) => {
+    const selectedFile: ClientFile | undefined =
+      uiStore.fileSelection.size === 1
+        ? fileStore.get(uiStore.fileSelection.values().next().value)
+        : undefined;
     return [
       <QuickExtraPropertySearchOption
         key="search-in-extra-property"
@@ -103,9 +108,24 @@ const QuickSearchList = observer(() => {
           void fileStore.semanticSearchByText(query);
         }}
       />,
+      ...(selectedFile
+        ? [
+            <Row
+              id="semantic-blend-option"
+              index={2}
+              key="semantic-blend"
+              value={`Blend "${query}" with selected image`}
+              icon={IconSet.SEARCH}
+              onClick={() => {
+                resetTextBox();
+                void fileStore.semanticSearchBlend(query, selectedFile.id, 0.5);
+              }}
+            />,
+          ]
+        : []),
       <Row
         id="search-in-path-option"
-        index={2}
+        index={selectedFile ? 3 : 2}
         key="search-in-path"
         value={`Search in file paths for "${query}"`}
         onClick={() => {
@@ -117,7 +137,7 @@ const QuickSearchList = observer(() => {
       />,
       <Row
         id="advanced-search-option"
-        index={3}
+        index={selectedFile ? 4 : 3}
         key="advanced-search"
         value="Advanced search"
         onClick={uiStore.toggleAdvancedSearch}
