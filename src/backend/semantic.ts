@@ -305,6 +305,18 @@ export function normalizeVector(vector: number[]): number[] {
   return vector.map((value) => value * scale);
 }
 
+export function blendEmbeddings(a: number[], b: number[], textWeight: number): number[] {
+  const w = Math.max(0, Math.min(1, textWeight));
+  const blended = a.map((v, i) => v * w + b[i] * (1 - w));
+  return normalizeVector(blended);
+}
+
+export function subtractEmbedding(positive: number[], negative: number[], negativeWeight: number): number[] {
+  const w = Math.max(0, Math.min(1, negativeWeight));
+  const result = positive.map((v, i) => v - w * negative[i]);
+  return normalizeVector(result);
+}
+
 export function parseEmbeddingOutput(output: unknown): number[] {
   if (!output) {
     return [];

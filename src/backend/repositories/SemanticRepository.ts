@@ -8,11 +8,13 @@ import { Kysely, sql } from 'kysely';
 import { AllusionDB_SQL } from '../schemaTypes';
 import { FileDTO } from 'src/api/file';
 import { ID } from 'src/api/id';
-import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
+import { SemanticMultiModalQuery, SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
 import {
+  blendEmbeddings,
   float32BlobToVector,
   SemanticEmbedder,
   sourceHashForFile,
+  subtractEmbedding,
   vectorToFloat32Blob,
   computeSampleTimestamps,
   meanPoolEmbeddings,
@@ -256,6 +258,49 @@ export class SemanticRepository {
     const queryFileIdSet = new Set(fileIds);
     const results = await this.semanticSearchByEmbedding(centroid, undefined, options);
     return results.filter((f) => !queryFileIdSet.has(f.id));
+  }
+
+  async semanticSearchMultiModal(
+    query: SemanticMultiModalQuery,
+    options?: SemanticSearchOptions,
+  ): Promise<FileDTO[]> {
+    const { text, imageFileId, textWeight = 0.5, negativeImageFileId, negativeWeight = 0.5 } = query;
+
+    if (!text && !imageFileId) {
+      return [];
+    }
+
+    const expectedDimension = await this.getSemanticEmbeddingDimension();
+
+    let positiveEmb: number[];
+    if (text && imageFileId) {
+      const textEmb = await this.#semanticEmbedder.embedText(text.trim());
+      const [imageFile] = await this.#fetchFilesByID([imageFileId]);
+      if (!imageFile) {
+        return [];
+      }
+      const imageEmb = await this.ensureEmbeddingForFile(imageFile, false, undefined, expectedDimension);
+      positiveEmb = blendEmbeddings(textEmb, imageEmb, textWeight);
+    } else if (text) {
+      positiveEmb = await this.#semanticEmbedder.embedText(text.trim());
+    } else {
+      const [imageFile] = await this.#fetchFilesByID([imageFileId!]);
+      if (!imageFile) {
+        return [];
+      }
+      positiveEmb = await this.ensureEmbeddingForFile(imageFile, false, undefined, expectedDimension);
+    }
+
+    if (negativeImageFileId) {
+      const [negFile] = await this.#fetchFilesByID([negativeImageFileId]);
+      if (negFile) {
+        const negEmb = await this.ensureEmbeddingForFile(negFile, false, undefined, expectedDimension);
+        positiveEmb = subtractEmbedding(positiveEmb, negEmb, negativeWeight);
+      }
+    }
+
+    this.#semanticEmbeddingDimension = positiveEmb.length;
+    return this.semanticSearchByEmbedding(positiveEmb, imageFileId, options);
   }
 
   async warmupSemanticModel(): Promise<void> {

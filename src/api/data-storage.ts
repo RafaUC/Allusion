@@ -13,7 +13,7 @@ import { LocationDTO } from './location';
 import { TagDTO } from './tag';
 import { ExtraPropertyDTO } from './extraProperty';
 import { BatchFetcher } from 'common/promise';
-import { SemanticSearchOptions, SemanticSearchStatus } from './semantic-search';
+import { SemanticMultiModalQuery, SemanticSearchOptions, SemanticSearchStatus } from './semantic-search';
 
 /**
  * The user generated persisted data edited or viewed by one or multiple actors (users, multiple devices etc.).
@@ -53,6 +53,7 @@ export interface DataStorage {
   semanticSearchByText(query: string, options?: SemanticSearchOptions): Promise<FileDTO[]>;
   semanticSearchByImage(fileId: ID, options?: SemanticSearchOptions): Promise<FileDTO[]>;
   semanticSearchByImages(fileIds: ID[], options?: SemanticSearchOptions): Promise<FileDTO[]>;
+  semanticSearchMultiModal(query: SemanticMultiModalQuery, options?: SemanticSearchOptions): Promise<FileDTO[]>;
   warmupSemanticModel(): Promise<void>;
   reindexSemanticEmbeddings(fileIds?: ID[]): Promise<number>;
   embedFileFromThumbnail(fileId: ID, thumbnailPath: string): Promise<void>;

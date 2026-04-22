@@ -36,7 +36,7 @@ import { ROOT_TAG_ID, TagDTO } from 'src/api/tag';
 import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
-import { SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
+import { SemanticMultiModalQuery, SemanticSearchOptions, SemanticSearchStatus } from 'src/api/semantic-search';
 import { PaginationOptions } from './query-builder';
 import { SemanticRepository } from './repositories/SemanticRepository';
 import { TagRepository } from './repositories/TagRepository';
@@ -221,6 +221,13 @@ export default class Backend implements DataStorage {
 
   async semanticSearchByImages(fileIds: ID[], options?: SemanticSearchOptions): Promise<FileDTO[]> {
     return this.#semantic.semanticSearchByImages(fileIds, options);
+  }
+
+  async semanticSearchMultiModal(
+    query: SemanticMultiModalQuery,
+    options?: SemanticSearchOptions,
+  ): Promise<FileDTO[]> {
+    return this.#semantic.semanticSearchMultiModal(query, options);
   }
 
   async warmupSemanticModel(): Promise<void> {

@@ -4,6 +4,8 @@ import {
   normalizeVector,
   meanPoolEmbeddings,
   cosineSimilarity,
+  blendEmbeddings,
+  subtractEmbedding,
 } from '../src/backend/semantic';
 
 describe('API type smoke tests', () => {
@@ -92,5 +94,51 @@ describe('DataStorage interface contract', () => {
   it('semanticSearchByImages is part of the DataStorage interface', () => {
     const keys: (keyof DataStorage)[] = ['semanticSearchByImages'];
     expect(keys[0]).toBe('semanticSearchByImages');
+  });
+});
+
+describe('blendEmbeddings', () => {
+  it('returns textEmb when textWeight=1', () => {
+    const text = normalizeVector([1, 0]);
+    const image = normalizeVector([0, 1]);
+    const result = blendEmbeddings(text, image, 1);
+    expect(result[0]).toBeCloseTo(1, 5);
+    expect(result[1]).toBeCloseTo(0, 5);
+  });
+
+  it('returns imageEmb when textWeight=0', () => {
+    const text = normalizeVector([1, 0]);
+    const image = normalizeVector([0, 1]);
+    const result = blendEmbeddings(text, image, 0);
+    expect(result[0]).toBeCloseTo(0, 5);
+    expect(result[1]).toBeCloseTo(1, 5);
+  });
+
+  it('blends 50/50 correctly and stays unit length', () => {
+    const text = normalizeVector([1, 0]);
+    const image = normalizeVector([0, 1]);
+    const result = blendEmbeddings(text, image, 0.5);
+    const norm = Math.sqrt(result[0] ** 2 + result[1] ** 2);
+    expect(norm).toBeCloseTo(1, 5);
+    expect(result[0]).toBeCloseTo(1 / Math.sqrt(2), 5);
+    expect(result[1]).toBeCloseTo(1 / Math.sqrt(2), 5);
+  });
+});
+
+describe('subtractEmbedding', () => {
+  it('subtracts negativeWeight * negativeEmb from positive then normalizes', () => {
+    const positive = normalizeVector([1, 0]);
+    const negative = normalizeVector([0.5, 0.5]);
+    const result = subtractEmbedding(positive, negative, 0.5);
+    const norm = Math.sqrt(result[0] ** 2 + result[1] ** 2);
+    expect(norm).toBeCloseTo(1, 5);
+  });
+
+  it('returns positive when negativeWeight is 0', () => {
+    const positive = normalizeVector([1, 0]);
+    const negative = normalizeVector([0, 1]);
+    const result = subtractEmbedding(positive, negative, 0);
+    expect(result[0]).toBeCloseTo(positive[0], 5);
+    expect(result[1]).toBeCloseTo(positive[1], 5);
   });
 });
