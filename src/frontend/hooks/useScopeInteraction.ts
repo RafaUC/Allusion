@@ -102,6 +102,7 @@ const handleGlobalInteraction = (event: MouseEvent | FocusEvent) => {
   // Dispatch the event status to all active hook instances
   activeScopes.forEach((scope) => {
     if (!targetPath.startsWith(scope.currentPath)) {
+      //console.log('[onOutside] Target : ', target, 'CurrentPath: ', scope.currentPath, ' | Event: ', event.type); // eslint-disable-line prettier/prettier
       scope.onOutside?.(event);
     } else {
       scope.onInside?.(event);

@@ -6,7 +6,7 @@ import { useStore } from '../contexts/StoreContext';
 import { Menu, MenuButton, useContextMenu } from 'widgets/menus';
 import { ClientExtraProperty } from '../entities/ExtraProperty';
 import { FileExtraPropertyMenuItems } from '../containers/ContentView/menu-items';
-import { useAutorun, useComputed } from '../hooks/mobx';
+import { useComputed } from '../hooks/mobx';
 import { ExtraPropertySelector } from './ExtraPropertySelector';
 import { ClientFile } from '../entities/File';
 import { IComputedValue, runInAction } from 'mobx';
@@ -23,6 +23,7 @@ import { useGalleryInputKeydownHandler } from '../hooks/useHandleInputKeydown';
 import { ExtraPropertyType, ExtraPropertyValue } from 'src/api/extraProperty';
 import { createPortal } from 'react-dom';
 import { Placement } from '@floating-ui/core';
+import useMountState from '../hooks/useMountState';
 
 const PANEL_HEIGHT_ID = 'extra-properties-editor-height';
 
@@ -133,16 +134,18 @@ export const FileExtraPropertiesEditor = observer(
       onRenameExtraProperty: onRename,
     });
 
-    // Autofocus
+    // Autofocus on mount
     const buttonParentRef = useRef<HTMLDivElement>(null);
     const focusButton = useRef(() => {
       requestAnimationFrame(() => requestAnimationFrame(() => buttonParentRef.current?.focus()));
     }).current;
-    useAutorun(() => {
-      if (uiStore.isFileExtraPropertiesEditorOpen) {
+    const [isMounted] = useMountState();
+    useEffect(() => {
+      if (isMounted) {
         focusButton();
       }
-    });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMounted]);
 
     //resize
     const panelRef = useRef<HTMLDivElement>(null);
