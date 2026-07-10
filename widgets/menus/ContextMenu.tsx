@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePopover } from '../popovers/usePopover';
 import { Menu, MenuProps } from './menus';
+import { INTERACTION_IGNORE_ATTRIBUTE_NAME } from 'src/frontend/hooks/useScopeInteraction';
 
 export const ContextMenuLayer = ({ children }: { children: React.ReactNode }) => {
   const [state, setState] = useState({ isOpen: false, x: 0, y: 0, menu: <Menu>{[]}</Menu> });
@@ -112,6 +113,7 @@ const ContextMenu = ({ isOpen, x, y, children, close }: ContextMenuProps) => {
       data-popover
       data-open={isOpen}
       data-contextmenu
+      {...{ [INTERACTION_IGNORE_ATTRIBUTE_NAME]: true }}
       tabIndex={-1}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}

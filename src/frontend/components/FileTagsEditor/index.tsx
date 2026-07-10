@@ -30,6 +30,8 @@ import useFocusEnforcer from '../../hooks/useFocusEnforcer';
 import { BULK_APPLY_OPTION, CREATE_OPTION } from './specialOptions';
 import useNormaltaggingMode from './useNormaltaggingMode';
 import useBulkTaggingMode, { BulkTag, isBulkText } from './useBulkTaggingMode';
+import { useScopeInteraction } from 'src/frontend/hooks/useScopeInteraction';
+import FocusManager from 'src/frontend/FocusManager';
 
 const POPUP_ID = 'tag-editor-popup';
 const PANEL_SIZE_ID = 'tag-editor-height';
@@ -225,7 +227,7 @@ export const FileTagsEditor = observer(() => {
     onFocusLost: resetTextBox,
   });
 
-  const handleTagContextMenu = TagSummaryMenu({ parentPopoverId: 'tag-editor' });
+  const handleTagContextMenu = TagSummaryMenu();
 
   return (
     <div
@@ -457,55 +459,21 @@ export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) =>
   );
 });
 
-interface ITagSummaryMenu {
-  parentPopoverId: string;
-}
-
-const TagSummaryMenu = ({ parentPopoverId }: ITagSummaryMenu) => {
-  const getFocusableElement = useCallback(() => {
-    return document
-      .getElementById(parentPopoverId)
-      ?.querySelector('input, textarea, button, a, select, [tabindex]') as HTMLElement | null;
-  }, [parentPopoverId]);
-  const handleMenuBlur = useCallback(
-    (e: React.FocusEvent) => {
-      if (!e.relatedTarget?.closest('[data-popover="true"]')) {
-        const element = getFocusableElement();
-        if (element && element instanceof HTMLElement) {
-          element.focus();
-          element.blur();
-        }
-      }
-    },
-    [getFocusableElement],
-  );
-  const handleMenuKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        const element = getFocusableElement();
-        e.stopPropagation();
-        if (element && element instanceof HTMLElement) {
-          element.focus();
-          element.blur();
-        }
-      }
-    },
-    [getFocusableElement],
-  );
-  const beforeSelect = useCallback(() => {
-    const element = getFocusableElement();
-    if (element && element instanceof HTMLElement) {
-      element.focus();
-      element.blur();
-    }
-  }, [getFocusableElement]);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+const TagSummaryMenu = () => {
   const divRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (activeMenuId && divRef.current) {
-      divRef.current.focus();
-    }
-  }, [activeMenuId]);
+  const beforeSelect = useCallback(() => {
+    FocusManager.focusGallery();
+  }, []);
+  const handleClose = useCallback(() => {
+    divRef.current?.focus();
+    divRef.current?.blur();
+  }, []);
+
+  useScopeInteraction({
+    currentPath: 'floating-panel/file-tags-editor/tag-menu',
+    onOutside: handleClose,
+    elementRef: divRef,
+  });
 
   const show = useContextMenu();
   const handleTagContextMenu = useCallback(
@@ -514,15 +482,14 @@ const TagSummaryMenu = ({ parentPopoverId }: ITagSummaryMenu) => {
       show(
         event.clientX,
         event.clientY,
-        <div ref={divRef} onBlur={handleMenuBlur} onKeyDown={handleMenuKeyDown} tabIndex={-1}>
+        <div ref={divRef} tabIndex={-1}>
           <Menu>
             <EditorTagSummaryItems tag={tag} beforeSelect={beforeSelect} />
           </Menu>
         </div>,
       );
-      setActiveMenuId(tag.id);
     },
-    [show, handleMenuBlur, handleMenuKeyDown, beforeSelect],
+    [show, beforeSelect],
   );
 
   return handleTagContextMenu;
