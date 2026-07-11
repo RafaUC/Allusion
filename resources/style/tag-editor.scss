@@ -6,7 +6,6 @@
   flex-direction: column;
   overflow: hidden;
   resize: vertical;
-  transition: height 0.1s ease-out;
 
   // Intended layout behavior:
   // - Input element has a static height
@@ -42,7 +41,6 @@
     height: calc(1.5rem * 3.5); // 3.5 rows of tags
     //Allow resizing and move the resize handle to the top of the div
     resize: vertical;
-    transition: height 0.1s ease-out;
     transform: scaleY(-1);
     //Important to avoid the main resize handler to overlap with this resize handler
     min-height: 2rem;
