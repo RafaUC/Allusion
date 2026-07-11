@@ -19,7 +19,7 @@
     opacity: 1;
   }
 
-  &:hover #file-editors-panel-header .toolbar-button  {
+  &:hover #file-editors-panel-header .toolbar-button {
     opacity: 1;
   }
 }
@@ -54,7 +54,7 @@
   position: relative;
   //min-height: 1rem;
   &::after {
-    content: "";
+    content: '';
     position: absolute;
     height: 1rem;
     width: 100%;
@@ -87,13 +87,14 @@
 
   h2 {
     cursor: pointer;
-    flex: 1 1 auto;
+    flex: 1 0 auto;
     white-space: nowrap;
     overflow: hidden;
     line-height: 1.5;
   }
 
   [role='toolbar'] {
+    justify-content: end;
     opacity: 0;
   }
 
@@ -268,8 +269,86 @@
       display: inline-flex;
       flex-wrap: wrap;
 
-      li{
+      li {
         flex: 1 1 auto;
+      }
+    }
+  }
+}
+
+// Tag hierarchy panel extra styles
+.search-tag-bar {
+  // default shrinked style
+  margin-right: 0.4rem;
+  flex-grow: 0;
+  width: 1.15rem;
+  transition: flex-grow 0.3s ease, width 0.3s ease;
+
+  .tag-selector.input {
+    height: 1.25rem;
+    background: transparent;
+    border: transparent;
+    cursor: pointer;
+
+    .multiautocomplete-input {
+      display: flex;
+      align-items: center;
+
+      .input-wrapper {
+        flex-grow: 1;
+
+        input {
+          height: 1.15rem;
+          line-height: 1.15rem;
+          min-height: unset;
+        }
+      }
+
+      .btn-icon {
+        height: 1.15rem;
+        width: 1.15rem;
+        min-height: unset;
+        min-width: unset;
+
+        // hidden by default
+        display: none;
+      }
+
+      .btn-icon-search {
+        height: 1.15rem;
+        width: 1.15rem;
+        display: inline-flex;
+        
+        .custom-icon {
+          height: 0.8rem;
+          width: 0.8rem;
+        }
+      }
+    }
+  }
+
+  // expanded state
+  [role='toolbar']:has(&.expanded) {
+    flex: 1 1 auto;
+  }
+  &.expanded {
+    flex-grow: 1;
+    width: 100%;
+  }
+  // toggle visibility of icon buttons
+  &.expanded{
+    .tag-selector.input {
+      background: var(--input-color);
+      border: 0.0625rem solid var(--border-color);
+
+      .multiautocomplete-input {
+        .btn-icon {
+          display: inline-flex;
+        }
+        .btn-icon-search {
+          display: none;
+          pointer-events: none;
+        }
       }
     }
   }
