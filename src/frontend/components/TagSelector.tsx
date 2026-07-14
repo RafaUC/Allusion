@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import React, {
   ForwardedRef,
+  forwardRef,
   ReactElement,
   useCallback,
   useEffect,
@@ -48,11 +49,15 @@ export interface TagSelectorProps {
   placement?: Placement;
   fallbackPlacements?: Placement[];
   strat?: Strategy;
+  clearInputOnSelect?: boolean;
 }
 
 const DEFAULT_FALLBACK_PLACEMENTS: Placement[] = ['left-end', 'top-start', 'right-end'];
 
-const TagSelector = observer((props: TagSelectorProps) => {
+const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function TargetTagSelector(
+  props,
+  ref,
+) {
   const { uiStore } = useStore();
   const {
     selection,
@@ -70,14 +75,26 @@ const TagSelector = observer((props: TagSelectorProps) => {
     placement = 'bottom-start',
     fallbackPlacements = DEFAULT_FALLBACK_PLACEMENTS,
     strat,
+    clearInputOnSelect = uiStore.isClearTagSelectorsOnSelectEnabled,
   } = props;
-  const clearInputOnSelect = uiStore.isClearTagSelectorsOnSelectEnabled;
   const gridId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [forceCreateOption, setForceCreateOption] = useState(false);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebQuery] = useState('');
+
+  const setInputRef = (element: HTMLInputElement | null) => {
+    (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = element;
+    if (!ref) {
+      return;
+    }
+    if (typeof ref === 'function') {
+      ref(element);
+    } else {
+      (ref as React.MutableRefObject<HTMLInputElement | null>).current = element;
+    }
+  };
 
   /**
    * A memoized map of selected tags with their inheritance status for better perfomance.
@@ -252,7 +269,7 @@ const TagSelector = observer((props: TagSelectorProps) => {
                 onKeyUp={handleKeyUp}
                 aria-controls={gridId}
                 aria-activedescendant={activeDescendant}
-                ref={inputRef}
+                ref={setInputRef}
                 onFocus={handleFocus}
               />
             </div>
@@ -277,7 +294,7 @@ const TagSelector = observer((props: TagSelectorProps) => {
     </div>
   );
 });
-
+const TagSelector = observer(_TagSelector);
 export { TagSelector };
 
 interface SelectedTagProps {

@@ -7,6 +7,10 @@
   overflow: hidden;
   resize: vertical;
 
+  &[data-docked="true"] {
+    transition: height 0.05s ease-out;
+  }
+
   // Intended layout behavior:
   // - Input element has a static height
   // - The tag checklist expands or shrinks to fill available space

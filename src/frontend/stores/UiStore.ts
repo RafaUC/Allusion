@@ -90,6 +90,7 @@ export interface IHotkeyMap {
   toggleExtraPropertiesEditor: string;
   toggleEditTagProperties: string;
   toggleLeftFileInfoViewer: string;
+  toggleTagPalletesEditor: string;
 
   toggleIncludeSubtagsOnTagSelectorSuggestionMatches: string;
 
@@ -106,6 +107,7 @@ export const defaultHotkeyMap: IHotkeyMap = {
   toggleEditTagProperties: '4',
   toggleExtraPropertiesEditor: '5',
   toggleLeftFileInfoViewer: '6',
+  toggleTagPalletesEditor: '7',
   toggleIncludeSubtagsOnTagSelectorSuggestionMatches: 'shift + 3',
   replaceQuery: 'q',
   toggleSettings: 's',
@@ -256,6 +258,7 @@ class UiStore {
   @observable isFileTagsEditorOpen: boolean = false;
   @observable isFileExtraPropertiesEditorOpen: boolean = false;
   @observable isFileExifEditorOpen: boolean = false;
+  @observable isTagPaletteEditorOpen: boolean = true;
   /** Dialog for removing unlinked files from Allusion's database */
   @observable isToolbarFileRemoverOpen: boolean = false;
   /** Dialog for moving files to the system's trash bin, and removing from Allusion's database */
@@ -861,6 +864,20 @@ class UiStore {
 
   @action.bound closeFileExtifEditor(): void {
     this.isFileExifEditorOpen = false;
+  }
+
+  @action.bound toggleTagPaletteEditor(): void {
+    this.isTagPaletteEditorOpen = !this.isTagPaletteEditorOpen;
+  }
+
+  @action.bound openTagPaletteEditor(): void {
+    if (this.fileSelection.size > 0) {
+      this.isTagPaletteEditorOpen = true;
+    }
+  }
+
+  @action.bound closeTagPaletteEditor(): void {
+    this.isTagPaletteEditorOpen = false;
   }
 
   @action.bound openLocationRecovery(locationId: ID): void {
@@ -1477,6 +1494,8 @@ class UiStore {
       this.toggleFileExtraPropertiesEditor();
     } else if (matches(hotkeyMap.toggleLeftFileInfoViewer)) {
       this.toggleFileExtifEditor();
+    } else if (matches(hotkeyMap.toggleTagPalletesEditor)) {
+      this.toggleTagPaletteEditor();
     } else if (matches(hotkeyMap.toggleIncludeSubtagsOnTagSelectorSuggestionMatches)) {
       this.toggleIncludeSubtagsOnMatch();
     } else if (matches(hotkeyMap.toggleEditTagProperties)) {

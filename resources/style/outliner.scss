@@ -241,11 +241,13 @@
 }
 
 .location-properties-dialog,
+.tag-palette-dialog,
 .tag-properties-dialog {
   display: flex;
   flex-direction: column;
 
   #location-properties-dialog-content,
+  #tag-palette-dialog-content,
   #tag-properties-dialog-content {
     width: min(90ch, 80vw);
     max-height: 80vh;
@@ -349,6 +351,242 @@
           display: none;
           pointer-events: none;
         }
+      }
+    }
+  }
+}
+
+.tag-palette-dialog {
+  max-width: 140ch;
+
+  .dialog-header {
+    margin-bottom: 0;
+  }
+
+  #tag-palette-dialog-content {
+    width: min(110ch, 80vw);
+    margin-top: 0;
+    display: flex;
+    gap: 20px;
+    min-height: 400px;
+
+///////////
+
+    .palette-sidebar {
+      width: 32ch;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-right: 1px solid var(--border-color);
+      padding-right: 15px;
+      
+      .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+
+        span {
+          font-weight: bold;
+        }
+
+        .button.is-compact {
+          padding: 2px 8px;
+          display: flex;
+          align-items: center;
+        }
+      }
+
+      .palette-vertical-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0px;
+
+        .empty-state {
+          opacity: 0.5;
+          font-size: 12px;
+          padding: 8px 0;
+        }
+      }
+
+      .palette-list-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-left: 6px;
+        padding-right: 0;
+        padding-block: 1px;
+        cursor: grab;
+        background-color: transparent;
+        border: 1px solid transparent;
+        transition: background-color 0.1s, border 0.1s, opacity 0.1s;
+        
+        &:hover {
+          background-color: var(--hover-color);
+          color: var(--text-color-strong);
+        }
+
+        &.is-dragging {
+          opacity: 0.4;
+        }
+
+        &.is-selected {
+          background-color: var(--background-color-selected);
+          border: 1px solid var(--accent-color);
+          color: var(--text-color-strong);
+        }
+
+        .palette-name {
+          font-size: 13px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          user-select: none;
+        }
+
+        .delete-btn {
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          opacity: 0;
+          padding-block: 2px;
+          transition: opacity 0.1s;
+
+          &:hover {
+            opacity: 1;
+          }
+        }
+
+        &:hover .delete-btn {
+          opacity: 0.6;
+        }
+      }
+    }
+
+    .palette-main-editor {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+
+      .empty-editor-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        opacity: 0.5;
+      }
+    }
+    
+//////////////////
+
+    fieldset {
+      margin-top: 0.5rem;
+    }
+
+    [role="toolbar"] {
+      gap: 5px;
+
+      select {
+        flex: 1;
+      }
+
+      .palette-index-input{
+        width: 3rem;
+      }
+
+      [data-popover="true"] {
+        ul[role='menu'] {
+          display: block;
+          padding: 0.5rem;
+        }
+      }
+    }
+  }
+}
+
+.tag-Order-Editor {
+  .multiautocomplete-input {
+    width: 100%;
+  }
+
+  // Scoped reset to keep elements tight without changing global layout components
+  .input-wrapper {
+    width: 100%;
+    gap: 1px 0px; // Row gap for multiline, 0px column gap since drop indicators act as structural padding
+    align-items: center;
+  }
+
+  .tag-option-hint {
+    padding: 2px 4px;
+    user-select: none;
+  }
+
+  .draggable-tag-wrapper {
+    display: inline-flex;
+    align-items: center;
+    cursor: grab;
+    user-select: none;
+    transition: opacity 0.12s ease, border 0.12s ease, transform 0.12s ease;
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm, 4px);
+    background-color: transparent;
+
+    .tag {
+      margin: 0;
+    }
+
+    &.selected {
+      border: 2px solid var(--accent-color);
+    }
+
+    &.dragging-source {
+      opacity: 0.35;
+    }
+
+    &.scale-down {
+      transform: scale(0.97);
+    }
+  }
+
+  .drop-indicator {
+    position: relative;
+    display: inline-block;
+    width: 0px;       // Invisible layout width acting as a small gap
+    height: 22px;     // Extended height to match layout lines
+    vertical-align: middle;
+    transition: width 0.1s ease;
+    z-index: 10;
+
+    // The actual visible line indicator is isolated to a clean center anchor
+    &::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      border-radius: 1px;
+      background-color: transparent;
+      transition: background-color 0.1s ease, width 0.1s ease;
+    }
+
+    // Larger interactive drop hit box expanding horizontally over tag margins
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -6px;   // Extends hit-detection area to the left
+      right: -6px;  // Extends hit-detection area to the right
+    }
+
+    &.is-drag-over {
+      width: 12px;
+      
+      &::after {
+        width: 6px;
+        background-color: var(--accent-color);
       }
     }
   }

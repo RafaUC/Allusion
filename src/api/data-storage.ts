@@ -13,6 +13,7 @@ import { LocationDTO } from './location';
 import { TagDTO } from './tag';
 import { ExtraPropertyDTO } from './extraProperty';
 import { BatchFetcher } from 'common/promise';
+import { TagPaletteDTO } from './tagPalette';
 
 /**
  * The user generated persisted data edited or viewed by one or multiple actors (users, multiple devices etc.).
@@ -39,6 +40,7 @@ export interface DataStorage {
   fetchLocations(): Promise<LocationDTO[]>;
   fetchSearches(): Promise<FileSearchDTO[]>;
   fetchExtraProperties(): Promise<ExtraPropertyDTO[]>;
+  fetchTagPalettes(): Promise<TagPaletteDTO[]>;
   searchFiles(
     criteria: ConditionGroupDTO<FileDTO> | undefined,
     order: OrderBy<FileDTO>,
@@ -54,17 +56,20 @@ export interface DataStorage {
   createLocation(location: LocationDTO): Promise<void>;
   createSearch(search: FileSearchDTO): Promise<void>;
   createExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void>;
+  createTagPalette(palette: TagPaletteDTO): Promise<void>;
   saveTag(tag: TagDTO): Promise<void>;
   saveFiles(files: FileDTO[]): Promise<void>;
   saveLocation(location: LocationDTO): Promise<void>;
   saveSearch(search: FileSearchDTO): Promise<void>;
   saveExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void>;
+  saveTagPalette(palette: TagPaletteDTO): Promise<void>;
   removeTags(tags: ID[]): Promise<void>;
   mergeTags(tagToBeRemoved: ID, tagToMergeWith: ID): Promise<void>;
   removeFiles(files: ID[]): Promise<void>;
   removeLocation(location: ID): Promise<void>;
   removeSearch(search: ID): Promise<void>;
   removeExtraProperties(extraProperty: ID[]): Promise<void>;
+  removeTagPalettes(paletteIds: ID[]): Promise<void>;
   addTagsToFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;
   removeTagsFromFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;
   clearTagsFromFiles(criteria?: ConditionGroupDTO<FileDTO>): Promise<void>;

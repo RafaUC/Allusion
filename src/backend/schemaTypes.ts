@@ -43,6 +43,8 @@ export type AllusionDB_SQL = {
   savedSearches: SavedSearches;
   searchGroups: SearchGroups;
   searchCriteria: SearchCriteria;
+  tagPalettes: TagPalettes;
+  tagPaletteItems: TagPaletteItems;
 };
 
 ///// TAGS /////
@@ -176,4 +178,18 @@ export type SearchCriteria = {
   // This simplifies the schema (single column) and querying. The type check is managed
   // inside the app logic in the searchStore and thir related api types.
   jsonValue: string;
+};
+
+/// TAG PALETTES ///
+
+export type TagPalettes = {
+  id: ColumnType<ID, ID, never>; // pk
+  name: string;
+  idx: number;
+};
+
+export type TagPaletteItems = {
+  paletteId: ID; // pk fk
+  tagId: ID; // pk fk
+  idx: number; // pk, this allow to have the same tag added multiple times to a pallete.
 };

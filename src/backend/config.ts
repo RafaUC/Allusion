@@ -26,6 +26,7 @@ class InlineMigrationProvider implements MigrationProvider {
       '000_initial': await import('./migrations/000_initial'),
       '001_migrateJSON': (await import('./migrations/001_migrateJSON')).default(context),
       '002_files_add_generated_directory_path': await import('./migrations/002_files_add_generated_directory_path'), // eslint-disable-line prettier/prettier
+      '003_tag_palettes': await import('./migrations/003_tag_palettes'),
     };
   }
 }

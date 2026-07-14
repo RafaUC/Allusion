@@ -235,6 +235,7 @@ export const FileTagsEditor = observer(() => {
       id="tag-editor"
       style={{ height: storedHeight ?? undefined }}
       role="combobox"
+      data-docked={uiStore.areFileEditorsDocked}
       aria-haspopup="grid"
       aria-expanded="true"
       aria-owns={POPUP_ID}

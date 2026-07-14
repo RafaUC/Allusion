@@ -12,6 +12,7 @@ import TagsTree from './TagsTree';
 import { TagPropertiesEditor } from './TagPropertiesEditor';
 import { TagsMoveTo } from './TagsMoveTo';
 import { TagMerge } from './TagMerge';
+import TagPaletteEditor from './TagPaletteEditor';
 
 // Tooltip info
 const enum TooltipInfo {
@@ -95,6 +96,7 @@ const TagsPanel = (props: Partial<MultiSplitPaneProps>) => {
       <TagPropertiesEditor />
       <TagMerge />
       <TagsMoveTo />
+      <TagPaletteEditor />
     </>
   );
 };
