@@ -91,6 +91,7 @@ export const TagMerge = observer(() => {
             onDeselect={() => setSelectedTag(undefined)}
             onClear={() => setSelectedTag(undefined)}
             multiline
+            clearInputOnSelect={false}
           />
           {mergingWithSelf && (
             <span className="form-error">You cannot merge a tag with itself.</span>

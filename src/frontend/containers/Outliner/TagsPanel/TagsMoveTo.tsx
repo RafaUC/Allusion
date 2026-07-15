@@ -92,6 +92,7 @@ export const TagsMoveTo = observer(() => {
             onClear={() => setSelectedTag(undefined)}
             multiline
             filter={isMulti ? undefined : (t) => tag !== t && !t.isImpliedAncestor(tag)}
+            clearInputOnSelect={false}
           />
         </fieldset>
         <br />

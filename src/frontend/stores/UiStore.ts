@@ -90,7 +90,7 @@ export interface IHotkeyMap {
   toggleExtraPropertiesEditor: string;
   toggleEditTagProperties: string;
   toggleLeftFileInfoViewer: string;
-  toggleTagPalletesEditor: string;
+  toggleTagPalettesEditor: string;
 
   toggleIncludeSubtagsOnTagSelectorSuggestionMatches: string;
 
@@ -107,7 +107,7 @@ export const defaultHotkeyMap: IHotkeyMap = {
   toggleEditTagProperties: '4',
   toggleExtraPropertiesEditor: '5',
   toggleLeftFileInfoViewer: '6',
-  toggleTagPalletesEditor: '7',
+  toggleTagPalettesEditor: '7',
   toggleIncludeSubtagsOnTagSelectorSuggestionMatches: 'shift + 3',
   replaceQuery: 'q',
   toggleSettings: 's',
@@ -258,7 +258,7 @@ class UiStore {
   @observable isFileTagsEditorOpen: boolean = false;
   @observable isFileExtraPropertiesEditorOpen: boolean = false;
   @observable isFileExifEditorOpen: boolean = false;
-  @observable isTagPaletteEditorOpen: boolean = true;
+  @observable isTagPaletteEditorOpen: boolean = false;
   /** Dialog for removing unlinked files from Allusion's database */
   @observable isToolbarFileRemoverOpen: boolean = false;
   /** Dialog for moving files to the system's trash bin, and removing from Allusion's database */
@@ -1494,7 +1494,7 @@ class UiStore {
       this.toggleFileExtraPropertiesEditor();
     } else if (matches(hotkeyMap.toggleLeftFileInfoViewer)) {
       this.toggleFileExtifEditor();
-    } else if (matches(hotkeyMap.toggleTagPalletesEditor)) {
+    } else if (matches(hotkeyMap.toggleTagPalettesEditor)) {
       this.toggleTagPaletteEditor();
     } else if (matches(hotkeyMap.toggleIncludeSubtagsOnTagSelectorSuggestionMatches)) {
       this.toggleIncludeSubtagsOnMatch();

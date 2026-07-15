@@ -77,6 +77,7 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
     strat,
     clearInputOnSelect = uiStore.isClearTagSelectorsOnSelectEnabled,
   } = props;
+  uiStore.isClearTagSelectorsOnSelectEnabled; // avoid mobx unused observer warning
   const gridId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -107,7 +108,8 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
     } else {
       return new Map((selection as ClientTag[]).map((tag) => [tag, true]));
     }
-  }, [selection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, selection.length]);
 
   const debounceSetDebQuery = useRef(debounce(setDebQuery)).current;
   useEffect(() => {

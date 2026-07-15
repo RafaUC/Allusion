@@ -547,6 +547,15 @@
         // It won't take up more than 1 line due to no-wrap
         height: 2em;
       }
+
+      .thumbnail-filename {
+        cursor: pointer;
+        transition: transform 0.08s ease-in-out;
+
+        &:active {
+          transform: scale(0.96);
+        }
+      }
     }
 
     &:hover {
