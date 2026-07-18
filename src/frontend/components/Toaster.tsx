@@ -64,13 +64,14 @@ export interface IToastProps {
   };
   timeout: number;
   type?: 'info' | 'success' | 'warning' | 'error';
+  compact?: boolean;
 }
 
 type IdentifiableToast = IToastProps & { id: ID };
 
 export const Toaster = observer(() => (
   <div id="toast-container">
-    {AppToaster.toastList.map(({ id, message, clickAction, timeout, type = "info" }) => (
+    {AppToaster.toastList.map(({ id, message, clickAction, timeout, type = 'info', compact }) => (
       <Toast
         key={id}
         message={message}
@@ -80,6 +81,7 @@ export const Toaster = observer(() => (
         timeout={timeout}
         onDismiss={() => AppToaster.dismiss(id)}
         type={type}
+        compact={compact}
       />
     ))}
     <SavingIndicator />

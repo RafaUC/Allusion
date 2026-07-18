@@ -8,11 +8,12 @@ interface IToast {
   timeout: number;
   onDismiss: () => void;
   type?: 'info' | 'success' | 'warning' | 'error';
+  compact?: boolean;
 }
 
-export const Toast = ({ message, clickAction, onDismiss, type = "info" }: IToast) => {
+export const Toast = ({ message, clickAction, onDismiss, type = 'info', compact }: IToast) => {
   return (
-    <div className={`toast toast-${type}`}>
+    <div className={`toast toast-${type} ${compact ? 'compact' : ''}`}>
       <span>{message}</span>
       {clickAction}
       <Button text="Dismiss" onClick={onDismiss} />

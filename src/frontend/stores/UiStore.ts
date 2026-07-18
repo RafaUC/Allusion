@@ -201,6 +201,8 @@ class UiStore {
   static MIN_INSPECTOR_WIDTH = 288; // default of 18 rem
   static MAX_RECENTLY_USED_TAGS = 40;
   static MAX_TAGGING_SERVICE_PARALLEL_REQUESTS = 10;
+  static MIN_THUMBNAIL_SIZE = 128;
+  static MAX_THUMBNAIL_SIZE = 608;
 
   private readonly rootStore: RootStore;
 
@@ -385,12 +387,33 @@ class UiStore {
     return this.method === ViewMethod.MasonryHorizontal;
   }
 
-  @action.bound setThumbnailSize(size: ThumbnailSize): void {
-    if (typeof size === 'string' && !ThumbnailSizes.includes(size)) {
-      console.warn(size, '- Invalid thumbnailSize value, keeping previous value');
+  @action.bound setThumbnailSize(
+    value: ThumbnailSize | ((prev: ThumbnailSize) => ThumbnailSize),
+  ): void {
+    if (typeof value === 'string' && !ThumbnailSizes.includes(value)) {
+      console.warn(value, '- Invalid thumbnailSize value, keeping previous value');
       return;
     }
-    this.thumbnailSize = size;
+    let nextValue: ThumbnailSize = typeof value === 'function' ? value(this.thumbnailSize) : value;
+    if (typeof nextValue === 'number') {
+      nextValue = clamp(nextValue, UiStore.MIN_THUMBNAIL_SIZE, UiStore.MAX_THUMBNAIL_SIZE);
+    }
+    this.thumbnailSize = nextValue;
+    if (typeof nextValue === 'number') {
+      const percentage = Math.round(
+        ((nextValue - UiStore.MIN_THUMBNAIL_SIZE) /
+          (UiStore.MAX_THUMBNAIL_SIZE - UiStore.MIN_THUMBNAIL_SIZE)) *
+          100,
+      );
+      AppToaster.show(
+        {
+          message: `Thumbnail: ${percentage}%`,
+          timeout: 600,
+          compact: true,
+        },
+        'thumbnail-size',
+      );
+    }
   }
 
   @action.bound setThumbnailRadius(size: number): void {
