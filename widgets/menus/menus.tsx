@@ -213,7 +213,9 @@ function handleMenuKeyDown(event: React.KeyboardEvent) {
   if (event.key === 'Enter') {
     if ((event.target as HTMLElement).matches('[role^="menuitem"]')) {
       event.stopPropagation();
-      (event.target as HTMLElement).click();
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => (event.target as HTMLElement).click()),
+      );
     }
   } else if (event.key === 'ArrowUp') {
     let listItem = (event.target as HTMLElement).closest('li') as HTMLElement | null;

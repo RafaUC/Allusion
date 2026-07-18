@@ -134,7 +134,12 @@ export const MenuSliderItem = ({
   );
 };
 
-export const MenuDivider = () => <li role="separator" className="menu-separator"></li>;
+//export const MenuDivider = () => <li role="separator" className="menu-separator"></li>;
+export const MenuDivider = ({ label }: { label?: string }) => (
+  <li role="separator" className="menu-separator separator-container">
+    {label ? <div className="separator-label">{label}</div> : null}
+  </li>
+);
 
 export type MenuItemLinkProps = {
   icon?: JSX.Element;

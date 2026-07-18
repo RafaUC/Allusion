@@ -37,17 +37,18 @@ const useNormaltaggingMode = ({
   resetTextBox,
   onContextMenu,
 }: useNormaltaggingModeProps) => {
-  const { tagStore, uiStore } = useStore();
+  const { tagStore, uiStore, tagPaletteStore } = useStore();
 
   const { matches, widestItem } = useMemo(
     () =>
       computed(
         (): { matches: (string | symbol | ClientTag)[]; widestItem: ClientTag | undefined } => {
+          const activePallete = tagPaletteStore.activePallete; // also works to avoid mobx alerts
+          const usePalette = activePallete !== undefined;
           if (!active) {
-            uiStore.recentlyUsedTags.length; // dummy oversable read to avoid mobx alerts
             return { matches: [], widestItem: undefined };
           }
-          if (inputText.length === 0) {
+          if (!usePalette && inputText.length === 0) {
             let widest: ClientTag | undefined = undefined;
             // string matches creates separators
             const matches: (symbol | ClientTag | string)[] = [];
@@ -70,13 +71,14 @@ const useNormaltaggingMode = ({
             matches.push(CREATE_OPTION);
             return { matches: matches, widestItem: widest };
           } else {
-            const includeSubtags = uiStore.isIncludeSubtagsOnMatchEnabled;
+            const includeSubtags = !usePalette && uiStore.isIncludeSubtagsOnMatchEnabled;
             let widest: ClientTag | undefined = undefined;
             const normalizedInput = normalizeBase(inputText);
             const exactMatches: ClientTag[] = [];
             const otherMatches: ClientTag[] = [];
             const visited = new Set<ClientTag>();
-            for (const tag of tagStore.tagList) {
+            const activeTagList = activePallete?.tags ?? tagStore.tagList;
+            for (const tag of activeTagList) {
               if (includeSubtags && visited.has(tag)) {
                 continue;
               }
@@ -97,13 +99,17 @@ const useNormaltaggingMode = ({
             }
             // Bring exact matches to the top of the suggestions. This helps find tags with short names
             // that would otherwise get buried under partial matches if they appeared lower in the list.
-            // Always append CREATE_OPTION to render the create option component.
+            // if no tag pallete is used, append CREATE_OPTION to render the create option component.
             const createOptionMatches =
               exactMatches.length > 0 || otherMatches.length > 0
                 ? ['', CREATE_OPTION]
                 : [CREATE_OPTION];
             return {
-              matches: [...exactMatches, ...otherMatches, ...createOptionMatches],
+              matches: [
+                ...exactMatches,
+                ...otherMatches,
+                ...(!usePalette ? createOptionMatches : []),
+              ],
               widestItem: widest,
             };
           }
@@ -113,9 +119,10 @@ const useNormaltaggingMode = ({
       active,
       counter,
       inputText,
+      tagPaletteStore.activePallete,
       tagStore.tagList,
-      uiStore.recentlyUsedTags,
       uiStore.isIncludeSubtagsOnMatchEnabled,
+      uiStore.recentlyUsedTags,
     ],
   ).get();
 

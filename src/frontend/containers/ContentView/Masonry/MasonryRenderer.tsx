@@ -115,6 +115,36 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Handle keyboard Control thumbnail size here since this componente renders masonry view
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        // (e.deltaY > 0 = down, < 0 = up)
+        if (e.deltaY < 0) {
+          uiStore.setThumbnailSize((prev) => {
+            if (typeof prev !== 'number') {
+              return 368; // reset to medium
+            }
+            return prev + 20;
+          });
+        } else {
+          uiStore.setThumbnailSize((prev) => {
+            if (typeof prev !== 'number') {
+              return 368; // reset to medium
+            }
+            return prev - 20;
+          });
+        }
+      }
+    };
+
+    const throttledHandleWheel = throttle(handleWheel, 50);
+    window.addEventListener('wheel', throttledHandleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', throttledHandleWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Initialize on mount
   useEffect(() => {
     (async function onMount() {

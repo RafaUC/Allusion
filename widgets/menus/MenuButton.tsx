@@ -16,6 +16,7 @@ export interface MenuButtonProps {
   placement?: Placement;
   strategy?: Strategy;
   updateDependency?: any;
+  title?: string;
 }
 
 export const MenuButton = ({
@@ -30,6 +31,7 @@ export const MenuButton = ({
   placement = 'bottom',
   strategy,
   updateDependency = children,
+  title,
 }: MenuButtonProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const menu = useRef<HTMLUListElement>(null);
@@ -87,6 +89,7 @@ export const MenuButton = ({
         aria-disabled={disabled}
         data-collapsible={isCollapsible ?? true}
         data-tooltip={tooltip ?? text}
+        title={title}
         onClick={disabled ? undefined : () => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-controls={menuID}

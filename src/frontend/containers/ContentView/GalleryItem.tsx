@@ -352,10 +352,18 @@ const ThumbnailOverlay = ({
     file.height
   }, ${humanFileSize(file.size)}`;
 
+  const handleCopyName: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    e.stopPropagation();
+    const nameWithoutExtension = file.name.replace(/\.[^/.]+$/, '');
+    navigator.clipboard.writeText(nameWithoutExtension).catch((err) => {
+      console.error('error on copy file name:', err);
+    });
+  };
+
   return (
     <div className="thumbnail-overlay" data-tooltip={title} tabIndex={-1} onBlur={deselect}>
       {showFilename && (
-        <div className="thumbnail-filename" data-tooltip={title}>
+        <div className="thumbnail-filename" data-tooltip={title} onClick={handleCopyName}>
           {file.name}
         </div>
       )}

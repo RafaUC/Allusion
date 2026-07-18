@@ -62,6 +62,7 @@ interface ToolbarButtonProps {
   checked?: boolean;
   controls?: string;
   type?: 'button' | 'submit' | 'reset';
+  title?: string;
 }
 
 const ToolbarButton = (props: ToolbarButtonProps) => {
@@ -78,6 +79,7 @@ const ToolbarButton = (props: ToolbarButtonProps) => {
     controls,
     tabIndex,
     type,
+    title,
   } = props;
   return (
     <button
@@ -91,6 +93,7 @@ const ToolbarButton = (props: ToolbarButtonProps) => {
       aria-controls={controls}
       tabIndex={tabIndex} // FIXME: Implement toolbar keyboard navigation.
       data-tooltip={tooltip ?? text}
+      title={title}
       type={type}
     >
       {icon}

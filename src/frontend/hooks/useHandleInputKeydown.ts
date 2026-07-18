@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { comboMatches, getKeyCombo, parseKeyCombo } from '../hotkeyParser';
 import { useStore } from '../contexts/StoreContext';
 import { action } from 'mobx';
+import FocusManager from '../FocusManager';
 
 // A custom hook that returns a memoized callback to handle keydown events on
 // input elements, preventing interference from gallery navigation keyboard
@@ -33,14 +34,12 @@ export function useGalleryInputKeydownHandler() {
       e.preventDefault();
       return;
     }
-    if (e.altKey) {
+    if (e.altKey || (e.key === ' ' && (e.metaKey || e.ctrlKey))) {
       e.preventDefault();
       return;
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      if (e.target instanceof HTMLInputElement) {
-        e.target.blur();
-      }
+      FocusManager.focusGallery();
     }
     // if Alt is not pressed, stop propagation to keep focus on the selected item.
     e.stopPropagation(); //Prevent event to propagate to the gallery

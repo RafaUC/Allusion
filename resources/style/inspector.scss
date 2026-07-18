@@ -89,7 +89,7 @@
     padding-right: 0.2rem;
   }
 
-  .inspector-extra-porperties-header {
+  header{
     .toolbar-button {
       opacity: 0;
 
@@ -100,11 +100,11 @@
     }
   }
 
-  .inspector-extra-porperties-header > div[tabindex='-1'] > .toolbar-button {
+  header > div[tabindex='-1'] > .toolbar-button {
     justify-content: flex-end;
   }
 
-  &:hover .inspector-extra-porperties-header .toolbar-button  {
+  &:hover header .toolbar-button  {
     opacity: 1;
   }
 }

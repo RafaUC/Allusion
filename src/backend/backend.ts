@@ -18,6 +18,8 @@ import {
   FileTags,
   SubTags,
   SearchGroups,
+  TagPalettes,
+  TagPaletteItems,
 } from './schemaTypes';
 import SQLite from 'better-sqlite3';
 import {
@@ -65,6 +67,7 @@ import { ROOT_LOCATIONS_TAG_ID, ROOT_TAG_ID, TagDTO } from 'src/api/tag';
 import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
+import { TagPaletteDTO } from 'src/api/tagPalette';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -566,6 +569,31 @@ export default class Backend implements DataStorage {
     return eProperties;
   }
 
+  async fetchTagPalettes(): Promise<TagPaletteDTO[]> {
+    console.info('SQLite: Fetching tag palettes...');
+    const palettes = await this.#db
+      .selectFrom('tagPalettes')
+      .selectAll('tagPalettes')
+      .select((eb) => [
+        jsonArrayFrom(
+          eb
+            .selectFrom('tagPaletteItems')
+            .select('tagPaletteItems.tagId')
+            .whereRef('tagPaletteItems.paletteId', '=', 'tagPalettes.id')
+            .orderBy('tagPaletteItems.idx'),
+        ).as('items'),
+      ])
+      .orderBy('tagPalettes.idx')
+      .execute();
+
+    return palettes.map((p) => ({
+      id: p.id,
+      name: p.name,
+      index: p.idx,
+      tags: p.items.map((item) => item.tagId),
+    }));
+  }
+
   async createTag(tag: TagDTO): Promise<void> {
     console.info('SQLite: Creating tag...', tag);
     return this.upsertTag(tag);
@@ -612,6 +640,11 @@ export default class Backend implements DataStorage {
   async createExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
     console.info('SQLite: Creating extra property...', extraProperty);
     return this.upsertExtraProperty(extraProperty);
+  }
+
+  async createTagPalette(palette: TagPaletteDTO): Promise<void> {
+    console.info('SQLite: Creating tag palette...', palette);
+    return this.upsertTagPalette(palette);
   }
 
   async saveTag(tag: TagDTO): Promise<void> {
@@ -820,6 +853,31 @@ export default class Backend implements DataStorage {
     this.#notifyChange();
   }
 
+  async saveTagPalette(palette: TagPaletteDTO): Promise<void> {
+    console.info('SQLite: Saving tag palette...', palette);
+    return this.upsertTagPalette(palette);
+  }
+
+  async upsertTagPalette(palette: TagPaletteDTO): Promise<void> {
+    const { paletteIds, tagPalettes, tagPaletteItems } = normalizeTagPalettes([palette]);
+    if (tagPalettes.length === 0) {
+      return;
+    }
+    await this.#db.transaction().execute(async (trx) => {
+      await trx.deleteFrom('tagPaletteItems').where('paletteId', 'in', paletteIds).execute();
+      await upsertTable(this.MAX_VARS, trx, 'tagPalettes', tagPalettes, ['id']);
+      if (tagPaletteItems.length > 0) {
+        await upsertTable(this.MAX_VARS, trx, 'tagPaletteItems', tagPaletteItems, [
+          'paletteId',
+          'tagId',
+          'idx',
+        ]);
+      }
+    });
+
+    this.#notifyChange();
+  }
+
   async mergeTags(tagToBeRemoved: ID, tagToMergeWith: ID): Promise<void> {
     console.info('SQLite: Merging tags...', tagToBeRemoved, tagToMergeWith);
 
@@ -900,6 +958,13 @@ export default class Backend implements DataStorage {
     console.info('SQLite: Removing extra properties...', extraPropertyIDs);
     // Cascade delte in other tables deleting from extraProperties table.
     await this.#db.deleteFrom('extraProperties').where('id', 'in', extraPropertyIDs).execute();
+    this.#notifyChange();
+  }
+
+  async removeTagPalettes(paletteIds: ID[]): Promise<void> {
+    console.info('SQLite: Removing tag palettes...', paletteIds);
+    // Cascade delte in tagPaletteItems deleting from tagPalettes table.
+    await this.#db.deleteFrom('tagPalettes').where('id', 'in', paletteIds).execute();
     this.#notifyChange();
   }
 
@@ -2095,4 +2160,35 @@ function normalizeFiles(sourceFiles: FileDTO[]) {
     }
   }
   return { fileIds, files, fileTags, epVal };
+}
+
+function normalizeTagPalettes(palettesDTO: TagPaletteDTO[]) {
+  const paletteIds: ID[] = [];
+  const tagPalettes: Insertable<TagPalettes>[] = [];
+  const tagPaletteItems: Insertable<TagPaletteItems>[] = [];
+
+  for (const palette of palettesDTO) {
+    paletteIds.push(palette.id);
+    tagPalettes.push({
+      id: palette.id,
+      name: palette.name,
+      idx: palette.index,
+    });
+
+    if (Array.isArray(palette.tags)) {
+      palette.tags.forEach((tagId, idx) => {
+        tagPaletteItems.push({
+          paletteId: palette.id,
+          tagId: tagId,
+          idx: idx,
+        });
+      });
+    }
+  }
+
+  return {
+    paletteIds,
+    tagPalettes,
+    tagPaletteItems,
+  };
 }

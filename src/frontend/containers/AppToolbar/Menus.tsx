@@ -147,6 +147,7 @@ export const SortMenuItems = observer(() => {
   );
 });
 
+// Min and max must match with uiStore min and max thumnail size
 const thumbnailSizeOptions = [
   { value: 128 },
   { value: 208, label: 'Small' },

@@ -90,6 +90,7 @@ export const LocationPropertiesEditor = observer(
                   onClear={locationToEdit.clearTags}
                   multiline
                   filter={(t) => !relatedTags.get().has(t)}
+                  clearInputOnSelect={false}
                 />
                 <br />
                 <br />

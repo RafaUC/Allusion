@@ -19,7 +19,7 @@
     opacity: 1;
   }
 
-  &:hover #file-editors-panel-header .toolbar-button  {
+  &:hover #file-editors-panel-header .toolbar-button {
     opacity: 1;
   }
 }
@@ -54,7 +54,7 @@
   position: relative;
   //min-height: 1rem;
   &::after {
-    content: "";
+    content: '';
     position: absolute;
     height: 1rem;
     width: 100%;
@@ -87,13 +87,14 @@
 
   h2 {
     cursor: pointer;
-    flex: 1 1 auto;
+    flex: 1 0 auto;
     white-space: nowrap;
     overflow: hidden;
     line-height: 1.5;
   }
 
   [role='toolbar'] {
+    justify-content: end;
     opacity: 0;
   }
 
@@ -109,6 +110,13 @@
     &[aria-checked='true'] {
       color: var(--accent-color);
     }
+  }
+}
+
+header {
+  [data-popover="true"] {
+    font-weight: initial;
+    font-size: small;
   }
 }
 
@@ -240,11 +248,13 @@
 }
 
 .location-properties-dialog,
+.tag-palette-dialog,
 .tag-properties-dialog {
   display: flex;
   flex-direction: column;
 
   #location-properties-dialog-content,
+  #tag-palette-dialog-content,
   #tag-properties-dialog-content {
     width: min(90ch, 80vw);
     max-height: 80vh;
@@ -268,8 +278,333 @@
       display: inline-flex;
       flex-wrap: wrap;
 
-      li{
+      li {
         flex: 1 1 auto;
+      }
+    }
+  }
+}
+
+// Tag hierarchy panel extra styles
+.search-tag-bar {
+  // default shrinked style
+  margin-right: 0.4rem;
+  flex-grow: 0;
+  width: 1.15rem;
+  transition: flex-grow 0.3s ease, width 0.3s ease;
+
+  .tag-selector.input {
+    height: 1.25rem;
+    background: transparent;
+    border: transparent;
+    cursor: pointer;
+
+    .multiautocomplete-input {
+      display: flex;
+      align-items: center;
+
+      .input-wrapper {
+        flex-grow: 1;
+
+        input {
+          height: 1.15rem;
+          line-height: 1.15rem;
+          min-height: unset;
+        }
+      }
+
+      .btn-icon {
+        height: 1.15rem;
+        width: 1.15rem;
+        min-height: unset;
+        min-width: unset;
+
+        // hidden by default
+        display: none;
+      }
+
+      .btn-icon-search {
+        height: 1.15rem;
+        width: 1.15rem;
+        display: inline-flex;
+        
+        .custom-icon {
+          height: 0.8rem;
+          width: 0.8rem;
+        }
+      }
+    }
+  }
+
+  // expanded state
+  [role='toolbar']:has(&.expanded) {
+    flex: 1 1 auto;
+  }
+  &.expanded {
+    flex-grow: 1;
+    width: 100%;
+  }
+  // toggle visibility of icon buttons
+  &.expanded{
+    .tag-selector.input {
+      background: var(--input-color);
+      border: 0.0625rem solid var(--border-color);
+
+      .multiautocomplete-input {
+        .btn-icon {
+          display: inline-flex;
+        }
+        .btn-icon-search {
+          display: none;
+          pointer-events: none;
+        }
+      }
+    }
+  }
+}
+
+.tag-palette-dialog {
+  max-width: 140ch;
+
+  .dialog-header {
+    margin-bottom: 0;
+  }
+
+  #tag-palette-dialog-content {
+    width: min(110ch, 80vw);
+    margin-top: 0;
+    display: flex;
+    gap: 20px;
+    min-height: 400px;
+
+///////////
+
+    .palette-sidebar {
+      width: 34ch;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-right: 1px solid var(--border-color);
+      padding-right: 15px;
+      
+      .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+
+        span {
+          font-weight: bold;
+        }
+
+        .button.is-compact {
+          padding: 2px 8px;
+          display: flex;
+          align-items: center;
+        }
+      }
+
+      .palette-vertical-list {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 0px;
+
+        .empty-state {
+          opacity: 0.5;
+          font-size: 12px;
+          padding: 8px 0;
+        }
+      }
+
+      .palette-list-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-left: 6px;
+        padding-right: 0;
+        padding-block: 1px;
+        cursor: grab;
+        background-color: transparent;
+        border: 1px solid transparent;
+        transition: background-color 0.1s, border 0.1s, opacity 0.1s;
+        min-width: 0;
+        
+        &:hover {
+          background-color: var(--hover-color);
+          color: var(--text-color-strong);
+        }
+
+        &.is-dragging {
+          opacity: 0.4;
+        }
+
+        &.is-selected {
+          background-color: var(--background-color-selected);
+          border: 1px solid var(--accent-color);
+          color: var(--text-color-strong);
+        }
+
+        .palette-name {
+          overflow: hidden; 
+          flex: 1;
+          padding-block: 0.2rem;
+          min-width: 0;
+          font-size: 13px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          user-select: none;
+        }
+
+        .delete-btn {
+          flex-shrink: 0;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          opacity: 0;
+          padding-block: 2px;
+          transition: opacity 0.1s;
+
+          &:hover {
+            opacity: 1;
+          }
+        }
+
+        &:hover .delete-btn {
+          opacity: 0.6;
+        }
+      }
+    }
+
+    .palette-main-editor {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+
+      .empty-editor-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        opacity: 0.5;
+      }
+    }
+    
+//////////////////
+
+    fieldset {
+      margin-top: 0.5rem;
+    }
+
+    [role="toolbar"] {
+      gap: 5px;
+
+      select {
+        flex: 1;
+      }
+
+      .palette-index-input{
+        width: 3rem;
+      }
+
+      [data-popover="true"] {
+        ul[role='menu'] {
+          display: block;
+          padding: 0.5rem;
+        }
+      }
+    }
+  }
+}
+
+.tag-palette-list {
+  max-height: 30ch;
+}
+
+.tag-Order-Editor {
+  .multiautocomplete-input {
+    width: 100%;
+  }
+
+  // Scoped reset to keep elements tight without changing global layout components
+  .input-wrapper {
+    width: 100%;
+    gap: 1px 0px; // Row gap for multiline, 0px column gap since drop indicators act as structural padding
+    align-items: center;
+  }
+
+  .tag-option-hint {
+    padding: 2px 4px;
+    user-select: none;
+  }
+
+  .draggable-tag-wrapper {
+    display: inline-flex;
+    align-items: center;
+    cursor: grab;
+    user-select: none;
+    transition: opacity 0.12s ease, border 0.12s ease, transform 0.12s ease;
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm, 4px);
+    background-color: transparent;
+
+    .tag {
+      margin: 0;
+    }
+
+    &.selected {
+      border: 2px solid var(--accent-color);
+    }
+
+    &.dragging-source {
+      opacity: 0.35;
+    }
+
+    &.scale-down {
+      transform: scale(0.97);
+    }
+  }
+
+  .drop-indicator {
+    position: relative;
+    display: inline-block;
+    width: 0px;       // Invisible layout width acting as a small gap
+    height: 22px;     // Extended height to match layout lines
+    vertical-align: middle;
+    transition: width 0.1s ease;
+    z-index: 10;
+
+    // The actual visible line indicator is isolated to a clean center anchor
+    &::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      border-radius: 1px;
+      background-color: transparent;
+      transition: background-color 0.1s ease, width 0.1s ease;
+    }
+
+    // Larger interactive drop hit box expanding horizontally over tag margins
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -6px;   // Extends hit-detection area to the left
+      right: -6px;  // Extends hit-detection area to the right
+    }
+
+    &.is-drag-over {
+      width: 12px;
+      
+      &::after {
+        width: 6px;
+        background-color: var(--accent-color);
       }
     }
   }

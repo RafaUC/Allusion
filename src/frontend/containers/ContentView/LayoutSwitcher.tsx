@@ -86,6 +86,7 @@ const Layout = ({ contentRect }: LayoutProps) => {
       if (uiStore.isSlideMode) {
         return;
       }
+      let clearSelection = false;
       if (e.key === 'ArrowLeft' && index > 0) {
         index -= 1;
         // When the activeElement GalleryItem goes out of view, focus will be handed over to the body element:
@@ -99,10 +100,18 @@ const Layout = ({ contentRect }: LayoutProps) => {
         if (!uiStore.isFileTagsEditorOpen && !uiStore.isFileExtraPropertiesEditorOpen) {
           FocusManager.focusGallery();
         }
+        // ctrl + space = jump to next single item, useful when using the file tag editor
+      } else if (e.key === ' ' && (e.metaKey || e.ctrlKey) && index < fileStore.fileList.length - 1) { // eslint-disable-line prettier/prettier
+        index += 1;
+        clearSelection = true;
       } else {
         return;
       }
-      handleFileSelect(fileStore.fileList[index], e.ctrlKey || e.metaKey, e.shiftKey);
+      handleFileSelect(
+        fileStore.fileList[index],
+        !clearSelection && (e.ctrlKey || e.metaKey),
+        !clearSelection && e.shiftKey,
+      );
     });
 
     const throttledKeyDown = throttle(onKeyDown, 50);

@@ -196,6 +196,7 @@ export const TagPropertiesEditor = observer(() => {
                 onClear={() => tag.replaceImpliedTags([])}
                 multiline
                 filter={(t) => !relatedTags.get().has(t)}
+                clearInputOnSelect={false}
               />
               <br />
               <label className="dialog-label" htmlFor="tag-implyBy-picker">
@@ -210,6 +211,7 @@ export const TagPropertiesEditor = observer(() => {
                 onClear={() => tag.replaceImpliedByTags([])}
                 multiline
                 filter={(t) => !relatedTags.get().has(t)}
+                clearInputOnSelect={false}
               />
             </fieldset>
           </>

@@ -14,6 +14,7 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import SearchStore from './SearchStore';
 import ExtraPropertyStore from './ExtraPropertyStore';
 import { AppToaster } from '../components/Toaster';
+import TagPaletteStore from './TagPaletteStore';
 
 // This will throw exceptions whenever we try to modify the state directly without an action
 // Actions will batch state modifications -> better for performance
@@ -36,6 +37,7 @@ class RootStore {
 
   readonly tagStore: TagStore;
   readonly extraPropertyStore: ExtraPropertyStore;
+  readonly tagPaletteStore: TagPaletteStore;
   readonly fileStore: FileStore;
   readonly locationStore: LocationStore;
   readonly uiStore: UiStore;
@@ -51,6 +53,7 @@ class RootStore {
   ) {
     this.tagStore = new TagStore(backend, this);
     this.extraPropertyStore = new ExtraPropertyStore(backend, this);
+    this.tagPaletteStore = new TagPaletteStore(backend, this);
     this.fileStore = new FileStore(backend, this);
     this.locationStore = new LocationStore(backend, this);
     this.uiStore = new UiStore(this);
@@ -82,6 +85,7 @@ class RootStore {
       // uses the location reference to set values.
       rootStore.locationStore.init(),
       rootStore.extraPropertyStore.init(),
+      rootStore.tagPaletteStore.init(),
       rootStore.exifTool.initialize(),
       rootStore.imageLoader.init(),
       rootStore.searchStore.init(),

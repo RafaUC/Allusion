@@ -85,7 +85,7 @@ export const UsagePreferences = observer(() => {
           checked={uiStore.isIncludeSubtagsOnMatchEnabled}
           onChange={uiStore.toggleIncludeSubtagsOnMatch}
         >
-          Include Sub-tags On Tag Selector Suggestion Matches
+          Include Sub-tags In Tag Selector Suggestion Matches
         </Toggle>
         <br />
         <div style={{ display: 'flex' }}>

@@ -1,4 +1,4 @@
-import { action } from 'mobx';
+import { action, runInAction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React, {
   ForwardedRef,
@@ -19,6 +19,8 @@ import { useStore } from '../../contexts/StoreContext';
 import { ClientFile } from '../../entities/File';
 import { Row } from './ListItem';
 import { GalleryProps } from './utils';
+
+const SCROLL_PAGE_THRESHOLD = 50;
 
 /** Generates a unique key for an element in the fileList */
 const getItemKey = action((index: number, data: (ClientFile | undefined)[]): string => {
@@ -47,6 +49,39 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
     return () => resizeObserver.disconnect();
   }, []);
 
+  const loadingPage = useRef<'after' | 'before' | null>(null);
+
+  useEffect(() => {
+    loadingPage.current = null;
+  }, [fileStore.fileList.length]);
+
+  const checkPagination = useCallback(() => {
+    const elem = list.current;
+    if (!elem) {
+      return;
+    }
+    const { scrollTop, scrollHeight, clientHeight } = elem;
+    const needsLoadNext = scrollTop + clientHeight >= scrollHeight - SCROLL_PAGE_THRESHOLD;
+    const needsLoadPrev = scrollTop <= SCROLL_PAGE_THRESHOLD;
+    if (needsLoadNext && loadingPage.current !== 'after') {
+      loadingPage.current = 'after';
+      fileStore.fetchAfter();
+    }
+    if (needsLoadPrev && loadingPage.current !== 'before') {
+      const firstItemId = runInAction(() => uiStore.firstFileInView?.id);
+      loadingPage.current = 'before';
+      fileStore.fetchBefore().then(() => {
+        if (!firstItemId) {
+          return;
+        }
+        const newIndex = fileStore.getIndex(firstItemId);
+        if (newIndex) {
+          ref.current?.scrollToItem(newIndex, 'smart');
+        }
+      });
+    }
+  }, [fileStore, uiStore.firstFileInView?.id]);
+
   const throttledScrollHandler = useRef(
     debouncedThrottle(
       action((index: number) => !uiStore.isSlideMode && uiStore.setFirstItem(index)),
@@ -55,9 +90,12 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
   );
 
   const handleScroll = useCallback(
-    (props: ListOnScrollProps) =>
-      throttledScrollHandler.current(Math.round(props.scrollOffset / cellSize)),
-    [cellSize],
+    (props: ListOnScrollProps) => {
+      const currentIndex = Math.round(props.scrollOffset / cellSize);
+      throttledScrollHandler.current(currentIndex);
+      checkPagination();
+    },
+    [cellSize, checkPagination],
   );
 
   const index = lastSelectionIndex.current;

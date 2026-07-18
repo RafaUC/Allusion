@@ -32,6 +32,7 @@ import { TagItemContextMenu } from './ContextMenu';
 import SearchButton from './SearchButton';
 import { Action, Factory, Flag, State, reducer } from './state';
 import { ID } from 'src/api/id';
+import SearchTagBar from './SearchTagBar';
 
 export class TagsTreeItemRevealer extends TreeItemRevealer {
   public static readonly instance: TagsTreeItemRevealer = new TagsTreeItemRevealer();
@@ -807,6 +808,7 @@ const TagsTree = observer((props: Partial<MultiSplitPaneProps>) => {
       }}
       headerToolbar={
         <Toolbar controls="tag-hierarchy" isCompact>
+          <SearchTagBar />
           {!tagStore.fileCountsInitialized && (
             <ToolbarButton
               icon={IconSet.RELOAD_COMPACT}

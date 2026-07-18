@@ -30,6 +30,11 @@ import useFocusEnforcer from '../../hooks/useFocusEnforcer';
 import { BULK_APPLY_OPTION, CREATE_OPTION } from './specialOptions';
 import useNormaltaggingMode from './useNormaltaggingMode';
 import useBulkTaggingMode, { BulkTag, isBulkText } from './useBulkTaggingMode';
+import { useScopeInteraction } from 'src/frontend/hooks/useScopeInteraction';
+import FocusManager from 'src/frontend/FocusManager';
+import { PortalButtonWrapper } from '../FileExtraPropertiesEditor';
+import TagSelectorSettingsButton from '../TagSelectorSettingsButton';
+import { FILE_EDITOR_HEADER_ID } from 'src/frontend/containers/Outliner/FileEditorsPanel';
 
 const POPUP_ID = 'tag-editor-popup';
 const PANEL_SIZE_ID = 'tag-editor-height';
@@ -225,53 +230,63 @@ export const FileTagsEditor = observer(() => {
     onFocusLost: resetTextBox,
   });
 
-  const handleTagContextMenu = TagSummaryMenu({ parentPopoverId: 'tag-editor' });
+  const handleTagContextMenu = TagSummaryMenu();
 
   return (
-    <div
-      ref={panelRef}
-      id="tag-editor"
-      style={{ height: storedHeight ?? undefined }}
-      role="combobox"
-      aria-haspopup="grid"
-      aria-expanded="true"
-      aria-owns={POPUP_ID}
-    >
-      <input
-        type="text"
-        spellCheck={false}
-        value={inputText}
-        aria-autocomplete="list"
-        onChange={handleInput}
-        onPaste={handlePaste}
-        onKeyDown={handleKeyDown}
-        className="input"
-        aria-controls={POPUP_ID}
-        aria-activedescendant={activeDescendant}
-        ref={inputRef}
-      />
-      <MatchingTagsList
-        ref={gridRef}
-        inputText={dobuncedQuery}
-        getTabMatchTagRef={getTabMatchTagRef}
-        counter={counter}
-        resetTextBox={resetTextBox}
-        onContextMenu={handleTagContextMenu}
-      />
-      <div ref={summaryRef} style={{ height: storedSummaryHeight ?? undefined }}>
-        {uiStore.fileSelection.size === 0 ? (
-          <div><i><b>No files selected</b></i></div> // eslint-disable-line prettier/prettier
-        ) : (
-          showSummary && (
-            <TagSummary
-              counter={counter}
-              removeTag={removeTag}
-              onContextMenu={handleTagContextMenu}
-            />
-          )
-        )}
+    <>
+      <PortalButtonWrapper containerId={FILE_EDITOR_HEADER_ID}>
+        <TagSelectorSettingsButton />
+      </PortalButtonWrapper>
+      <div
+        ref={panelRef}
+        id="tag-editor"
+        style={{ height: storedHeight ?? undefined }}
+        role="combobox"
+        data-docked={uiStore.areFileEditorsDocked}
+        aria-haspopup="grid"
+        aria-expanded="true"
+        aria-owns={POPUP_ID}
+      >
+        <input
+          type="text"
+          spellCheck={false}
+          value={inputText}
+          aria-autocomplete="list"
+          onChange={handleInput}
+          onPaste={handlePaste}
+          onKeyDown={handleKeyDown}
+          className="input"
+          aria-controls={POPUP_ID}
+          aria-activedescendant={activeDescendant}
+          ref={inputRef}
+        />
+        <MatchingTagsList
+          ref={gridRef}
+          inputText={dobuncedQuery}
+          getTabMatchTagRef={getTabMatchTagRef}
+          counter={counter}
+          resetTextBox={resetTextBox}
+          onContextMenu={handleTagContextMenu}
+        />
+        <div ref={summaryRef} style={{ height: storedSummaryHeight ?? undefined }}>
+          {uiStore.fileSelection.size === 0 ? (
+            <div>
+              <i>
+                <b>No files selected</b>
+              </i>
+            </div> // eslint-disable-line prettier/prettier
+          ) : (
+            showSummary && (
+              <TagSummary
+                counter={counter}
+                removeTag={removeTag}
+                onContextMenu={handleTagContextMenu}
+              />
+            )
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 });
 
@@ -373,8 +388,11 @@ const TagSummary = observer(({ counter, removeTag, onContextMenu }: TagSummaryPr
         onContextMenu={onContextMenu}
         chunkSize={uiStore.fileSelection.size > 1 ? 5 : 100}
       />
-      {sortedTags.length === 0 && <i><b>No tags added yet</b></i> // eslint-disable-line prettier/prettier
-      }
+      {sortedTags.length === 0 && (
+        <i>
+          <b>No tags added yet</b>
+        </i>
+      )}
     </div>
   );
 });
@@ -457,55 +475,21 @@ export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) =>
   );
 });
 
-interface ITagSummaryMenu {
-  parentPopoverId: string;
-}
-
-const TagSummaryMenu = ({ parentPopoverId }: ITagSummaryMenu) => {
-  const getFocusableElement = useCallback(() => {
-    return document
-      .getElementById(parentPopoverId)
-      ?.querySelector('input, textarea, button, a, select, [tabindex]') as HTMLElement | null;
-  }, [parentPopoverId]);
-  const handleMenuBlur = useCallback(
-    (e: React.FocusEvent) => {
-      if (!e.relatedTarget?.closest('[data-popover="true"]')) {
-        const element = getFocusableElement();
-        if (element && element instanceof HTMLElement) {
-          element.focus();
-          element.blur();
-        }
-      }
-    },
-    [getFocusableElement],
-  );
-  const handleMenuKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        const element = getFocusableElement();
-        e.stopPropagation();
-        if (element && element instanceof HTMLElement) {
-          element.focus();
-          element.blur();
-        }
-      }
-    },
-    [getFocusableElement],
-  );
-  const beforeSelect = useCallback(() => {
-    const element = getFocusableElement();
-    if (element && element instanceof HTMLElement) {
-      element.focus();
-      element.blur();
-    }
-  }, [getFocusableElement]);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+const TagSummaryMenu = () => {
   const divRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (activeMenuId && divRef.current) {
-      divRef.current.focus();
-    }
-  }, [activeMenuId]);
+  const beforeSelect = useCallback(() => {
+    FocusManager.focusGallery();
+  }, []);
+  const handleClose = useCallback(() => {
+    divRef.current?.focus();
+    divRef.current?.blur();
+  }, []);
+
+  useScopeInteraction({
+    currentPath: 'floating-panel/file-tags-editor/tag-menu',
+    onOutside: handleClose,
+    elementRef: divRef,
+  });
 
   const show = useContextMenu();
   const handleTagContextMenu = useCallback(
@@ -514,15 +498,14 @@ const TagSummaryMenu = ({ parentPopoverId }: ITagSummaryMenu) => {
       show(
         event.clientX,
         event.clientY,
-        <div ref={divRef} onBlur={handleMenuBlur} onKeyDown={handleMenuKeyDown} tabIndex={-1}>
+        <div ref={divRef} tabIndex={-1}>
           <Menu>
             <EditorTagSummaryItems tag={tag} beforeSelect={beforeSelect} />
           </Menu>
         </div>,
       );
-      setActiveMenuId(tag.id);
     },
-    [show, handleMenuBlur, handleMenuKeyDown, beforeSelect],
+    [show, beforeSelect],
   );
 
   return handleTagContextMenu;
