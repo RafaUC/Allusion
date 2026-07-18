@@ -11,6 +11,7 @@ import { Action, Factory } from './state';
 import { hexCompare } from 'widgets/utility/color';
 
 const defaultColorOptions = [
+  { title: 'No Color', color: '' },
   { title: 'Eminence', color: '#5f3292' },
   { title: 'Indigo', color: '#5642A6' },
   { title: 'Blue Ribbon', color: '#143ef1' },
@@ -45,34 +46,28 @@ export const ColorPickerMenu = observer(({ tag }: { tag: ClientTag }) => {
         onClick={() => handleChange(color === 'inherit' ? '' : 'inherit')}
       />
       <MenuSubItem text="Pick Color" icon={IconSet.COLOR}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', width: 'min-content', gap: '3px' }}>
-          <HexColorPicker color={color || undefined} onChange={handleChange} />
-          <button
-            key="none"
-            aria-label="No Color"
-            style={{
-              background: 'none',
-              border: '1px solid var(--text-color)',
-              borderRadius: '100%',
-              height: '1rem',
-              width: '1rem',
-            }}
-            onClick={() => handleChange('')}
-          />
+        <HexColorPicker color={color || undefined} onChange={handleChange} />
+        <div id='testId' style={{ display: 'grid', gridTemplateColumns: "repeat(auto-fill, minmax(24px, 1fr))", gap: '2px', marginTop: "4px" }}>
           {defaultColorOptions.map(({ title, color }) => (
-            <button
-              key={title}
-              aria-label={title}
-              style={{
+            <button style={{
                 background: color,
-                border: 'none',
+                border: color === '' ? '1px solid var(--text-color)' : 'none',
                 borderRadius: '100%',
                 height: '1rem',
                 width: '1rem',
+                margin: 0
               }}
+              key={title}
+              aria-label={title}
               onClick={() => handleChange(color)}
             />
           ))}
+          <input value={color} className="input" type="text" style={{gridColumn: "span 2", padding: '1px'}}
+            onChange={(event) => {
+              console.log(event.target.value)
+              handleChange(event.target.value)
+            }}
+          />
         </div>
       </MenuSubItem>
     </>
