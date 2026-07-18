@@ -19,6 +19,8 @@ const defaultPanel = {
   content: <></>,
 };
 
+export const FILE_EDITOR_HEADER_ID = 'file-editors-panel-header';
+
 const FileEditorsPanel = observer(({ className }: Partial<MultiSplitPaneProps>) => {
   const { uiStore } = useStore();
 
@@ -44,7 +46,7 @@ const FileEditorsPanel = observer(({ className }: Partial<MultiSplitPaneProps>) 
         content: (
           <FileExtraPropertiesEditor
             id="outliner-extra-porperties"
-            addButtonContainerID="file-editors-panel-header"
+            addButtonContainerID={FILE_EDITOR_HEADER_ID}
             menuPlacement="right-start"
           />
         ),

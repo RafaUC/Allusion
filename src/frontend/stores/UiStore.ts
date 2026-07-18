@@ -871,9 +871,7 @@ class UiStore {
   }
 
   @action.bound openTagPaletteEditor(): void {
-    if (this.fileSelection.size > 0) {
-      this.isTagPaletteEditorOpen = true;
-    }
+    this.isTagPaletteEditorOpen = true;
   }
 
   @action.bound closeTagPaletteEditor(): void {

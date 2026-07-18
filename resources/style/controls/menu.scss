@@ -18,6 +18,12 @@
       flex: 1;
       border-bottom: 1px solid var(--text-color-muted);
     }
+
+    .separator-label {
+      margin: 0 0.5rem;
+      color: var(--text-color-muted);
+      white-space: nowrap;
+    }
   }
 
   [role='group'] {

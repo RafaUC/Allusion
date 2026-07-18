@@ -70,6 +70,7 @@ const FileTags = observer(({ file }: IFileTagProp) => {
       renderCreateOption={renderCreateOption}
       showTagContextMenu={handleTagContextMenu}
       multiline
+      disableTagPalletes={false}
     />
   );
 });

@@ -9,6 +9,7 @@ import { IS_PREVIEW_WINDOW } from 'common/window';
 import FileExtraPropertiesEditor from '../../components/FileExtraPropertiesEditor';
 import ExifViewer from 'src/frontend/components/ExifViewer';
 import { Thumbnail } from '../ContentView/GalleryItem';
+import TagSelectorSettingsButton from 'src/frontend/components/TagSelectorSettingsButton';
 
 const Inspector = observer(() => {
   const { uiStore, fileStore } = useStore();
@@ -71,6 +72,7 @@ const Inspector = observer(() => {
           </section>
           <section>
             <header>
+              <TagSelectorSettingsButton />
               <h2>Tags</h2>
             </header>
             <FileTags file={first} />

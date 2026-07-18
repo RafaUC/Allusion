@@ -113,6 +113,13 @@
   }
 }
 
+header {
+  [data-popover="true"] {
+    font-weight: initial;
+    font-size: small;
+  }
+}
+
 // LIST
 
 .tree-content-label {
@@ -373,7 +380,7 @@
 ///////////
 
     .palette-sidebar {
-      width: 32ch;
+      width: 34ch;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -399,6 +406,7 @@
       .palette-vertical-list {
         flex: 1;
         overflow-y: auto;
+        overflow-x: hidden;
         display: flex;
         flex-direction: column;
         gap: 0px;
@@ -421,6 +429,7 @@
         background-color: transparent;
         border: 1px solid transparent;
         transition: background-color 0.1s, border 0.1s, opacity 0.1s;
+        min-width: 0;
         
         &:hover {
           background-color: var(--hover-color);
@@ -438,6 +447,10 @@
         }
 
         .palette-name {
+          overflow: hidden; 
+          flex: 1;
+          padding-block: 0.2rem;
+          min-width: 0;
           font-size: 13px;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -445,6 +458,7 @@
         }
 
         .delete-btn {
+          flex-shrink: 0;
           background: transparent;
           border: none;
           cursor: pointer;
@@ -502,6 +516,10 @@
       }
     }
   }
+}
+
+.tag-palette-list {
+  max-height: 30ch;
 }
 
 .tag-Order-Editor {

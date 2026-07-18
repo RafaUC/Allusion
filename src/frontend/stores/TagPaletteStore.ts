@@ -13,6 +13,8 @@ export class TagPaletteStore {
 
   private readonly palettesMap = observable(new Map<ID, ClientTagPalette>());
 
+  @observable activePallete: ClientTagPalette | undefined;
+
   constructor(backend: DataStorage, rootStore: RootStore) {
     this.backend = backend;
     this.rootStore = rootStore;
@@ -106,6 +108,10 @@ export class TagPaletteStore {
     palette.dispose();
     await this.backend.removeTagPalettes([palette.id]);
     this.normalizePaletteIndices();
+  }
+
+  @action.bound setActivePallete(pallete: ClientTagPalette | undefined): void {
+    this.activePallete = pallete;
   }
 
   save(paletteDto: TagPaletteDTO): void {

@@ -50,6 +50,7 @@ export interface TagSelectorProps {
   fallbackPlacements?: Placement[];
   strat?: Strategy;
   clearInputOnSelect?: boolean;
+  disableTagPalletes?: boolean;
 }
 
 const DEFAULT_FALLBACK_PLACEMENTS: Placement[] = ['left-end', 'top-start', 'right-end'];
@@ -76,6 +77,7 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
     fallbackPlacements = DEFAULT_FALLBACK_PLACEMENTS,
     strat,
     clearInputOnSelect = uiStore.isClearTagSelectorsOnSelectEnabled,
+    disableTagPalletes = true,
   } = props;
   uiStore.isClearTagSelectorsOnSelectEnabled; // avoid mobx unused observer warning
   const gridId = useId();
@@ -291,6 +293,7 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
           resetTextBox={resetTextBox}
           renderCreateOption={renderCreateOption}
           forceCreateOption={forceCreateOption}
+          disableTagPalletes={disableTagPalletes}
         />
       </Flyout>
     </div>
@@ -333,6 +336,7 @@ interface SuggestedTagsListProps {
     resetTextBox: () => void,
   ) => ReactElement<RowProps> | ReactElement<RowProps>[];
   forceCreateOption?: boolean;
+  disableTagPalletes?: boolean;
 }
 
 const SuggestedTagsList = observer(
@@ -350,13 +354,16 @@ const SuggestedTagsList = observer(
       resetTextBox,
       renderCreateOption,
       forceCreateOption,
+      disableTagPalletes = true,
     } = props;
-    const { tagStore, uiStore } = useStore();
+    const { tagStore, uiStore, tagPaletteStore } = useStore();
 
     const { suggestions, widestItem } = useMemo(
       () =>
         computed(() => {
-          if (query.length === 0 && !forceCreateOption) {
+          const activePallete = disableTagPalletes ? undefined : tagPaletteStore.activePallete;
+          const usePalette = activePallete !== undefined;
+          if (!usePalette && query.length === 0 && !forceCreateOption) {
             let widest: ClientTag | undefined = undefined;
             const matches: (ClientTag | ReactElement<RowProps> | string)[] = [];
             // Add recently used tags.
@@ -381,14 +388,15 @@ const SuggestedTagsList = observer(
             }
             return { suggestions: matches, widestItem: widest };
           } else {
-            const includeSubtags = uiStore.isIncludeSubtagsOnMatchEnabled;
+            const includeSubtags = !usePalette && uiStore.isIncludeSubtagsOnMatchEnabled;
             let widest: ClientTag | undefined = undefined;
             const normalizedQuery = normalizeBase(query);
             const exactMatches: ClientTag[] = [];
             const otherMatches: ClientTag[] = [];
             const visited = new Set<ClientTag>();
-            if (!forceCreateOption) {
-              for (const tag of tagStore.tagList) {
+            if (!forceCreateOption || usePalette) {
+              const activeTagList = activePallete?.tags ?? tagStore.tagList;
+              for (const tag of activeTagList) {
                 if (includeSubtags && visited.has(tag)) {
                   continue;
                 }
@@ -429,7 +437,11 @@ const SuggestedTagsList = observer(
             // Bring exact matches to the top of the suggestions. This helps find tags with short names
             // that would otherwise get buried under partial matches if they appeared lower in the list.
             return {
-              suggestions: [...exactMatches, ...otherMatches, ...createOptionItems],
+              suggestions: [
+                ...exactMatches,
+                ...otherMatches,
+                ...(!usePalette ? createOptionItems : []),
+              ],
               widestItem: widest,
             };
           }
@@ -439,6 +451,7 @@ const SuggestedTagsList = observer(
         query,
         tagStore.tagList,
         uiStore.recentlyUsedTags,
+        tagPaletteStore.activePallete,
         renderCreateOption,
         filter,
         forceCreateOption,

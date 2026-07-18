@@ -104,7 +104,7 @@ export const TagPaletteEditor = observer(() => {
                 </button>
               </div>
 
-              <div className="palette-vertical-list config-scrollbar">
+              <div className="palette-vertical-list">
                 {tagPaletteStore.isEmpty ? (
                   <div className="empty-state">No palettes available</div>
                 ) : (
@@ -124,7 +124,9 @@ export const TagPaletteEditor = observer(() => {
                           isDragging ? 'is-dragging' : ''
                         }`}
                       >
-                        <span className="palette-name">{palette.name}</span>
+                        <span className="palette-name" title={palette.name}>
+                          {palette.name}
+                        </span>
 
                         <button
                           type="button"

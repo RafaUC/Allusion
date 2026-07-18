@@ -251,7 +251,7 @@ interface PortalButtonWrapperProps {
   onPortalCreation?: () => void;
 }
 
-const PortalButtonWrapper = ({
+export const PortalButtonWrapper = ({
   containerId,
   children,
   onPortalCreation,

@@ -13,7 +13,7 @@ const useFocusEnforcer = ({
   isActive,
   ref,
   onFocusLost,
-  whitelistSelector = '[data-contextmenu="true"]',
+  whitelistSelector = '[data-contextmenu="true"], [data-popover="true"]',
 }: FocusOptions) => {
   const checkAndRestore = useCallback(() => {
     // request animation frame to allow the DOM to update focus
