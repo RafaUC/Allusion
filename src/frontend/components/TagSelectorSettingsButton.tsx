@@ -73,7 +73,7 @@ const TagSelectorSettingsButton = observer(() => {
         onClick={uiStore.toggleClearTagSelectorsOnSelect}
       />
       <MenuCheckboxItem
-        text="Include Sub-tags On Suggestion Matches"
+        text="Include Sub-tags In Suggestion Matches"
         //accelerator={IconSet.SETTINGS}
         checked={uiStore.isIncludeSubtagsOnMatchEnabled}
         onClick={uiStore.toggleIncludeSubtagsOnMatch}

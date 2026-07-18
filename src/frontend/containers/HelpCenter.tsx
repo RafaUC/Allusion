@@ -358,9 +358,10 @@ const PAGE_DATA: () => IPageData[] = () => [
               To organize your tags, simply drag the list items across the outliner. You can drop
               items onto one another to create a hierarchy. In this way you can turn a list of many
               tags into a structured shape, so that it is easy for you to find the specific tags you
-              were looking for. Alternatively, you can search for a tag in the File tags editor,
-              right-click the tag you're searching for, and select "Reveal in tags panel" to quickly
-              find a tag.
+              were looking for. Alternatively, you can search for a tag by clicking the magnifier
+              button at the header of the tags tree panel. You can also right-click any tag inside
+              the File tags editor or the assigned tags list and select "Reveal in tags panel" to
+              quickly find its location.
             </p>
             <p>
               You can set aliases, tag descriptions, implied relationships, and other settings for a
@@ -474,14 +475,34 @@ const PAGE_DATA: () => IPageData[] = () => [
         ),
       },
       {
+        title: 'Tag Palettes',
+        content: (
+          <>
+            <p>
+              Tag Palettes allow you to define restricted, custom lists of tags to avoid
+              interference from the rest of your tag library. This is especially useful when
+              classifying files within a predefined set of tags, keeping those specific tags
+              immediately available in the selector's base state without needing to type or search
+              for them, or search between them more efficiently.
+            </p>
+            <p>
+              To open the Tag Palettes manager, click the settings button located right above the
+              tag selectors, or use the shortcut "7". Inside the manager, you can create, rename,
+              delete, and reorder your palettes, as well as add and organize their respective tags.
+            </p>
+          </>
+        ),
+      },
+      {
         title: 'Navigation',
         content: (
           <>
             <p>
               When you have a large library of tags, it could be hard to find or remember where a
-              tag is in the hierarchy, in this case you can search for the tag on the tag editor
-              panel or in assigned tags in a file, and right-click them to show the option "Reveal
-              in tags panel" to quickly find a tag.
+              tag is in the hierarchy. In this case, you can search for the tag by clicking the
+              magnifier button at the header of the tags tree panel and typing a tag. You also can
+              use the tag editor panel or the assigned tags in a file by right-clicking them to show
+              the option "Reveal in tags panel" to quickly find a tag.
             </p>
           </>
         ),

@@ -92,7 +92,7 @@ export interface IHotkeyMap {
   toggleLeftFileInfoViewer: string;
   toggleTagPalettesEditor: string;
 
-  toggleIncludeSubtagsOnTagSelectorSuggestionMatches: string;
+  toggleIncludeSubtagsInTagSelectorSuggestionMatches: string;
 
   // Other
   openPreviewWindow: string;
@@ -108,7 +108,7 @@ export const defaultHotkeyMap: IHotkeyMap = {
   toggleExtraPropertiesEditor: '5',
   toggleLeftFileInfoViewer: '6',
   toggleTagPalettesEditor: '7',
-  toggleIncludeSubtagsOnTagSelectorSuggestionMatches: 'shift + 3',
+  toggleIncludeSubtagsInTagSelectorSuggestionMatches: 'shift + 3',
   replaceQuery: 'q',
   toggleSettings: 's',
   toggleHelpCenter: 'h',
@@ -1517,7 +1517,7 @@ class UiStore {
       this.toggleFileExtifEditor();
     } else if (matches(hotkeyMap.toggleTagPalettesEditor)) {
       this.toggleTagPaletteEditor();
-    } else if (matches(hotkeyMap.toggleIncludeSubtagsOnTagSelectorSuggestionMatches)) {
+    } else if (matches(hotkeyMap.toggleIncludeSubtagsInTagSelectorSuggestionMatches)) {
       this.toggleIncludeSubtagsOnMatch();
     } else if (matches(hotkeyMap.toggleEditTagProperties)) {
       this.toggleEditTagProperties();
