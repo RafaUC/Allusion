@@ -51,6 +51,9 @@ export interface TagSelectorProps {
   strat?: Strategy;
   clearInputOnSelect?: boolean;
   disableTagPalletes?: boolean;
+
+  forceCreateOption?: boolean;
+  setForceCreateOption?: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const DEFAULT_FALLBACK_PLACEMENTS: Placement[] = ['left-end', 'top-start', 'right-end'];
@@ -78,14 +81,19 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
     strat,
     clearInputOnSelect = uiStore.isClearTagSelectorsOnSelectEnabled,
     disableTagPalletes = true,
+    forceCreateOption: _forceCreateOption,
+    setForceCreateOption: _setForceCreateOption,
   } = props;
   uiStore.isClearTagSelectorsOnSelectEnabled; // avoid mobx unused observer warning
   const gridId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [forceCreateOption, setForceCreateOption] = useState(false);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebQuery] = useState('');
+  const [__forceCreateOption, __setForceCreateOption] = useState(false);
+  const usePropFCO = _forceCreateOption !== undefined && _setForceCreateOption !== undefined;
+  const forceCreateOption = usePropFCO ? _forceCreateOption : __forceCreateOption;
+  const setForceCreateOption = usePropFCO ? _setForceCreateOption : __setForceCreateOption;
 
   const setInputRef = (element: HTMLInputElement | null) => {
     (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = element;
@@ -181,11 +189,14 @@ const _TagSelector = forwardRef<HTMLInputElement, TagSelectorProps>(function Tar
     ],
   );
 
-  const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Alt') {
-      setForceCreateOption((prev) => !prev);
-    }
-  }, []);
+  const handleKeyUp = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Alt') {
+        setForceCreateOption((prev) => !prev);
+      }
+    },
+    [setForceCreateOption],
+  );
 
   const handleBlur = useRef((e: React.FocusEvent<HTMLDivElement>) => {
     // If anything is blurred, and the new focus is not the input nor the flyout, close the flyout

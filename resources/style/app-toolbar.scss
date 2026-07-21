@@ -20,16 +20,47 @@
   flex-grow: 1;
   min-width: 3rem;
 
+  .toolbar-button,
   .btn-icon-large {
     color: var(--text-color-muted);
+    min-width: 1.5rem !important;
+    min-height: 1.5rem !important;
+
     &:hover {
       color: var(--text-color);
+    }
+
+    &.toolbar-button {
+      height: 1.25em;
+      width: auto;
+      align-items: end;
+      margin-inline: 4px;
     }
 
     .custom-icon {
       height: 1.25em;
       width: 1.25em;
     }
+
+    .text-icon {
+      font-weight: bold;
+      font-size: x-small;
+      //text-transform: uppercase;
+
+      padding-top: 0.5px;
+      height: 16px;
+      margin-top: 2px;
+      box-sizing: border-box; 
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 2px;
+      border-radius: 4px; 
+    }
+  }
+
+  [role="menuitem"] {
+    cursor: pointer;
   }
 
   // For indicating certain tags can be "system-tags" (for instance: Untagged images)

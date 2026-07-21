@@ -47,13 +47,14 @@ export function isCriteriaGroup(obj: any): obj is CriteriaGroup {
   return obj && typeof obj === 'object' && 'children' in obj;
 }
 
+// Type Key and assigned Criteria K must overlap completely
 export type Criteria =
   | Field<'name' | 'absolutePath', StringOperatorType, string>
   | Field<'tags', TagOperatorType, TagValue>
   | Field<'extension', BinaryOperatorType, string>
   | Field<'size', NumberOperatorType, number>
   | Field<'width' | 'height', NumberOperatorType, number>
-  | Field<'dateAdded', NumberOperatorType, Date>
+  | Field<'dateAdded' | 'dateCreated' | 'dateModified' | 'dateModifiedOS', NumberOperatorType, Date>
   | ExtraPropertyField<ExtraPropertyID, ExtraPropertyOperatorType, any>
   | ExtraPropertyField<ExtraPropertyID, NumberOperatorType, number>
   | ExtraPropertyField<ExtraPropertyID, StringOperatorType, string>;
@@ -75,16 +76,46 @@ interface ExtraPropertyField<
 
 export type Key = keyof Pick<
   FileDTO,
+  | 'tags'
   | 'name'
   | 'absolutePath'
-  | 'tags'
   | 'extension'
   | 'size'
   | 'width'
   | 'height'
   | 'dateAdded'
+  | 'dateCreated'
+  | 'dateModified'
+  | 'dateModifiedOS'
   | 'extraProperties'
 >;
+
+export const FileKeyOptions: Record<Key, string> = {
+  tags: 'Tags',
+  name: 'File Name',
+  absolutePath: 'File Path',
+  size: 'File Size (MB)',
+  width: 'Width',
+  height: 'Height',
+  extension: 'File Extension',
+  dateAdded: 'Date Added',
+  dateCreated: 'Date Created',
+  dateModified: 'Date Modified In App',
+  dateModifiedOS: 'Date Modified',
+  extraProperties: 'Extra Property',
+};
+
+export const QuickSearchKeyOptions = {
+  tags: FileKeyOptions.tags,
+  name: FileKeyOptions.name,
+  absolutePath: FileKeyOptions.absolutePath,
+  extension: FileKeyOptions.extension,
+  size: FileKeyOptions.size,
+  width: FileKeyOptions.width,
+  height: FileKeyOptions.height,
+  extraProperties: FileKeyOptions.extraProperties,
+} as const;
+
 export type Operator = OperatorType;
 export type Value = string | number | Date | TagValue | ExtraPropertyValue;
 export type TagValue = ID | undefined;
@@ -99,101 +130,138 @@ export function getemptyQuery(): Query {
   };
 }
 
+//prettier-ignore
 export function defaultQuery(key: Key, extraPropertyType?: ExtraPropertyType): Criteria {
-  if (key === 'name' || key === 'absolutePath') {
-    return { id: generateId(), key, operator: 'contains', value: '' };
-  } else if (key === 'tags') {
-    return { id: generateId(), key, operator: 'contains', value: undefined };
-  } else if (key === 'extension') {
-    return {
-      id: generateId(),
-      key,
-      operator: 'equals',
-      value: IMG_EXTENSIONS[0],
-    };
-  } else if (key === 'dateAdded') {
-    return {
-      id: generateId(),
-      key,
-      operator: 'equals',
-      value: new Date(),
-    };
-  } else if (key === 'extraProperties') {
-    if (extraPropertyType !== undefined) {
-      if (extraPropertyType === ExtraPropertyType.number) {
-        return {
-          id: generateId(),
-          extraProperty: undefined,
-          key: 'extraProperties',
-          value: 0,
-          operator: 'equals',
-        };
-      } else if (extraPropertyType === ExtraPropertyType.text) {
-        return {
-          id: generateId(),
-          extraProperty: undefined,
-          key: 'extraProperties',
-          value: '',
-          operator: 'contains',
-        };
+  switch (key) {
+    case 'name':
+    case 'absolutePath':
+      return { id: generateId(), key, operator: 'contains', value: '' };
+    case 'tags':
+      return { id: generateId(), key, operator: 'contains', value: undefined };
+    case 'extension':
+      return { id: generateId(),  key,  operator: 'equals',  value: IMG_EXTENSIONS[0] };
+    case 'dateAdded':
+    case 'dateCreated':
+    case 'dateModified':
+    case 'dateModifiedOS':
+      return { id: generateId(), key, operator: 'equals', value: new Date() };
+    case 'size':
+    case 'width':
+    case 'height':
+      return {
+        id: generateId(),
+        key: key,
+        operator: 'greaterThanOrEquals',
+        value: 0,
+      };
+    case 'extraProperties': {
+      if (extraPropertyType !== undefined) {
+        if (extraPropertyType === ExtraPropertyType.number) {
+          return {
+            id: generateId(),
+            extraProperty: undefined,
+            key: 'extraProperties',
+            value: 0,
+            operator: 'equals',
+          };
+        } else if (extraPropertyType === ExtraPropertyType.text) {
+          return {
+            id: generateId(),
+            extraProperty: undefined,
+            key: 'extraProperties',
+            value: '',
+            operator: 'contains',
+          };
+        }
       }
+      return {
+        id: generateId(),
+        extraProperty: undefined,
+        key: 'extraProperties',
+        value: 0,
+        operator: 'equals',
+      };
     }
-    return {
-      id: generateId(),
-      extraProperty: undefined,
-      key: 'extraProperties',
-      value: 0,
-      operator: 'equals',
-    };
-  } else {
-    return {
-      id: generateId(),
-      key: key,
-      operator: 'greaterThanOrEquals',
-      value: 0,
-    };
+    default: {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _exhaustiveCheck: never = key;
+      return {
+        id: generateId(),
+        key: key,
+        operator: 'greaterThanOrEquals',
+        value: 0,
+      };
+    }
   }
 }
 
-const BYTES_IN_MB = 1024 * 1024;
+export const BYTES_IN_MB = 1024 * 1024;
 
+//prettier-ignore
 export function fromCriteria(criteria: ClientFileSearchCriteria): [ID, Criteria] {
   const query = defaultQuery('tags');
+  const key = criteria.key as Key;
+  let isMatched = false;
   // Preserve the value when the criteria has the same type of value
-  if (
-    criteria instanceof ClientStringSearchCriteria &&
-    (criteria.key === 'name' || criteria.key === 'absolutePath' || criteria.key === 'extension')
-  ) {
-    query.value = criteria.value;
-  } else if (criteria instanceof ClientDateSearchCriteria && criteria.key === 'dateAdded') {
-    query.value = criteria.value;
-  } else if (criteria instanceof ClientNumberSearchCriteria && criteria.key === 'size') {
-    query.value = criteria.value / BYTES_IN_MB;
-  } else if (criteria instanceof ClientTagSearchCriteria && criteria.key === 'tags') {
-    const id = criteria.value;
-    query.value = id;
-  } else if (
-    criteria instanceof ClientNumberSearchCriteria &&
-    (criteria.key === 'width' || criteria.key === 'height')
-  ) {
-    query.value = criteria.value;
-  } else if (
-    criteria instanceof ClientExtraPropertySearchCriteria &&
-    criteria.key === 'extraProperties'
-  ) {
-    (
-      query as ExtraPropertyField<
-        ExtraPropertyID,
-        StringOperatorType | NumberOperatorType,
-        ExtraPropertyValue
-      >
-    ).extraProperty = criteria.value[0];
-    query.value = criteria.value[1];
-  } else {
-    return [generateCriteriaId(), query];
+  switch (key) {
+    case 'name':
+    case 'absolutePath':
+    case 'extension':
+      if (criteria instanceof ClientStringSearchCriteria) {
+        query.value = criteria.value;
+        isMatched = true;
+      }
+      break;
+    case 'dateAdded':
+    case 'dateCreated':
+    case 'dateModifiedOS':
+    case 'dateModified':
+      if (criteria instanceof ClientDateSearchCriteria) {
+        query.value = criteria.value;
+        isMatched = true;
+      }
+      break;
+    case 'size':
+      if (criteria instanceof ClientNumberSearchCriteria) {
+        query.value = criteria.value / BYTES_IN_MB;
+        isMatched = true;
+      }
+      break;
+    case 'width':
+    case 'height':
+      if (criteria instanceof ClientNumberSearchCriteria) {
+        query.value = criteria.value;
+        isMatched = true;
+      }
+      break;
+    case 'tags':
+      if (criteria instanceof ClientTagSearchCriteria) {
+        query.value = criteria.value;
+        isMatched = true;
+      }
+      break;
+    case 'extraProperties':
+      if (criteria instanceof ClientExtraPropertySearchCriteria) {
+        (
+          query as ExtraPropertyField<
+            ExtraPropertyID,
+            StringOperatorType | NumberOperatorType,
+            ExtraPropertyValue
+          >
+        ).extraProperty = criteria.value[0];
+        query.value = criteria.value[1];
+        isMatched = true;
+      }
+      break;
+    default:
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _exhaustiveCheck: never = key;
+      break;
   }
-  query.key = criteria.key;
-  query.operator = criteria.operator;
+  if (isMatched) {
+    query.key = criteria.key as Key;
+    query.operator = criteria.operator;
+  }
   return [generateCriteriaId(), query];
 }
 
@@ -217,26 +285,38 @@ export function queryFromCriteria(criteria: ClientSearchGroup): Query {
 
 //prettier-ignore
 export function intoCriteria(query: Criteria, tagStore: TagStore): ClientFileSearchCriteria {
-  if (query.key === 'name' || query.key === 'absolutePath' || query.key === 'extension') {
-    return new ClientStringSearchCriteria(query.id, query.key, query.value, query.operator);
-  } else if (query.key === 'dateAdded') {
-    return new ClientDateSearchCriteria(query.id, query.key, query.value, query.operator);
-  } else if (query.key === 'size') {
-    return new ClientNumberSearchCriteria(query.id, query.key, query.value * BYTES_IN_MB, query.operator);
-  } else if (query.key === 'width' || query.key === 'height') {
-    return new ClientNumberSearchCriteria(query.id, query.key, query.value, query.operator);
-  } else if (query.key === 'tags') {
-    const tag = query.value !== undefined ? tagStore.get(query.value) : undefined;
-    return new ClientTagSearchCriteria(query.id, 'tags', tag?.id, query.operator);
-  } else if (query.key === 'extraProperties') {
-    return new ClientExtraPropertySearchCriteria(
-      query.id,
-      query.key,
-      [query.extraProperty ?? '', query.value],
-      query.operator,
-    );
-  } else {
-    return new ClientTagSearchCriteria(query.id, 'tags');
+  const key = query.key;
+  switch (key) {
+    case 'name':
+    case 'absolutePath':
+    case 'extension':
+      return new ClientStringSearchCriteria(query.id, key, query.value, query.operator);
+    case 'dateAdded':
+    case 'dateCreated':
+    case 'dateModified':
+    case 'dateModifiedOS':
+      return new ClientDateSearchCriteria(query.id, key, query.value, query.operator);
+    case 'size':
+      return new ClientNumberSearchCriteria(query.id, key, query.value * BYTES_IN_MB, query.operator);
+    case 'width':
+    case 'height':
+      return new ClientNumberSearchCriteria(query.id, key, query.value, query.operator);
+    case 'tags': {
+      const tag = query.value !== undefined ? tagStore.get(query.value) : undefined;
+      return new ClientTagSearchCriteria(query.id, 'tags', tag?.id, query.operator);
+    }
+    case 'extraProperties':
+      return new ClientExtraPropertySearchCriteria(
+        query.id,
+        key,
+        [query.extraProperty ?? '', query.value],
+        query.operator,
+      );
+    default: {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _exhaustiveCheck: never = key;
+      return new ClientTagSearchCriteria(undefined, 'tags');
+    }
   }
 }
 

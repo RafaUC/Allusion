@@ -8,7 +8,7 @@ export type StringProperties<T> = {
   [K in keyof T]: T[K] extends string ? K : never;
 }[keyof T];
 
-export type OrderBy<T> = PropertyKeys<T> | 'random' | 'extraProperty';
+export type OrderBy<T> = PropertyKeys<T> | 'random';
 
 export const enum OrderDirection {
   Asc,

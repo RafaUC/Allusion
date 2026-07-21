@@ -67,7 +67,14 @@ export const StringOperatorLabels: Record<StringOperatorType, string> = {
 
 export const ExtraPropertyOperatorLabels: Record<ExtraPropertyOperatorType, string> = {
   existsInFile: 'Exists in File',
-  notExistsInFile: 'Does Not Exist in File',
+  notExistsInFile: 'Does not Exist in File',
+};
+
+export const TagOperatorLabels: Record<TagOperatorType, string> = {
+  contains: 'Directly Contains',
+  notContains: 'Not Directly Contains',
+  containsRecursively: 'Contains (or Implied)',
+  containsNotRecursively: 'Not Contains (nor Implied)',
 };
 
 export abstract class ClientFileSearchCriteria implements IBaseSearchCriteria {
@@ -175,9 +182,9 @@ export class ClientTagSearchCriteria extends ClientFileSearchCriteria {
     if (!this.value && !this.operator.toLowerCase().includes('not')) {
       return 'Untagged images';
     }
-    return `${dict[this.key] || camelCaseToSpaced(this.key as string)} ${camelCaseToSpaced(
-      this.operator,
-    )} ${!this.value ? 'no tags' : rootStore.tagStore.get(this.value)?.name}`;
+    return `${dict[this.key] || camelCaseToSpaced(this.key as string)} ${
+      TagOperatorLabels[this.operator as TagOperatorType]
+    } ${!this.value ? 'no tags' : rootStore.tagStore.get(this.value)?.name}`;
   };
 
   serialize = (rootStore: RootStore, duplicate = false): ITagSearchCriteria => {

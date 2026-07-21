@@ -699,7 +699,7 @@ class FileStore {
   }
 
   @action.bound orderFilesByExtraProperty(extraProperty: ClientExtraProperty): void {
-    this.setOrderBy('extraProperty');
+    this.setOrderBy('extraProperties');
     this.setOrderByExtraProperty(extraProperty.id);
     this.refetch();
   }
@@ -947,7 +947,7 @@ class FileStore {
     let cursorValue: Cursor['orderValue'];
     if (this.orderBy === 'random') {
       cursorValue = null;
-    } else if (this.orderBy === 'extraProperty') {
+    } else if (this.orderBy === 'extraProperties') {
       const ep = this.rootStore.extraPropertyStore.get(this.orderByExtraProperty);
       if (file instanceof ClientFile) {
         cursorValue = ep ? file.extraProperties.get(ep) ?? null : null;

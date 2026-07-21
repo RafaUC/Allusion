@@ -1,5 +1,12 @@
 import { observer } from 'mobx-react-lite';
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  ReactElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { useStore } from '../../contexts/StoreContext';
 const SEARCHBAR_ID = 'toolbar-searchbar';
@@ -33,6 +40,7 @@ export default Searchbar;
 
 import {
   ClientExtraPropertySearchCriteria,
+  ClientNumberSearchCriteria,
   ClientStringSearchCriteria,
   ClientTagSearchCriteria,
   CustomKeyDict,
@@ -50,9 +58,19 @@ import { OperatorType } from 'src/api/search-criteria';
 import { usePopover } from 'widgets/popovers/usePopover';
 import { RowProps } from 'widgets/combobox/Grid';
 import ReactDOM from 'react-dom';
+import { BYTES_IN_MB, FileKeyOptions, Key, QuickSearchKeyOptions } from '../AdvancedSearch/data';
+import { MenuButton, MenuItem } from 'widgets/menus';
 
 const QuickSearchList = observer(() => {
   const { uiStore, tagStore } = useStore();
+  const [selectedKey, setSelectedKey] = useState<Key>(
+    () => (localStorage.getItem('quick_search_key') as Key | undefined) ?? 'tags',
+  );
+
+  // save setting in localStorage
+  useEffect(() => {
+    localStorage.setItem('quick_search_key', selectedKey);
+  }, [selectedKey]);
 
   const selection = useComputed(() => {
     const selectedItems: ClientTag[] = [];
@@ -82,39 +100,6 @@ const QuickSearchList = observer(() => {
     }
   });
 
-  const renderCreateOption = useRef((query: string, resetTextBox: () => void) => {
-    return [
-      <QuickExtraPropertySearchOption
-        key="search-in-extra-property"
-        id="search-in-extra-property-option"
-        index={0}
-        value={`Search for "${query}" in an extra property`}
-        query={query}
-        resetTextBox={resetTextBox}
-      />,
-      <Row
-        id="search-in-path-option"
-        index={1}
-        key="search-in-path"
-        value={`Search in file paths for "${query}"`}
-        onClick={() => {
-          resetTextBox();
-          uiStore.addSearchCriteria(
-            new ClientStringSearchCriteria(undefined, 'absolutePath', query),
-          );
-        }}
-      />,
-      <Row
-        id="advanced-search-option"
-        index={2}
-        key="advanced-search"
-        value="Advanced search"
-        onClick={uiStore.toggleAdvancedSearch}
-        icon={IconSet.SEARCH_EXTENDED}
-      />,
-    ];
-  }).current;
-
   const ingnoreOnBlur = useRef((e: React.FocusEvent): boolean => {
     const searchbar = document.getElementById(SEARCHBAR_ID);
     if (searchbar) {
@@ -122,6 +107,230 @@ const QuickSearchList = observer(() => {
     }
     return false;
   }).current;
+
+  const forceCreateOption = selectedKey !== 'tags';
+
+  /*useEffect(() => {
+    if (forceCreateOption === true) {
+      uiStore.clearSearchCriteriaTree();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceCreateOption]);*/
+
+  const handleSetCreateOption: React.Dispatch<React.SetStateAction<boolean>> = (val) => {
+    let newVal = forceCreateOption;
+    if (typeof val === 'function') {
+      newVal = val(newVal);
+    } else {
+      newVal = val;
+    }
+    setSelectedKey(newVal ? (selectedKey === 'tags' ? 'absolutePath' : selectedKey) : 'tags');
+  };
+
+  const renderCreateOption = useCallback(
+    (query: string, resetTextBox: () => void): ReactElement<RowProps>[] => {
+      const parsedNumber = parseFloat(query);
+      const isValidNumber = !isNaN(parsedNumber);
+
+      // Handler helper para las opciones deshabilitadas (previene que el evento cierre el menú)
+      const handleDisabledClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      const options: Array<{
+        key: string;
+        component: (index: number) => ReactElement<RowProps>;
+      }> = [
+        {
+          key: 'tags',
+          component: (index: number) => (
+            <Row
+              id="search-in-tags-option"
+              index={index}
+              key="search-in-tags"
+              value={`Search for tag "${query}"`}
+              onClick={() => {
+                resetTextBox();
+                uiStore.addSearchCriteria(new ClientTagSearchCriteria(undefined, 'tags', query));
+              }}
+            />
+          ),
+        },
+        {
+          key: 'name',
+          component: (index: number) => (
+            <Row
+              id="search-in-name-option"
+              index={index}
+              key="search-in-name"
+              value={`Search in file names for "${query}"`}
+              onClick={() => {
+                resetTextBox();
+                uiStore.addSearchCriteria(new ClientStringSearchCriteria(undefined, 'name', query));
+              }}
+            />
+          ),
+        },
+        {
+          key: 'extension',
+          component: (index: number) => (
+            <Row
+              id="search-in-extension-option"
+              index={index}
+              key="search-in-extension"
+              value={`Search for extension ".${query.replace(/^\./, '')}"`}
+              onClick={() => {
+                resetTextBox();
+                uiStore.addSearchCriteria(
+                  new ClientStringSearchCriteria(undefined, 'extension', query.replace(/^\./, '')),
+                );
+              }}
+            />
+          ),
+        },
+        {
+          key: 'absolutePath',
+          component: (index: number) => (
+            <Row
+              id="search-in-path-option"
+              index={index}
+              key="search-in-path"
+              value={`Search in file paths for "${query}"`}
+              onClick={() => {
+                resetTextBox();
+                uiStore.addSearchCriteria(
+                  new ClientStringSearchCriteria(undefined, 'absolutePath', query),
+                );
+              }}
+            />
+          ),
+        },
+        {
+          key: 'size',
+          component: (index: number) => (
+            <Row
+              id="search-in-size-option"
+              index={index}
+              key="search-in-size"
+              className={!isValidNumber ? 'disabled' : undefined}
+              style={!isValidNumber ? { cursor: 'not-allowed', opacity: 0.5 } : undefined}
+              value={
+                isValidNumber
+                  ? `Search for size "${parsedNumber} MB"`
+                  : `Search for size "${query}" (invalid value)`
+              }
+              onClick={(e) => {
+                if (!isValidNumber) {
+                  handleDisabledClick(e);
+                  return;
+                }
+                resetTextBox();
+                uiStore.addSearchCriteria(
+                  new ClientNumberSearchCriteria(undefined, 'size', parsedNumber * BYTES_IN_MB),
+                );
+              }}
+            />
+          ),
+        },
+        {
+          key: 'width',
+          component: (index: number) => (
+            <Row
+              id="search-in-width-option"
+              index={index}
+              key="search-in-width"
+              className={!isValidNumber ? 'disabled' : undefined}
+              style={!isValidNumber ? { cursor: 'not-allowed', opacity: 0.5 } : undefined}
+              value={
+                isValidNumber
+                  ? `Search for width "${parsedNumber} px"`
+                  : `Search for width "${query}" (invalid value)`
+              }
+              onClick={(e) => {
+                if (!isValidNumber) {
+                  handleDisabledClick(e);
+                  return;
+                }
+                resetTextBox();
+                uiStore.addSearchCriteria(
+                  new ClientNumberSearchCriteria(undefined, 'width', parsedNumber),
+                );
+              }}
+            />
+          ),
+        },
+        {
+          key: 'height',
+          component: (index: number) => (
+            <Row
+              id="search-in-height-option"
+              index={index}
+              key="search-in-height"
+              className={!isValidNumber ? 'disabled' : undefined}
+              style={!isValidNumber ? { cursor: 'not-allowed', opacity: 0.5 } : undefined}
+              value={
+                isValidNumber
+                  ? `Search for height "${parsedNumber} px"`
+                  : `Search for height "${query}" (invalid value)`
+              }
+              onClick={(e) => {
+                if (!isValidNumber) {
+                  handleDisabledClick(e);
+                  return;
+                }
+                resetTextBox();
+                uiStore.addSearchCriteria(
+                  new ClientNumberSearchCriteria(undefined, 'height', parsedNumber),
+                );
+              }}
+            />
+          ),
+        },
+        {
+          key: 'extraProperties',
+          component: (index: number) => (
+            <QuickExtraPropertySearchOption
+              key="search-in-extra-property"
+              id="search-in-extra-property-option"
+              index={index}
+              value={`Search for "${query}" in an extra property`}
+              query={query}
+              resetTextBox={resetTextBox}
+            />
+          ),
+        },
+        {
+          key: 'advanced',
+          component: (index: number) => (
+            <Row
+              id="advanced-search-option"
+              index={index}
+              key="advanced-search"
+              value="Advanced search"
+              onClick={uiStore.toggleAdvancedSearch}
+              icon={IconSet.SEARCH_EXTENDED}
+            />
+          ),
+        },
+      ];
+
+      const sortedOptions = [...options].sort((a, b) => {
+        if (a.key === selectedKey) {
+          return -1;
+        }
+        if (b.key === selectedKey) {
+          return 1;
+        }
+        return 0;
+      });
+
+      return sortedOptions.map((option, sortedIndex) =>
+        option.component(sortedIndex),
+      ) as ReactElement<RowProps>[];
+    },
+    [selectedKey, uiStore],
+  );
 
   return (
     <TagSelector
@@ -132,7 +341,14 @@ const QuickSearchList = observer(() => {
       onClear={uiStore.clearSearchCriteriaTree}
       ignoreOnBlur={ingnoreOnBlur}
       renderCreateOption={renderCreateOption}
-      extraIconButtons={<SearchMatchButton disabled={selection.get().length < 2} />}
+      forceCreateOption={selectedKey !== 'tags'}
+      setForceCreateOption={handleSetCreateOption}
+      extraIconButtons={
+        <>
+          <SearchDefaultTypeButton selectedKey={selectedKey} setSelectedKey={setSelectedKey} />
+          <SearchMatchButton disabled={selection.get().length < 2} />
+        </>
+      }
     />
   );
 });
@@ -225,7 +441,7 @@ const QuickExtraPropertySearchOption = (props: QuickEPOption) => {
                 onBlur={handleBlur}
                 data-popover
                 data-open={showExtraSelector}
-                style={popoverStyle}
+                style={{ ...popoverStyle, zIndex: 1000 }}
               >
                 <ExtraPropertySelector onSelect={handleExtraPropertySelect} />
               </div>
@@ -236,6 +452,39 @@ const QuickExtraPropertySearchOption = (props: QuickEPOption) => {
     </>
   );
 };
+
+const SearchDefaultTypeButton = observer(
+  ({
+    selectedKey,
+    setSelectedKey,
+  }: {
+    selectedKey: Key;
+    setSelectedKey: React.Dispatch<React.SetStateAction<Key>>;
+  }) => {
+    const { uiStore } = useStore();
+    return (
+      <MenuButton
+        icon={<div className="text-icon">{FileKeyOptions[selectedKey]}</div>}
+        text={FileKeyOptions[selectedKey]}
+        id={'search-type-button'}
+        menuID={'search-type-button-menu'}
+        tooltip="Select property to search"
+        placement="bottom-start"
+        strategy="fixed"
+      >
+        {Object.entries(QuickSearchKeyOptions).map(([key, label]) => (
+          <MenuItem key={key} text={label} onClick={() => setSelectedKey(key as Key)} />
+        ))}
+        <MenuItem
+          text="Advanced search"
+          key="advanced"
+          onClick={uiStore.toggleAdvancedSearch}
+          icon={IconSet.SEARCH_EXTENDED}
+        />
+      </MenuButton>
+    );
+  },
+);
 
 const SearchMatchButton = observer(({ disabled }: { disabled: boolean }) => {
   const { fileStore, uiStore } = useStore();

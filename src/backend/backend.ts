@@ -1434,9 +1434,9 @@ async function applyPagination<O>(
 
   let sqlDirection: OrderByDirection = direction === OrderDirection.Asc ? 'asc' : 'desc';
   let orderColumn: string | RawBuilder<unknown> =
-    order === 'extraProperty' ? 'sortValue' : `files.${order}`;
+    order === 'extraProperties' ? 'sortValue' : `files.${order}`;
   let type: 'text' | 'number' =
-    order !== 'extraProperty' && order !== 'random' && isFileDTOPropString(order)
+    order !== 'extraProperties' && order !== 'random' && isFileDTOPropString(order)
       ? 'text'
       : 'number';
   // Compute pagination consts
@@ -1450,9 +1450,9 @@ async function applyPagination<O>(
     sqlDirection = !isAfter ? (isAsc ? 'desc' : 'asc') : sqlDirection;
   }
 
-  /// add extraproperty optional value ///
+  /// add extraProperties optional value ///
   // because of how the joined table is returned as, we need to aggregate a sort value in the joined table which can be used as a key
-  if (order === 'extraProperty') {
+  if (order === 'extraProperties') {
     const extraProp = await db
       .selectFrom('extraProperties' as any)
       .select('type')
@@ -1482,7 +1482,7 @@ async function applyPagination<O>(
     cursor?.orderValue,
     direction, // use original direction since sqlDirection can be altered for pagination
     useNaturalOrdering,
-    order === 'extraProperty',
+    order === 'extraProperties',
   );
   orderColumn = safeColumn;
 
@@ -1650,10 +1650,9 @@ function applyStringCondition(
     case 'notEqual':
       return eb(`files.${key}`, '!=', value);
     case 'contains':
-      return eb(`files.${key}`, 'like', `%${value}%`);
+      return eb(sql`lower(${sql.ref(`files.${key}`)})`, 'like', `%${value.toLowerCase()}%`);
     case 'notContains':
-      // use NOT LIKE
-      return eb(`files.${key}`, 'not like', `%${value}%`);
+      return eb(sql`lower(${sql.ref(`files.${key}`)})`, 'not like', `%${value.toLowerCase()}%`);
     case 'startsWith':
       return eb(`files.${key}`, 'like', `${value}%`);
     case 'startsWithIgnoreCase':

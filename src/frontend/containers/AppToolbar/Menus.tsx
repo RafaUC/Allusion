@@ -77,7 +77,7 @@ const sortExtraPropertyData: {
   icon: JSX.Element;
   text: string;
   hideDirection?: boolean;
-} = { prop: 'extraProperty', icon: IconSet.META_INFO, text: 'Extra Property' };
+} = { prop: 'extraProperties', icon: IconSet.META_INFO, text: 'Extra Property' };
 
 export const SortMenuItems = observer(() => {
   const { fileStore, extraPropertyStore } = useStore();

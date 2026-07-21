@@ -80,6 +80,12 @@ export const MenuButton = ({
     }
   };
 
+  const handleButtonClick: React.MouseEventHandler<HTMLButtonElement> = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOpen(!isOpen);
+  };
+
   return (
     <>
       <button
@@ -90,7 +96,7 @@ export const MenuButton = ({
         data-collapsible={isCollapsible ?? true}
         data-tooltip={tooltip ?? text}
         title={title}
-        onClick={disabled ? undefined : () => setIsOpen(!isOpen)}
+        onClick={disabled ? undefined : handleButtonClick}
         aria-expanded={isOpen}
         aria-controls={menuID}
         aria-haspopup="menu"

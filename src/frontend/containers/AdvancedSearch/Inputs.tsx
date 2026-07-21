@@ -28,11 +28,13 @@ import {
   NumberOperatorSymbols,
   SearchConjuctionSymbols,
   StringOperatorLabels,
+  TagOperatorLabels,
 } from '../../entities/SearchCriteria';
 import { ClientTag } from '../../entities/Tag';
 import {
   CritIndexPath,
   Criteria,
+  FileKeyOptions,
   Key,
   Operator,
   TagValue,
@@ -203,9 +205,9 @@ export const KeySelector = forwardRef(function KeySelector(
         setShowExtraSelector(true);
       } else {
         dispatch((criteria) => {
-          // Keep the text value and operator when switching between name and path
+          // Keep the text value and operator when switching between text keys
           if ([criteria.key, key].every((k) => ['name', 'absolutePath'].includes(k))) {
-            criteria.key = key;
+            criteria.key = key; // Type Key and assigned Criteria K must overlap completely if not this will show error.
             return { ...criteria };
           } else {
             return defaultQuery(key);
@@ -266,33 +268,11 @@ export const KeySelector = forwardRef(function KeySelector(
             <Observer>{() => <>EP: {extraProperty.name}</>}</Observer>
           </option>
         )}
-        <option key="tags" value="tags">
-          Tags
-        </option>
-        <option key="name" value="name">
-          File Name
-        </option>
-        <option key="absolutePath" value="absolutePath">
-          File Path
-        </option>
-        <option key="extension" value="extension">
-          File Extension
-        </option>
-        <option key="size" value="size">
-          File Size (MB)
-        </option>
-        <option key="width" value="width">
-          Width
-        </option>
-        <option key="height" value="height">
-          Height
-        </option>
-        <option key="dateAdded" value="dateAdded">
-          Date Added
-        </option>
-        <option key="extraProperties" value="extraProperties">
-          Extra Property
-        </option>
+        {Object.entries(FileKeyOptions).map(([key, label]) => (
+          <option key={key} value={key}>
+            {label}
+          </option>
+        ))}
       </select>
 
       {showExtraSelector && (
@@ -341,30 +321,43 @@ export const ValueInput = ({
   extraProperty,
   operator,
 }: FieldInput<Value>) => {
-  if (keyValue === 'name' || keyValue === 'absolutePath') {
-    return <PathInput labelledby={labelledby} value={value as string} dispatch={dispatch} />;
-  } else if (keyValue === 'tags') {
-    return <TagInput labelledby={labelledby} value={value as TagValue} dispatch={dispatch} />;
-  } else if (keyValue === 'extension') {
-    return <ExtensionInput labelledby={labelledby} value={value as string} dispatch={dispatch} />;
-  } else if (['size', 'width', 'height'].includes(keyValue)) {
-    return <NumberInput labelledby={labelledby} value={value as number} dispatch={dispatch} />;
-  } else if (keyValue === 'dateAdded') {
-    return <DateAddedInput labelledby={labelledby} value={value as Date} dispatch={dispatch} />;
-  } else if (
-    keyValue === 'extraProperties' &&
-    extraProperty !== undefined &&
-    operator !== undefined
-  ) {
-    if (isExtraPropertyOperatorType(operator)) {
-      return <input disabled className="input criteria-input" type="text" />;
-    } else if (extraProperty.type === ExtraPropertyType.number) {
-      return <NumberInput labelledby={labelledby} value={value as number} dispatch={dispatch} />;
-    } else if (extraProperty.type === ExtraPropertyType.text) {
+  switch (keyValue) {
+    case 'name':
+    case 'absolutePath':
       return <PathInput labelledby={labelledby} value={value as string} dispatch={dispatch} />;
+    case 'tags':
+      return <TagInput labelledby={labelledby} value={value as TagValue} dispatch={dispatch} />;
+    case 'extension':
+      return <ExtensionInput labelledby={labelledby} value={value as string} dispatch={dispatch} />;
+    case 'size':
+    case 'width':
+    case 'height':
+      return <NumberInput labelledby={labelledby} value={value as number} dispatch={dispatch} />;
+    case 'dateAdded':
+    case 'dateCreated':
+    case 'dateModified':
+    case 'dateModifiedOS':
+      return <DateAddedInput labelledby={labelledby} value={value as Date} dispatch={dispatch} />;
+    case 'extraProperties': {
+      if (extraProperty !== undefined && operator !== undefined) {
+        if (isExtraPropertyOperatorType(operator)) {
+          return <input disabled className="input criteria-input" type="text" />;
+        } else if (extraProperty.type === ExtraPropertyType.number) {
+          return (
+            <NumberInput labelledby={labelledby} value={value as number} dispatch={dispatch} />
+          );
+        } else if (extraProperty.type === ExtraPropertyType.text) {
+          return <PathInput labelledby={labelledby} value={value as string} dispatch={dispatch} />;
+        }
+      }
+      return <p>This should never happen.</p>;
+    }
+    default: {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _exhaustiveCheck: never = keyValue;
+      return <p>This should never happen.</p>;
     }
   }
-  return <p>This should never happen.</p>;
 };
 
 type ValueInput<V> = Omit<FieldInput<V>, 'keyValue'>;
@@ -545,28 +538,45 @@ const DateAddedInput = ({ value, labelledby, dispatch }: ValueInput<Date>) => {
 };
 
 function getOperatorOptions(key: Key, extraPropertyType?: ExtraPropertyType) {
-  if (['dateAdded', 'size', 'width', 'height'].includes(key)) {
-    return NumberOperators.map((op) => toOperatorOption(op, NumberOperatorSymbols));
-  } else if (key === 'extension') {
-    return BinaryOperators.map((op) => toOperatorOption(op));
-  } else if (key === 'name' || key === 'absolutePath') {
-    return StringOperators.map((op) => toOperatorOption(op, StringOperatorLabels));
-  } else if (key === 'tags') {
-    return TagOperators.map((op) => toOperatorOption(op));
-  } else if (key == 'extraProperties' && extraPropertyType !== undefined) {
-    const epOperators = ExtraPropertyOperators.map((op) =>
-      toOperatorOption(op, ExtraPropertyOperatorLabels),
-    );
-    if (extraPropertyType === ExtraPropertyType.number) {
-      return [
-        ...NumberOperators.map((op) => toOperatorOption(op, NumberOperatorSymbols)),
-        ...epOperators,
-      ];
-    } else if (extraPropertyType === ExtraPropertyType.text) {
-      return [
-        ...StringOperators.map((op) => toOperatorOption(op, StringOperatorLabels)),
-        ...epOperators,
-      ];
+  switch (key) {
+    case 'size':
+    case 'width':
+    case 'height':
+    case 'dateAdded':
+    case 'dateCreated':
+    case 'dateModified':
+    case 'dateModifiedOS':
+      return NumberOperators.map((op) => toOperatorOption(op, NumberOperatorSymbols));
+    case 'extension':
+      return BinaryOperators.map((op) => toOperatorOption(op));
+    case 'name':
+    case 'absolutePath':
+      return StringOperators.map((op) => toOperatorOption(op, StringOperatorLabels));
+    case 'tags':
+      return TagOperators.map((op) => toOperatorOption(op, TagOperatorLabels));
+    case 'extraProperties': {
+      if (extraPropertyType !== undefined) {
+        const epOperators = ExtraPropertyOperators.map((op) =>
+          toOperatorOption(op, ExtraPropertyOperatorLabels),
+        );
+        if (extraPropertyType === ExtraPropertyType.number) {
+          return [
+            ...NumberOperators.map((op) => toOperatorOption(op, NumberOperatorSymbols)),
+            ...epOperators,
+          ];
+        } else if (extraPropertyType === ExtraPropertyType.text) {
+          return [
+            ...StringOperators.map((op) => toOperatorOption(op, StringOperatorLabels)),
+            ...epOperators,
+          ];
+        }
+      }
+      break;
+    }
+    default: {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _exhaustiveCheck: never = key;
+      break;
     }
   }
   return [];

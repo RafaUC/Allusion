@@ -170,3 +170,11 @@ header [role=gridcell] {
   font-size: 0.8125rem;
   font-weight: normal;
 }
+
+[role="row"].disabled {
+  color: var(--text-color-muted);
+
+  &:hover {
+    color: var(--text-color-muted);
+  }
+}
