@@ -288,8 +288,10 @@ export default class ZoomPan extends React.Component<ZoomPanProps, ZoomPanState>
           ...CONTAINER_DEFAULT_STYLE,
           touchAction: browserPanActions(this.state, this.props),
         }}
+        onClick={() => this.props.onClose?.()}
       >
         {this.props.children({
+          onClick: (e) => e.stopPropagation(),
           onPointerDown: this.handlePointerDown,
           onPointerMove: this.handlePointerMove,
           onPointerUp: this.handlePointerUp,
