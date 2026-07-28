@@ -24,6 +24,9 @@ import { IS_DEV, IS_MAC } from '../common/process';
 import { TagDTO, ROOT_TAG_ID } from './api/tag';
 import { MainMessenger } from './ipc/main';
 import { WindowSystemButtonPress } from './ipc/messages';
+import './logger/logger-main';
+import { MainLoggerController } from './logger/logger-main';
+import { LoggerConfig } from './logger/types';
 
 // sets the userData path to the executables directory if the installation is portable
 const portablePath = process.env.PORTABLE_EXECUTABLE_DIR as string;
@@ -35,6 +38,8 @@ const windowStateFilePath = path.join(basePath, 'windowState.json');
 
 type PreferencesFile = {
   checkForUpdatesOnStartup?: boolean;
+  loggerConsoleEnabled?: boolean;
+  loggerPrivacyActive?: boolean;
 };
 let preferences: PreferencesFile = {};
 const updatePreferences = (prefs: PreferencesFile) => {
@@ -91,7 +96,15 @@ function initialize() {
       fse.mkdirSync(basePath);
     }
     try {
-      preferences = fse.readJSONSync(preferencesFilePath);
+      if (fse.existsSync(preferencesFilePath)) {
+        preferences = fse.readJSONSync(preferencesFilePath);
+        MainLoggerController.setInitialLoggerConfig({
+          consoleEnabled: preferences.loggerConsoleEnabled ?? IS_DEV,
+          privacyActive: preferences.loggerPrivacyActive ?? false,
+        });
+      } else {
+        preferences = { checkForUpdatesOnStartup: true };
+      }
     } catch (e) {
       // Auto update enabled by default
       preferences = { checkForUpdatesOnStartup: true };
@@ -791,6 +804,14 @@ MainMessenger.onToggleCheckUpdatesOnStartup(() => {
 });
 
 MainMessenger.onIsCheckUpdatesOnStartupEnabled(() => preferences.checkForUpdatesOnStartup === true);
+
+MainLoggerController.onLoggerConfigChange((updatedConfig: LoggerConfig) => {
+  updatePreferences({
+    ...preferences,
+    loggerConsoleEnabled: updatedConfig.consoleEnabled,
+    loggerPrivacyActive: updatedConfig.privacyActive,
+  });
+});
 
 // Helper functions and variables/constants
 

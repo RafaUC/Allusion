@@ -184,6 +184,11 @@ export class RendererMessenger {
     return path.join(userDataPath, 'Allusion', 'thumbnails');
   };
 
+  static getDefaultLogsDirectory = async () => {
+    const userDataPath = await RendererMessenger.getPath('userData');
+    return path.join(userDataPath, 'logs');
+  };
+
   static getDefaultBackupDirectory = async () => {
     const userDataPath = await RendererMessenger.getPath('userData');
     return path.join(userDataPath, 'backups');

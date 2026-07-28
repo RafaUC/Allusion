@@ -68,6 +68,7 @@ import { jsonArrayFrom } from 'kysely/helpers/sqlite';
 import { IS_DEV } from 'common/process';
 import { UpdateObject } from 'kysely/dist/cjs/parser/update-set-parser';
 import { TagPaletteDTO } from 'src/api/tagPalette';
+import { initializeWorkerLoggerCallback } from 'src/logger/logger-worker';
 
 // Use to debug perfomance.
 const USE_TIMING_PROXY = IS_DEV;
@@ -1270,6 +1271,11 @@ export default class Backend implements DataStorage {
     // Empy the tables with a large database takes too long, instead create an emprty DB,
     // reinit and restore it at startup relying in the backup-scheduler checkAndRestoreDB behaviour.
     await this.#restoreEmpty();
+  }
+
+  public async setupLogger(onLogReceived: (level: string, args: any[]) => void): Promise<void> {
+    initializeWorkerLoggerCallback(onLogReceived);
+    console.log('SQLite Worker: Logging proxy successfully initialized via Comlink.');
   }
 }
 

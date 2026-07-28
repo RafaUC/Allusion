@@ -1,5 +1,6 @@
 import { proxy, Remote, wrap } from 'comlink';
 import Backend from 'src/backend/backend';
+import { RendererLoggerController } from 'src/logger/logger-renderer';
 
 export class BackendService {
   worker!: Remote<Backend>;
@@ -28,6 +29,11 @@ export class BackendService {
     this.workerInstance = worker;
 
     console.log('BackendService: Initializing worker backend...');
+    await this.worker.setupLogger(
+      proxy((level: string, args: any[]) => {
+        RendererLoggerController.sendLogDirectly(level, ['[Worker: Backend]', ...args]);
+      }),
+    );
     await this.worker.init(dbPath, jsonToImport, proxy(notifyChange), proxy(restoreEmpty));
 
     this.initialized = true;

@@ -31,8 +31,10 @@ import fse from 'fs-extra';
 import { USE_BACKEND_AS_WORKER } from 'src/backend/config';
 import { BackendService } from 'src/frontend/workers/BackendService';
 import { BackupSchedulerService } from './frontend/workers/BackupSchedulerService';
+import { initializeRendererLogger } from './logger/logger-renderer';
 
 async function main(): Promise<void> {
+  initializeRendererLogger({ maxDepth: 8 });
   // Render our react components in the div with id 'app' in the html file
   const container = document.getElementById('app');
 
