@@ -20,7 +20,7 @@ export class BackendService {
 
     console.log('BackendService: Creating worker...');
 
-    const worker = new Worker(new URL('src/frontend/workers/Backend.worket', import.meta.url), {
+    const worker = new Worker(new URL('src/frontend/workers/Backend.worker', import.meta.url), {
       type: 'module',
     });
     const WorkerClass = wrap<typeof Backend>(worker);
@@ -28,12 +28,9 @@ export class BackendService {
     this.worker = await new WorkerClass();
     this.workerInstance = worker;
 
+    RendererLoggerController.registerWorker(worker, 'Backend');
+
     console.log('BackendService: Initializing worker backend...');
-    await this.worker.setupLogger(
-      proxy((level: string, args: any[]) => {
-        RendererLoggerController.sendLogDirectly(level, ['[Worker: Backend]', ...args]);
-      }),
-    );
     await this.worker.init(dbPath, jsonToImport, proxy(notifyChange), proxy(restoreEmpty));
 
     this.initialized = true;

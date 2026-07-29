@@ -10,7 +10,7 @@ import { moveThumbnailDir } from '../../image/ThumbnailGeneration';
 import { ClearDbButton } from '../ErrorBoundary';
 import { Callout } from 'widgets/notifications';
 import ExternalLink from 'src/frontend/components/ExternalLink';
-import { LoggerConfig } from 'src/logger/types';
+import { LoggerConfig } from 'src/logger/logger-utils';
 import { RendererLoggerController } from 'src/logger/logger-renderer';
 
 export const Advanced = observer(() => {
@@ -28,7 +28,10 @@ export const Advanced = observer(() => {
   }, []);
 
   const handleToggleLogging = async (isEnabled: boolean) => {
-    setLoggerConfig((prev) => ({ ...prev, consoleEnabled: isEnabled }));
+    setLoggerConfig((prev: Partial<LoggerConfig>) => ({
+      ...prev,
+      loggerConsoleEnabled: isEnabled,
+    }));
     const updated = await RendererLoggerController.setConsoleEnabled(isEnabled);
     if (updated.success) {
       setLoggerConfig(updated.currentConfig);
@@ -36,7 +39,10 @@ export const Advanced = observer(() => {
   };
 
   const handleTogglePrivacy = async (isPrivacyActive: boolean) => {
-    setLoggerConfig((prev) => ({ ...prev, privacyActive: isPrivacyActive }));
+    setLoggerConfig((prev: Partial<LoggerConfig>) => ({
+      ...prev,
+      loggerPrivacyActive: isPrivacyActive,
+    }));
     const updated = await RendererLoggerController.setPrivacyActive(isPrivacyActive);
     if (updated.success) {
       setLoggerConfig(updated.currentConfig);
@@ -101,7 +107,10 @@ export const Advanced = observer(() => {
       <ButtonGroup>
         <ClearDbButton />
         <Button
-          onClick={RendererMessenger.toggleDevTools}
+          onClick={() => {
+            RendererMessenger.toggleDevTools();
+            handleToggleLogging(true);
+          }}
           styling="outlined"
           icon={IconSet.CHROME_DEVTOOLS}
           text="Toggle DevTools"
@@ -111,19 +120,28 @@ export const Advanced = observer(() => {
       <h3>Logging</h3>
 
       <Callout icon={IconSet.INFO}>
-        Activating this feature saves a record of application events, processes, and errors diagnose
-        and troubleshoot issues. If you are experiencing problems, please enable this option,
-        reproduce the incorrect behavior, and attach the log file to your GitHub issue report.
-        <br />
+        Activating this feature saves a record of application events, processes, and errors to
+        diagnose and troubleshoot issues. If you are experiencing problems, please enable this
+        option, reproduce the incorrect behavior, and attach the log file to your GitHub issue
+        report.
+      </Callout>
+      <Callout icon={IconSet.INFO}>
+        You can also enable a privacy mode to obfuscate sensitive information such as directory
+        paths, file names, and tag names in the logs.
+      </Callout>
+      <Callout icon={IconSet.INFO}>
+        Enabling logs may slightly reduce application performance.
+      </Callout>
+      <Callout icon={IconSet.INFO}>
         You can find the active log file in the{' '}
         <ExternalLink url={defaultLogsDir}>logs directory</ExternalLink>.
       </Callout>
       <div className="vstack">
-        <Toggle checked={!!loggerConfig.consoleEnabled} onChange={handleToggleLogging}>
+        <Toggle checked={!!loggerConfig.loggerConsoleEnabled} onChange={handleToggleLogging}>
           Enable console logs and file logging
         </Toggle>
-        <Toggle checked={!!loggerConfig.privacyActive} onChange={handleTogglePrivacy}>
-          Obfuscate directory paths, filenames, and tag names
+        <Toggle checked={!!loggerConfig.loggerPrivacyActive} onChange={handleTogglePrivacy}>
+          Obfuscate directory paths, file names, and tag names
         </Toggle>
       </div>
     </>

@@ -26,7 +26,7 @@ import { MainMessenger } from './ipc/main';
 import { WindowSystemButtonPress } from './ipc/messages';
 import './logger/logger-main';
 import { MainLoggerController } from './logger/logger-main';
-import { LoggerConfig } from './logger/types';
+import { LoggerConfig } from './logger/logger-utils';
 
 // sets the userData path to the executables directory if the installation is portable
 const portablePath = process.env.PORTABLE_EXECUTABLE_DIR as string;
@@ -98,10 +98,13 @@ function initialize() {
     try {
       if (fse.existsSync(preferencesFilePath)) {
         preferences = fse.readJSONSync(preferencesFilePath);
-        MainLoggerController.setInitialLoggerConfig({
-          consoleEnabled: preferences.loggerConsoleEnabled ?? IS_DEV,
-          privacyActive: preferences.loggerPrivacyActive ?? false,
-        });
+        console.log('Recovered preferences:', preferences);
+        if (mainWindow !== null) {
+          MainLoggerController.setLoggerConfig(mainWindow.webContents, {
+            loggerConsoleEnabled: preferences.loggerConsoleEnabled ?? IS_DEV,
+            loggerPrivacyActive: preferences.loggerPrivacyActive ?? false,
+          });
+        }
       } else {
         preferences = { checkForUpdatesOnStartup: true };
       }
@@ -806,10 +809,11 @@ MainMessenger.onToggleCheckUpdatesOnStartup(() => {
 MainMessenger.onIsCheckUpdatesOnStartupEnabled(() => preferences.checkForUpdatesOnStartup === true);
 
 MainLoggerController.onLoggerConfigChange((updatedConfig: LoggerConfig) => {
+  console.log('Logger config updated:', updatedConfig);
   updatePreferences({
     ...preferences,
-    loggerConsoleEnabled: updatedConfig.consoleEnabled,
-    loggerPrivacyActive: updatedConfig.privacyActive,
+    loggerConsoleEnabled: updatedConfig.loggerConsoleEnabled,
+    loggerPrivacyActive: updatedConfig.loggerPrivacyActive,
   });
 });
 

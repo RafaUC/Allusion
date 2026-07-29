@@ -1,8 +1,8 @@
-import { ipcMain } from 'electron';
+import { ipcMain, WebContents } from 'electron';
 import log from 'electron-log/main';
 import crypto from 'crypto';
 import { IS_DEV } from '../../common/process';
-import { LoggerConfig } from './types';
+import { LoggerConfig } from './logger-utils';
 
 const pathRegex =
   /([a-zA-Z]:\\[^:<>"|?*]+)|(\/(?:Users|home|app|var|tmp|desktop|documents)[^:<>"|?*]+)|(\/[^:<>"|?*\s]+\/[^:<>"|?*\s]+)/g;
@@ -16,8 +16,8 @@ log.info('Main process: Logger initialized');
 
 // Default production configuration fallback state
 let loggerConfig: LoggerConfig = {
-  consoleEnabled: IS_DEV,
-  privacyActive: true,
+  loggerConsoleEnabled: IS_DEV,
+  loggerPrivacyActive: false,
   obfuscateKeys: ['name', 'directory', 'path', 'user'],
 };
 
@@ -87,7 +87,7 @@ function applyPrivacyFilter(obj: any): any {
       // if explicit ofuscated key
       if (loggerConfig.obfuscateKeys.includes(key) && typeof obj[key] === 'string') {
         sanitized[key] = secureHash(obj[key], key.toUpperCase());
-      } else if (typeof obj[key] === 'string' && loggerConfig.privacyActive) {
+      } else if (typeof obj[key] === 'string' && loggerConfig.loggerPrivacyActive) {
         // ofuscate paths
         if (pathRegex.test(obj[key])) {
           sanitized[key] = obj[key].replace(pathRegex, (match: string) =>
@@ -105,14 +105,15 @@ function applyPrivacyFilter(obj: any): any {
 }
 
 // Sync electron-log initial transports configuration
-log.transports.file.level = 'debug'; // Always write everything to the physical log file
+log.transports.file.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
 log.transports.file.maxSize = 1024 * 1024 * 2;
-log.transports.console.level = loggerConfig.consoleEnabled ? 'debug' : false;
+log.transports.console.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
 
 // IPC handler to dynamically alter logging configurations at runtime
 ipcMain.handle('update-logger-config', (event, newConfig: Partial<LoggerConfig>) => {
   loggerConfig = { ...loggerConfig, ...newConfig };
-  log.transports.console.level = loggerConfig.consoleEnabled ? 'debug' : false;
+  log.transports.console.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
+  log.transports.file.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
   if (configChangeCallback) {
     configChangeCallback(loggerConfig);
   }
@@ -124,13 +125,13 @@ ipcMain.on('renderer-log-message', (event, { level, args }: { level: LogLevel; a
   const safeArgs = args.map((arg) => {
     // Check if the arg is string and contains a path-like pattern, then obfuscate it if privacy is active
     if (typeof arg === 'string') {
-      if (loggerConfig.privacyActive && pathRegex.test(arg)) {
+      if (loggerConfig.loggerPrivacyActive && pathRegex.test(arg)) {
         return arg.replace(pathRegex, (match: string) => String(secureHash(match, 'PATH')));
       }
       return arg; // return the original string if no path-like pattern is found
     }
     // If it's a configuration or response object, recursively inspect its private keys
-    return loggerConfig.privacyActive ? applyPrivacyFilter(arg) : arg;
+    return loggerConfig.loggerPrivacyActive ? applyPrivacyFilter(arg) : arg;
   });
   const targetMethod = level === 'log' ? 'info' : level;
   if (typeof log[targetMethod] === 'function') {
@@ -150,19 +151,20 @@ const originalMainConsole: Record<string, (...args: any[]) => void> = {
 
 // Monkey-patch and intercept the Main process native console functions
 logLevels.forEach((level) => {
-  // FIX: Cast console key explicitly to avoid TS indexation errors
   const targetMethod = level === 'log' ? 'info' : level;
 
   console[level] = (...args: any[]) => {
+    if (!loggerConfig.loggerConsoleEnabled) {
+      return;
+    }
     // Execute standard terminal print if console output is explicitly enabled
-    if (loggerConfig.consoleEnabled && typeof originalMainConsole[level] === 'function') {
-      originalMainConsole[level](...args);
+    if (typeof originalMainConsole[level] === 'function') {
+      originalMainConsole[level].apply(console, args);
     }
     // Process privacy filters and persist to the secure log file
     const safeArgs = args.map((arg) =>
-      loggerConfig.privacyActive ? applyPrivacyFilter(arg) : arg,
+      loggerConfig.loggerPrivacyActive ? applyPrivacyFilter(arg) : arg,
     );
-    // FIX: Safely trigger electron-log by asserting it as a function type
     if (typeof log[targetMethod] === 'function') {
       (log[targetMethod] as (...args: any[]) => void)(...safeArgs);
     }
@@ -171,13 +173,17 @@ logLevels.forEach((level) => {
 
 export class MainLoggerController {
   /**
-   * Sets the initial logger configuration retrieved from your external JSON files during startup.
-   * Call this on your main initialization sequence.
+   * Notifies the Renderer process of updated or newly loaded logger preferences.
    */
-  static setInitialLoggerConfig(config: Partial<LoggerConfig>) {
+  static setLoggerConfig(wc: WebContents, config: Partial<LoggerConfig>) {
+    console.log('Recovered / Set Main Logger options:', config);
     loggerConfig = { ...loggerConfig, ...config };
     // Keep live electron-log transport streams synchronized immediately
-    log.transports.console.level = loggerConfig.consoleEnabled ? 'debug' : false;
+    log.transports.console.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
+    log.transports.file.level = loggerConfig.loggerConsoleEnabled ? 'debug' : false;
+    if (!wc.isDestroyed()) {
+      wc.send('update-logger-config', config);
+    }
   }
 
   /**

@@ -1,3 +1,12 @@
+import { decycle, WorkerLoggerOptions } from './logger-utils';
+
+// Local configuration state inside the Web Worker scope
+let workerConfig: WorkerLoggerOptions = {
+  loggerConsoleEnabled: true,
+  maxDepth: 8,
+};
+
+// Store absolute references to original Chromium logging features inside the Worker
 const originalWorkerConsole: Record<string, (...args: any[]) => void> = {
   log: console.log.bind(console),
   info: console.info.bind(console),
@@ -16,30 +25,46 @@ const levelsMapping = {
 
 type AllowedLevels = keyof typeof levelsMapping;
 
+// Listen for runtime configuration updates sent from the Main Renderer Window
+if (typeof self !== 'undefined') {
+  self.addEventListener('message', (event: MessageEvent) => {
+    if (event.data && event.data.type === 'UPDATE_WORKER_LOGGER_CONFIG') {
+      workerConfig = { ...workerConfig, ...event.data.config };
+    }
+  });
+}
+
 /**
- * Initializes the console interceptor inside a Web Worker.
+ * Initializes the console interceptor inside a standard Web Worker.
  * Redirects all logs to the main Renderer window via postMessage.
  */
-export function initializeWorkerLogger() {
+export function initializeWorkerLogger(initialOptions?: WorkerLoggerOptions) {
+  if (initialOptions) {
+    workerConfig = { ...workerConfig, ...initialOptions };
+  }
+
   (Object.keys(levelsMapping) as AllowedLevels[]).forEach((level) => {
     console[level] = (...args: any[]) => {
-      // Optional: Still print to the browser terminal if needed
+      if (!workerConfig.loggerConsoleEnabled) {
+        return;
+      }
+      // Print locally to DevTools if enabled for this Worker
       if (typeof originalWorkerConsole[level] === 'function') {
-        originalWorkerConsole[level](...args);
+        originalWorkerConsole[level].apply(console, args);
       }
 
       try {
+        // Clean objects safely before sending them across the MessagePort boundary
+        const safeArgs = args.map((arg) => decycle(arg, 0, workerConfig.maxDepth ?? 8));
+
         // Send the log payload upstream to the Main Renderer Window
-        // Workers cannot use ipcRenderer, so we use the standard postMessage channel
         postMessage({
           type: 'WORKER_LOG_INTERCEPT',
           level: levelsMapping[level],
-          // Simple string conversion or light serialization to avoid circular issues inside the worker
-          args: args.map((arg) =>
-            typeof arg === 'object' ? JSON.parse(JSON.stringify(arg)) : arg,
-          ),
+          args: safeArgs,
         });
       } catch (e) {
+        originalWorkerConsole['error'](e);
         // Fallback in case serialization fails for complex objects inside the worker
         postMessage({
           type: 'WORKER_LOG_INTERCEPT',
@@ -52,27 +77,37 @@ export function initializeWorkerLogger() {
 }
 
 /**
- * Overrides the console context inside the Comlink Worker.
+ * Overrides the console context inside a Comlink-managed Worker.
  */
 export function initializeWorkerLoggerCallback(
   onLogReceived: (level: string, args: any[]) => void,
+  initialOptions?: WorkerLoggerOptions,
 ) {
+  if (initialOptions) {
+    workerConfig = { ...workerConfig, ...initialOptions };
+  }
+
   (Object.keys(levelsMapping) as AllowedLevels[]).forEach((level) => {
     console[level] = (...args: any[]) => {
-      // Keep printing to local Chromium DevTools terminal if open
-      if (typeof originalWorkerConsole[level] === 'function') {
-        originalWorkerConsole[level](...args);
+      // Keep printing to local Chromium DevTools terminal if enabled
+      if (workerConfig.loggerConsoleEnabled && typeof originalWorkerConsole[level] === 'function') {
+        originalWorkerConsole[level].apply(console, args);
       }
+
       try {
-        // Clean objects briefly to avoid structure issues inside the Comlink payload
-        const serializedArgs = args.map((arg) =>
-          typeof arg === 'object' && arg !== null ? JSON.parse(JSON.stringify(arg)) : arg,
-        );
+        // Clean deep structures safely before executing the Comlink callback
+        const safeArgs = args.map((arg) => decycle(arg, 0, workerConfig.maxDepth ?? 8));
+
         // Trigger the proxied callback securely via Comlink
-        onLogReceived(levelsMapping[level], serializedArgs);
+        onLogReceived(levelsMapping[level], safeArgs);
       } catch (e) {
+        originalWorkerConsole['error'](e);
         onLogReceived('error', [`[Worker Logger Error]: Failed to format log from level ${level}`]);
       }
     };
   });
+}
+
+export function updateWorkerLoggerConfig(newConfig: Partial<WorkerLoggerOptions>) {
+  workerConfig = { ...workerConfig, ...newConfig };
 }
