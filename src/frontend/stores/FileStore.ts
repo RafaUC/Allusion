@@ -38,6 +38,7 @@ import { RendererMessenger } from 'src/ipc/renderer';
 import { serializeDate } from 'src/backend/schemaTypes';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
+const LOG_SCOPE = '[FileStore]';
 
 type FetchArgs = [
   OrderBy<FileDTO>, //order
@@ -814,6 +815,11 @@ class FileStore {
       newClientFile.thumbnailPath = newThumbPath;
       this.fileList[index] = newClientFile;
       this.save(newClientFile.serialize());
+      console.info(`${LOG_SCOPE} replace-moved-file`, {
+        id: file.id,
+        file: file,
+        newData: newData,
+      });
     }
   }
 
@@ -823,6 +829,7 @@ class FileStore {
       return;
     }
 
+    console.info(`${LOG_SCOPE} delete-files:start`, { count: files.length });
     try {
       // Remove from backend
       // Deleting non-exiting keys should not throw an error!
@@ -838,9 +845,10 @@ class FileStore {
         this.replaceFileList(this.fileList.filter((f) => f && !files.includes(f)));
         this.dirtyMissingFiles = true;
       });
+      console.info(`${LOG_SCOPE} delete-files:completed`, { count: files.length });
       return this.refetch();
     } catch (err) {
-      console.error('Could not remove files', err);
+      console.error(`${LOG_SCOPE} delete-files:error`, err);
     }
   }
 
@@ -853,14 +861,24 @@ class FileStore {
         OrderDirection.Asc,
         false,
       );
-      console.log('Files to delete', ext, files);
+      console.info(`${LOG_SCOPE} delete-by-extension:start`, {
+        extension: ext,
+        count: files.length,
+      });
+      console.debug(`${LOG_SCOPE} delete-by-extension:files`, () =>
+        files.slice(0, 20).map((f) => f.id),
+      );
       await this.backend.removeFiles(files.map((f) => f.id));
 
       for (const file of files) {
         this.removeThumbnail(file.absolutePath);
       }
+      console.info(`${LOG_SCOPE} delete-by-extension:completed`, {
+        extension: ext,
+        count: files.length,
+      });
     } catch (e) {
-      console.error('Could not delete files bye extension', ext);
+      console.error(`${LOG_SCOPE} delete-by-extension:error`, { extension: ext }, e);
     }
   }
 
@@ -914,12 +932,16 @@ class FileStore {
             'results-edge-reached',
           );
         }
+        console.debug(`${LOG_SCOPE} fetch:page:completed`, {
+          direction,
+          count: fetchedFiles.length,
+        });
         return this.updateFromBackend(fetchedFiles, direction);
       } else {
-        console.debug(`FETCH "${direction}" ABORTED`);
+        console.debug(`${LOG_SCOPE} fetch:page:aborted`, { direction });
       }
     } catch (e) {
-      console.log(`Could not fetch ${direction} page.`, e);
+      console.error(`${LOG_SCOPE} fetch:page:error`, { direction }, e);
     }
   }
 
@@ -1029,6 +1051,7 @@ class FileStore {
   }
 
   @action.bound async fetchAllFiles(): Promise<void> {
+    console.info(`${LOG_SCOPE} fetch:all:start`);
     try {
       this.setContentAll();
       // Indicate a new fetch process
@@ -1040,16 +1063,18 @@ class FileStore {
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
+        console.info(`${LOG_SCOPE} fetch:all:completed`, { count: fetchedFiles.length });
         return this.updateFromBackend(fetchedFiles);
       } else {
-        console.debug('FETCH All ABORTED');
+        console.debug(`${LOG_SCOPE} fetch:all:aborted`);
       }
     } catch (err) {
-      console.error('Could not load all files', err);
+      console.error(`${LOG_SCOPE} fetch:all:error`, err);
     }
   }
 
   @action.bound async fetchUntaggedFiles(): Promise<void> {
+    console.info(`${LOG_SCOPE} fetch:untagged:start`);
     try {
       this.setContentUntagged();
       // Indicate a new fetch process
@@ -1064,12 +1089,13 @@ class FileStore {
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
+        console.info(`${LOG_SCOPE} fetch:untagged:completed`, { count: fetchedFiles.length });
         return this.updateFromBackend(fetchedFiles);
       } else {
-        console.debug('FETCH UNTAGGED ABORTED');
+        console.debug(`${LOG_SCOPE} fetch:untagged:aborted`);
       }
     } catch (err) {
-      console.error('Could not load all files', err);
+      console.error(`${LOG_SCOPE} fetch:untagged:error`, err);
     }
   }
 
@@ -1112,6 +1138,9 @@ class FileStore {
     }
 
     const criterias = uiStore.searchRootGroup.toCondition(this.rootStore);
+    console.info(`${LOG_SCOPE} fetch:query:start`, {
+      criteriaCount: uiStore.searchRootGroup.children.length,
+    });
     try {
       this.setContentQuery();
       // Indicate a new fetch process
@@ -1122,12 +1151,13 @@ class FileStore {
       // continue if the current taskId is the same else abort the fetch
       const currentFetchId = runInAction(() => this.fetchTaskIdPair[0]);
       if (start === currentFetchId) {
+        console.info(`${LOG_SCOPE} fetch:query:completed`, { count: fetchedFiles.length });
         return this.updateFromBackend(fetchedFiles);
       } else {
-        console.debug('FETCH BY QUERY ABORTED');
+        console.debug(`${LOG_SCOPE} fetch:query:aborted`);
       }
     } catch (e) {
-      console.log('Could not find files based on criteria', e);
+      console.error(`${LOG_SCOPE} fetch:query:error`, e);
     }
   }
 
@@ -1274,17 +1304,20 @@ class FileStore {
     this.incrementPendingSaves();
     const files = Array.from(this.filesToSave.values());
     this.filesToSave.clear();
-    await this.backend.saveFiles(files).catch((e) => {
-      console.error(e);
-      AppToaster.show(
-        {
-          message: 'An error occurred while saving some files. Please try again.',
-          timeout: 4000,
-          type: 'error',
-        },
-        'error-save-files',
-      );
-    });
+    await this.backend.saveFiles(files).then(
+      () => console.info(`${LOG_SCOPE} save-files:completed`, { count: files.length }),
+      (e) => {
+        console.error(`${LOG_SCOPE} save-files:error`, { count: files.length }, e);
+        AppToaster.show(
+          {
+            message: 'An error occurred while saving some files. Please try again.',
+            timeout: 4000,
+            type: 'error',
+          },
+          'error-save-files',
+        );
+      },
+    );
     this.decrementPendingSaves();
     if (this.pendingSaves === 0) {
       this.setIsSaving(false);
@@ -1358,7 +1391,7 @@ class FileStore {
       }
     } catch (error) {
       // TODO: Show a notification that not all thumbnails could be removed?
-      console.error(error);
+      console.error(`${LOG_SCOPE} remove-thumbnail:error`, { path }, error);
     }
   }
 
@@ -1502,6 +1535,7 @@ class FileStore {
   ): Promise<void> {
     const isReplace = direction === undefined;
     if (backendFiles.length === 0 && isReplace) {
+      console.info(`${LOG_SCOPE} update-from-backend:empty-result`, { content: this.content });
       this.rootStore.uiStore.clearFileSelection();
       this.fileListLastRefetch = new Date();
       this.fetchTaskIdPair[1] = 0;
@@ -1514,12 +1548,25 @@ class FileStore {
     const hiddenTagIds = new Set(
       this.rootStore.tagStore.tagList.filter((t) => t.isHidden).map((t) => t.id),
     );
+    const receivedCount = backendFiles.length;
     backendFiles = backendFiles.filter((f) => !f.tags.some((t) => hiddenTagIds.has(t)));
+    console.info(`${LOG_SCOPE} update-from-backend:received`, {
+      content: this.content,
+      direction: direction ?? 'replace',
+      received: receivedCount,
+      afterHiddenFilter: backendFiles.length,
+    });
+    console.debug(`${LOG_SCOPE} update-from-backend:received-sample`, () => ({
+      content: this.content,
+      direction: direction ?? 'replace',
+      files: backendFiles.slice(0, 50),
+    }));
 
     // For every new file coming in, either re-use the existing client file if it exists,
     // or construct a new client file
     const { status, newFiles } = await this.filesFromBackend(backendFiles, false);
     if (status != Status.success) {
+      console.warn(`${LOG_SCOPE} update-from-backend:non-success-status`, { status });
       return;
     }
 
@@ -1559,7 +1606,7 @@ class FileStore {
       .then(() => {
         this.countLoadedMissingfiles(); // update missing image counter
       })
-      .catch((e) => console.error('An error occured during existence checking!', e));
+      .catch((e) => console.error(`${LOG_SCOPE} update-from-backend:existence-check-error`, e));
   }
 
   /** Remove files from selection that are not in the file list anymore */
@@ -1615,6 +1662,8 @@ class FileStore {
       this.numLoadedFiles = 0;
     }
     const reusedStatus = new Set<ID>();
+    const updatedTagsIds: ID[] = [];
+    const updatedExtraPropsIds: ID[] = [];
     let status: Status = Status.success;
     const initialIndex = clamp(this.rootStore.uiStore.firstItemIndex, 0, total - 1);
 
@@ -1680,6 +1729,7 @@ class FileStore {
               Array.from(existingFile.tags).some((t, i) => t.id !== newTags[i].id)
             ) {
               existingFile.updateTagsFromBackend(newTags);
+              updatedTagsIds.push(existingFile.id);
             }
             // Update extraProperties (might have changes, e.g. removed)
             const newExtraProps = new Map<ClientExtraProperty, ExtraPropertyValue>();
@@ -1694,6 +1744,7 @@ class FileStore {
               Array.from(existingFile.extraProperties).some((t) => t[1] !== newExtraProps.get(t[0]))
             ) {
               existingFile.updateExtraPropertiesFromBackend(newExtraProps);
+              updatedExtraPropsIds.push(existingFile.id);
             }
             targetList[idx] = existingFile;
             targeIndex.set(existingFile.id, idx);
@@ -1754,6 +1805,18 @@ class FileStore {
         this.fetchTaskIdPair[1] = 0;
       }
     });
+    if (updatedTagsIds.length > 0 || updatedExtraPropsIds.length > 0) {
+      console.info(`${LOG_SCOPE} files-from-backend:merge-summary`, {
+        total,
+        reused: reusedStatus.size,
+        tagsUpdated: updatedTagsIds.length,
+        extraPropsUpdated: updatedExtraPropsIds.length,
+      });
+      console.debug(`${LOG_SCOPE} files-from-backend:merge-samples`, () => ({
+        tagsUpdated: updatedTagsIds.slice(0, 20),
+        extraPropsUpdated: updatedExtraPropsIds.slice(0, 20),
+      }));
+    }
     return { newFiles: targetList, newIndex: targeIndex, status: status };
   }
 
@@ -1878,6 +1941,10 @@ class FileStore {
       this.addRecentlyUsedTag(t);
       return t.id;
     });
+    console.info(`${LOG_SCOPE} add-tags-to-filtered-files`, {
+      filteredCount: this.numFilteredFiles,
+      tagIds,
+    });
     await this.handleSavingToFilteredFiles(
       async (c) => await this.backend.addTagsToFiles(tagIds, c),
     );
@@ -1888,6 +1955,10 @@ class FileStore {
     const tagIds = tags.map((t) => {
       this.addRecentlyUsedTag(t);
       return t.id;
+    });
+    console.info(`${LOG_SCOPE} remove-tags-from-filtered-files`, {
+      filteredCount: this.numFilteredFiles,
+      tagIds,
     });
     await this.handleSavingToFilteredFiles(
       async (c) => await this.backend.removeTagsFromFiles(tagIds, c),
@@ -1925,6 +1996,7 @@ class FileStore {
     const total = this.numFilteredFiles;
     let count = 0;
     let status: Status = Status.success;
+    console.info(`${LOG_SCOPE} dispatch-to-filtered-files:start`, { total });
 
     // if not pogresstoaster provided use a default one.
     const definedShowProgressToaster =
@@ -1975,11 +2047,12 @@ class FileStore {
       count = modifiedFilesCount;
     } catch (error) {
       status = Status.error;
-      console.error('ERROR WHILE DISPATCHING TO BACKEND FILES', error);
+      console.error(`${LOG_SCOPE} dispatch-to-filtered-files:error`, error);
     }
     if (isCanceledWrap() && status !== Status.error) {
       status = Status.aborted;
     }
+    console.info(`${LOG_SCOPE} dispatch-to-filtered-files:completed`, { total, count, status });
     if (showFinishProgressToaster) {
       showFinishProgressToaster(total, count, status);
     } else {

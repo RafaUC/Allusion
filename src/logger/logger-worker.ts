@@ -1,4 +1,4 @@
-import { decycle, WorkerLoggerOptions } from './logger-utils';
+import { decycle, resolveLazyArgs, WorkerLoggerOptions } from './logger-utils';
 
 // Local configuration state inside the Web Worker scope
 let workerConfig: WorkerLoggerOptions = {
@@ -44,10 +44,11 @@ export function initializeWorkerLogger(initialOptions?: WorkerLoggerOptions) {
   }
 
   (Object.keys(levelsMapping) as AllowedLevels[]).forEach((level) => {
-    console[level] = (...args: any[]) => {
+    console[level] = (...rawArgs: any[]) => {
       if (!workerConfig.loggerConsoleEnabled) {
         return;
       }
+      const args = resolveLazyArgs(rawArgs);
       // Print locally to DevTools if enabled for this Worker
       if (typeof originalWorkerConsole[level] === 'function') {
         originalWorkerConsole[level].apply(console, args);

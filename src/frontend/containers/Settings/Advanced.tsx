@@ -121,9 +121,9 @@ export const Advanced = observer(() => {
 
       <Callout icon={IconSet.INFO}>
         Activating this feature saves a record of application events, processes, and errors to
-        diagnose and troubleshoot issues. If you are experiencing problems, please enable this
-        option, reproduce the incorrect behavior, and attach the log file to your GitHub issue
-        report.
+        diagnose and troubleshoot issues into a local file, no data will be sent to any server or
+        service. If you are experiencing problems, please enable this option, reproduce the
+        incorrect behavior, and attach the log file to your GitHub issue report.
       </Callout>
       <Callout icon={IconSet.INFO}>
         You can also enable a privacy mode to obfuscate sensitive information such as directory

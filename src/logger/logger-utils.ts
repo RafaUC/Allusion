@@ -89,3 +89,10 @@ export function decycle(obj: any, currentDepth = 0, maxDepth = 10, seen = new Se
   }
   return copy;
 }
+
+// A no argument function passed as a log argument is treated as a lazy payload:
+// it is only invoked (and its result substituted in-place) when logging is enabled,
+// so expensive computations (e.g. slicing/mapping large arrays) are skipped when disabled.
+export function resolveLazyArgs(args: any[]): any[] {
+  return args.map((arg) => (typeof arg === 'function' && arg.length === 0 ? arg() : arg));
+}

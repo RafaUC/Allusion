@@ -24,6 +24,7 @@ import { debounce } from 'common/timeout';
 
 const PREFERENCES_STORAGE_KEY = 'location-store-preferences';
 type Preferences = { extensions: IMG_EXTENSIONS_TYPE[] };
+const LOG_SCOPE = '[LocationStore]';
 
 /**
  * Compares metadata of two files to determine whether the files are (likely to be) identical
@@ -72,6 +73,7 @@ class LocationStore {
   }
 
   @action async init(): Promise<void> {
+    console.info(`${LOG_SCOPE} init:start`);
     // Restore preferences
     try {
       const prefs = JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) || '') as Preferences;
@@ -94,7 +96,10 @@ class LocationStore {
       : IS_MAC
       ? 'fs-events'
       : 'inotify';
-    console.debug('Watcher backend:', this.PARCEL_WATCHER_BACKEND);
+    console.info(`${LOG_SCOPE} init:watcher-backend`, {
+      backend: this.PARCEL_WATCHER_BACKEND,
+      isWatchmanInstalled: isWatchman,
+    });
 
     // Get dirs from backend
     const dirs = await this.backend.fetchLocations();
@@ -126,6 +131,10 @@ class LocationStore {
         location.init();
       }
     });
+    console.info(`${LOG_SCOPE} init:completed`, () => ({
+      locations: this.locationList.length,
+      enabledExtensions: Array.from(this.enabledFileExtensions),
+    }));
   }
 
   save(loc: LocationDTO): void {
@@ -210,16 +219,27 @@ class LocationStore {
     }
     locs = locs.filter((l) => l.isWatchingFiles);
     const len = locs.length;
+    console.info(`${LOG_SCOPE} watch:start`, { locations: len });
     for (let i = 0; i < len; i++) {
       const location = locs[i];
       this.showLocationProcessToast('show', 'watch', location, len, i);
       const success = await location.watch();
       this.showLocationProcessToast('cancel-retry', 'watch', location);
       if (!success) {
+        console.warn(`${LOG_SCOPE} watch:location-failed`, {
+          locationId: location.id,
+          locationPath: location.path,
+        });
         this.showLocationProcessToast('show-missing', 'watch', location);
+      } else {
+        console.info(`${LOG_SCOPE} watch:location-ready`, {
+          locationId: location.id,
+          locationPath: location.path,
+        });
       }
     }
     this.showLocationProcessToast('hide', 'watch');
+    console.info(`${LOG_SCOPE} watch:completed`, { locations: len });
   }
 
   /** Manually synchronizes the database files and locations with the current file system state using a brute-force scan. */
@@ -234,12 +254,20 @@ class LocationStore {
       locs = locations;
     }
     locs.forEach((loc) => (loc.isRefreshing = true));
+    console.info(`${LOG_SCOPE} update-locations:start`, {
+      locations: locs.length,
+      processAllLocations,
+    });
     const foundNewFiles = await this.compareLocations(locs);
     // update tagstore location tags
     this.rootStore.tagStore.refreshLocationTags(processAllLocations ? undefined : locs);
     if (foundNewFiles) {
       this.rootStore.fileStore.refetch();
     }
+    console.info(`${LOG_SCOPE} update-locations:completed`, {
+      locations: locs.length,
+      foundNewFiles,
+    });
     return foundNewFiles;
   }
 
@@ -252,6 +280,12 @@ class LocationStore {
     // TODO: Do this in a web worker, not in the renderer thread!
     for (let i = 0; i < len; i++) {
       const location = locations[i];
+      console.info(`${LOG_SCOPE} compare:location-start`, () => ({
+        locationId: location.id,
+        locationPath: location.path,
+        position: i + 1,
+        total: len,
+      }));
 
       this.showLocationProcessToast('show', 'update', location, len, i);
 
@@ -272,6 +306,10 @@ class LocationStore {
       this.showLocationProcessToast('cancel-retry', 'update', location);
 
       if (diskFiles === undefined) {
+        console.warn(`${LOG_SCOPE} compare:location-missing-on-disk`, {
+          locationId: location.id,
+          locationPath: location.path,
+        });
         this.showLocationProcessToast('show-missing', 'update', location);
         continue;
       }
@@ -284,6 +322,11 @@ class LocationStore {
         location.id,
         diskFiles,
       );
+      console.info(`${LOG_SCOPE} compare:diff-result`, {
+        locationId: location.id,
+        createdStats: createdStats.length,
+        missingFiles: missingFiles.length,
+      });
       const createdFiles = await Promise.all(
         createdStats.map((stats) => pathToIFile(stats, location, this.rootStore.imageLoader)),
       );
@@ -294,7 +337,13 @@ class LocationStore {
       // Also look for duplicate files: when a files is renamed/moved it will become a new entry, should be de-duplicated
       const dbMatches = new Map<ID, FileDTO>(await this.backend.findMissingDBMatches(missingFiles));
 
-      console.debug({ missingFiles, createdFiles, createdMatches, dbMatches });
+      console.debug(`${LOG_SCOPE} compare:diff-details`, () => ({
+        locationId: location.id,
+        missingFiles,
+        createdFiles,
+        createdMatches,
+        dbMatches: Array.from(dbMatches.entries()),
+      }));
 
       const foundCreatedMatches = createdMatches.filter((m) => m !== undefined) as FileDTO[];
 
@@ -310,10 +359,14 @@ class LocationStore {
       // Update renamed files in backend
       const updatedFileIds = new Set<ID>();
       if (foundCreatedMatches.length > 0) {
-        console.debug(
-          `Found ${foundCreatedMatches.length} renamed/moved files in location ${location.name}. These are detected as new files, but will instead replace their original entry in the DB of Allusion`,
-          foundCreatedMatches,
-        );
+        console.info(`${LOG_SCOPE} compare:renamed-or-moved-detected`, {
+          locationId: location.id,
+          count: foundCreatedMatches.length,
+        });
+        console.debug(`${LOG_SCOPE} compare:renamed-or-moved-details`, {
+          locationId: location.id,
+          files: foundCreatedMatches,
+        });
         // TODO: remove thumbnail as well (clean-up needed, since the path changed)
         const renamedFilesToUpdate: FileDTO[] = [];
         for (let i = 0; i < createdMatches.length; i++) {
@@ -338,10 +391,14 @@ class LocationStore {
       if (dbMatches.size > 0) {
         // Renaming/moving files will be created as new files while the old one sticks around
         // In here we transfer the tag data over from the old entry to the new one, and delete the old entry
-        console.debug(
-          `Found ${dbMatches.size} renamed/moved files in location ${location.name} that were already present in the database. Removing duplicates`,
-          dbMatches,
-        );
+        console.info(`${LOG_SCOPE} compare:duplicate-db-matches-detected`, {
+          locationId: location.id,
+          count: dbMatches.size,
+        });
+        console.debug(`${LOG_SCOPE} compare:duplicate-db-matches-details`, () => ({
+          locationId: location.id,
+          matches: Array.from(dbMatches.entries()),
+        }));
         const files: FileDTO[] = [];
         for (let i = 0; i < missingFiles.length; i++) {
           const missingfile = missingFiles[i];
@@ -366,6 +423,10 @@ class LocationStore {
       // For createdFiles without a match, insert them in the DB as new files
       const newFiles = createdFiles.filter((cf) => !foundCreatedMatches.includes(cf));
       if (newFiles.length) {
+        console.info(`${LOG_SCOPE} compare:new-files-detected`, {
+          locationId: location.id,
+          count: newFiles.length,
+        });
         await this.backend.createFilesFromPath(location.path, newFiles);
       }
 
@@ -389,6 +450,11 @@ class LocationStore {
       }
 
       foundNewFiles = foundNewFiles || newFiles.length > 0; /**/
+      console.info(`${LOG_SCOPE} compare:location-completed`, {
+        locationId: location.id,
+        locationPath: location.path,
+        newFiles: newFiles.length,
+      });
       console.groupEnd();
     }
 
@@ -404,7 +470,7 @@ class LocationStore {
   @action async updateChangedFiles(
     dbFiles: FileDTO[],
     diskFileMap: Map<string, FileStats>,
-  ): Promise<void> {
+  ): Promise<number> {
     // Also update files that have changed, e.g. when overwriting a file (with same filename)
     // --> update metadata (resolution, size) and recreate thumbnail
     // This can be accomplished by comparing the dateLastIndexed of the file in DB to dateModified of the file on disk
@@ -429,7 +495,7 @@ class LocationStore {
         };
 
         console.debug(
-          `Updating modified file: ${JSON.stringify(
+          `${LOG_SCOPE} update-changed:updating-modified-file: ${JSON.stringify(
             {
               ino: dbFile.ino,
               size: dbFile.size,
@@ -461,9 +527,11 @@ class LocationStore {
       }
     }
     if (updatedFiles.length > 0) {
-      console.debug('Re-indexed files changed on disk', updatedFiles);
+      console.info(`${LOG_SCOPE} reindex:files-changed-on-disk`, { count: updatedFiles.length });
+      console.debug(`${LOG_SCOPE} reindex:files-changed-details`, updatedFiles);
       await this.backend.saveFiles(updatedFiles);
     }
+    return updatedFiles.length;
   }
 
   @action get(locationId: ID): ClientLocation | undefined {
@@ -490,7 +558,11 @@ class LocationStore {
     if (index === -1) {
       throw new Error(`The location ${location.name} has already been removed.`);
     }
-    console.log('changing location path', location, newPath);
+    console.info(`${LOG_SCOPE} location-path-change:start`, {
+      locationId: location.id,
+      oldPath: location.path,
+      newPath,
+    });
     // First, update the absolute path of all files from this location
     const locFiles = await this.findLocationFiles(location.id);
     const files: FileDTO[] = locFiles.map((f) => ({
@@ -518,6 +590,10 @@ class LocationStore {
 
     // Dismiss the 'Cannot find location' toast if it is still open
     AppToaster.dismiss(`missing-loc-${newLocation.id}`);
+    console.info(`${LOG_SCOPE} location-path-change:completed`, {
+      locationId: newLocation.id,
+      newPath: newLocation.path,
+    });
   }
 
   @action exists(predicate: (location: ClientLocation) => boolean): boolean {
@@ -538,11 +614,20 @@ class LocationStore {
     );
     await this.backend.createLocation(location.serialize());
     runInAction(() => this.locationList.push(location));
+    console.info(`${LOG_SCOPE} location:create`, {
+      locationId: location.id,
+      path,
+      isWatchingFiles: location.isWatchingFiles,
+    });
     return location;
   }
 
   /** Imports all files from a location into the FileStore */
   @action.bound async initLocation(location: ClientLocation): Promise<void> {
+    console.info(`${LOG_SCOPE} location-init:start`, {
+      locationId: location.id,
+      path: location.path,
+    });
     const toastKey = `initialize-${location.id}`;
 
     let isCancelled = false;
@@ -601,9 +686,18 @@ class LocationStore {
     AppToaster.show({ message: `Location "${location.name}" is ready!`, timeout: 5000 }, toastKey);
     this.rootStore.fileStore.refetch();
     this.rootStore.fileStore.refetchFileCounts();
+    console.info(`${LOG_SCOPE} location-init:completed`, {
+      locationId: location.id,
+      importedFiles: files.length,
+      cancelled: isCancelled,
+    });
   }
 
   @action.bound async delete(location: ClientLocation): Promise<void> {
+    console.info(`${LOG_SCOPE} location:delete`, {
+      locationId: location.id,
+      path: location.path,
+    });
     // Remove location from DB through backend
     await this.backend.removeLocation(location.id);
     runInAction(() => {
@@ -649,11 +743,25 @@ class LocationStore {
 
     if (match) {
       if (fileStats.absolutePath === match.absolutePath) {
+        console.debug(`${LOG_SCOPE} add-file:add-ignored-existing`, {
+          locationId: location.id,
+          path: fileStats.absolutePath,
+        });
         fileStore.debouncedRefetch();
         return;
       }
+      console.info(`${LOG_SCOPE} add-file:move-detected-from-memory`, {
+        locationId: location.id,
+        from: match.absolutePath,
+        to: fileStats.absolutePath,
+      });
       fileStore.replaceMovedFile(match, file);
     } else if (dbMatch) {
+      console.info(`${LOG_SCOPE} add-file:move-detected-from-db`, {
+        locationId: location.id,
+        previousPath: dbMatch.absolutePath,
+        newPath: fileStats.absolutePath,
+      });
       runInAction(() => {
         const newIFile = mergeMovedFile(dbMatch, file);
         const newClientfile = new ClientFile(this.rootStore.fileStore, newIFile);
@@ -661,6 +769,10 @@ class LocationStore {
         newClientfile.dispose();
       });
     } else if (dbMatchOverwrite) {
+      console.info(`${LOG_SCOPE} add-file:overwrite-detected`, {
+        locationId: location.id,
+        path: fileStats.absolutePath,
+      });
       await this.updateChangedFiles(
         [dbMatchOverwrite],
         new Map<string, FileStats>([[fileStats.absolutePath, fileStats]]),
@@ -669,6 +781,10 @@ class LocationStore {
       await this.backend.createFilesFromPath(fileStats.absolutePath, [file]);
       fileStore.setDirtyTotalFiles(true);
       fileStore.setDirtyUntaggedFiles(true);
+      console.info(`${LOG_SCOPE} add-file:new-file-created`, {
+        locationId: location.id,
+        path: fileStats.absolutePath,
+      });
       AppToaster.show({ message: 'New images have been detected.', timeout: 5000 }, 'new-images');
       // might be called a lot when moving many images into a folder, so debounce it
     }
@@ -684,16 +800,26 @@ class LocationStore {
   @action async updateFilestoUpdate(): Promise<void> {
     const fileStats = Array.from(this.filesToUpdate.values());
     this.filesToUpdate.clear();
+    if (fileStats.length > 0) {
+      console.debug(`${LOG_SCOPE} update-files:update-files-to-update`, {
+        updates: fileStats.length,
+      });
+    }
     const fileStore = this.rootStore.fileStore;
     const dbMatchOverwrites = await this.backend.fetchFilesByKey(
       'absolutePath',
       fileStats.map((fs) => fs.absolutePath),
     );
     if (dbMatchOverwrites.length > 0) {
-      await this.updateChangedFiles(
+      const updatedCount = await this.updateChangedFiles(
         dbMatchOverwrites,
         new Map<string, FileStats>(fileStats.map((fs) => [fs.absolutePath, fs])),
       );
+      console.info(`${LOG_SCOPE} update-files:update-batch-processed`, {
+        requestedUpdates: fileStats.length,
+        matchedDbFiles: dbMatchOverwrites.length,
+        updatedCount,
+      });
       // Do a refetch except if inside slide mode to avoid to exit it.
       if (runInAction(() => !this.rootStore.uiStore.isSlideMode)) {
         fileStore.debouncedRefetch();
@@ -705,6 +831,7 @@ class LocationStore {
     // This is called when an image is removed from the filesystem.
     // Could also mean that a file was renamed or moved, in which case addFile was called already:
     // its path will have changed, so we won't find it here, which is fine, it'll be detected as missing later.
+    console.debug(`${LOG_SCOPE} hide-file:remove-renamed-or-moved`, { path });
     const fileStore = this.rootStore.fileStore;
     const clientFile = fileStore.fileList.find((f) => f && f.absolutePath === path);
 

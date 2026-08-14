@@ -11,6 +11,7 @@ import {
 import SysPath from 'path';
 
 import { retainArray } from 'common/core';
+import { debounce } from 'common/timeout';
 import { FileStats, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { generateId, ID } from '../../api/id';
 import { LocationDTO, SubLocationDTO } from '../../api/location';
@@ -19,6 +20,10 @@ import { AppToaster } from '../components/Toaster';
 import LocationStore from '../stores/LocationStore';
 import { FolderWatcherWorker } from '../workers/folderWatcher.worker';
 import { ClientTag } from './Tag';
+import { RendererLoggerController } from 'src/logger/logger-renderer';
+
+const LOG_SCOPE = '[Location]';
+const WATCH_EVENT_LOG_WINDOW_MS = 3000;
 
 /** Sorts alphanumerically, "natural" sort */
 const sort = (a: SubLocationDTO | ClientSubLocation, b: SubLocationDTO | ClientSubLocation) =>
@@ -149,6 +154,13 @@ export class ClientLocation {
   readonly id: ID;
   readonly path: string;
   readonly dateAdded: Date;
+  private watchEventCounters = { add: 0, update: 0, remove: 0, error: 0 };
+  private watchEventPaths = {
+    add: new Set<string>(),
+    update: new Set<string>(),
+    remove: new Set<string>(),
+  };
+  private flushWatchEventLogsDebounced: () => void;
 
   constructor(
     store: LocationStore,
@@ -188,8 +200,47 @@ export class ClientLocation {
     );
     this.tags = observable(this.store.getTags(tags));
     this.locationTag = store.getLocationTag({ id });
+    this.flushWatchEventLogsDebounced = debounce(
+      this.flushWatchEventLogs.bind(this),
+      WATCH_EVENT_LOG_WINDOW_MS,
+    );
 
     makeObservable(this);
+  }
+
+  private trackLogWatchEvent(type: 'add' | 'update' | 'remove' | 'error', path?: string): void {
+    this.watchEventCounters[type] += 1;
+    if (path && type !== 'error') {
+      this.watchEventPaths[type].add(path);
+    }
+    this.flushWatchEventLogsDebounced();
+  }
+
+  private flushWatchEventLogs(): void {
+    const { add, update, remove, error } = this.watchEventCounters;
+    const total = add + update + remove + error;
+    if (total === 0) {
+      return;
+    }
+    console.info(`${LOG_SCOPE} watcher:events-summary`, {
+      locationId: this.id,
+      locationPath: this.path,
+      add,
+      update,
+      remove,
+      error,
+      windowMs: WATCH_EVENT_LOG_WINDOW_MS,
+    });
+    console.debug(`${LOG_SCOPE} watcher:events-sample-paths`, () => ({
+      locationId: this.id,
+      addPaths: Array.from(this.watchEventPaths.add).slice(0, 100),
+      updatePaths: Array.from(this.watchEventPaths.update).slice(0, 100),
+      removePaths: Array.from(this.watchEventPaths.remove).slice(0, 100),
+    }));
+    this.watchEventCounters = { add: 0, update: 0, remove: 0, error: 0 };
+    this.watchEventPaths.add.clear();
+    this.watchEventPaths.update.clear();
+    this.watchEventPaths.remove.clear();
   }
 
   get name(): string {
@@ -227,6 +278,20 @@ export class ClientLocation {
     } else {
       this.setBroken(true);
     }
+    console.info(`${LOG_SCOPE} init:completed`, () => ({
+      locationId: this.id,
+      path: this.path,
+      subLocations: this.subLocations.length,
+      excludedPaths: this.excludedPaths.length,
+      isBroken: this.isBroken,
+      isWatchingFiles: this.isWatchingFiles,
+    }));
+    console.debug(`${LOG_SCOPE} init:completed-sample`, () => ({
+      locationId: this.id,
+      path: this.path,
+      subLocations: this.subLocations,
+      excludedPaths: this.excludedPaths,
+    }));
   }
 
   @action setBroken(state: boolean): void {
@@ -238,12 +303,21 @@ export class ClientLocation {
   }
 
   @action.bound async toggleWatchFiles(): Promise<void> {
+    console.info(`${LOG_SCOPE} watcher:toggle-requested`, {
+      locationId: this.id,
+      path: this.path,
+      previousState: this.isWatchingFiles,
+    });
     if (this.isWatchingFiles) {
       if (this.worker !== undefined) {
         await this.worker.cancel();
         await this.worker.close();
         this.worker = undefined;
         this.isWatchingFiles = false;
+        console.info(`${LOG_SCOPE} watcher:stopped`, {
+          locationId: this.id,
+          path: this.path,
+        });
       }
     } else {
       if (this.worker === undefined) {
@@ -353,6 +427,9 @@ export class ClientLocation {
 
   /** Cleanup resources */
   async drop(): Promise<void> {
+    if (this._worker) {
+      RendererLoggerController.unregisterWorker(this._worker);
+    }
     return this.worker?.close();
   }
 
@@ -532,10 +609,16 @@ export class ClientLocation {
     }
     this.setSettingWatcher(true);
     const directory = this.path;
-    console.debug('Loading folder watcher worker...', directory);
+    console.info(`${LOG_SCOPE} watcher:start`, {
+      locationId: this.id,
+      path: directory,
+      extensions: this.extensions,
+      backend: this.store.PARCEL_WATCHER_BACKEND,
+    });
     const worker = new Worker(
       new URL('src/frontend/workers/folderWatcher.worker', import.meta.url),
     );
+    RendererLoggerController.registerWorker(worker, 'FolderWatcherWorker');
     worker.onmessage = ({
       data,
     }: {
@@ -548,12 +631,16 @@ export class ClientLocation {
         const { absolutePath } = data.value;
         // Filter out files located in any excluded subLocations
         if (this.excludedPaths.some((subLoc) => data.value.absolutePath.startsWith(subLoc.path))) {
-          console.debug('File added to excluded sublocation', absolutePath);
+          console.debug(`${LOG_SCOPE} watcher:add-ignored-excluded-path`, {
+            locationId: this.id,
+            path: absolutePath,
+          });
         } else {
-          console.log(`File ${absolutePath} has been added after initialization`);
+          this.trackLogWatchEvent('add', absolutePath);
           this.store.addFile(data.value, this);
         }
       } else if (data.type === 'update') {
+        this.trackLogWatchEvent('update', data.value.absolutePath);
         // when update set a short timeout because in the case the update was caused by writting tags with exiftool
         // the update event gets executed before exiftool can finish
         // so chokidar and fse dont use the presserved modified date exiftool set
@@ -567,11 +654,16 @@ export class ClientLocation {
         }, 500);
       } else if (data.type === 'remove') {
         const { value } = data;
-        console.log(`Location "${this.name}": File ${value} has been removed.`);
+        this.trackLogWatchEvent('remove', value);
         this.store.hideFile(value);
       } else if (data.type === 'error') {
         const { value } = data;
-        console.error('Location watch error:', value);
+        this.trackLogWatchEvent('error');
+        console.error(`${LOG_SCOPE} watcher:error`, {
+          locationId: this.id,
+          path: this.path,
+          error: value,
+        });
         if (value === 'ENOENT') {
           AppToaster.show(
             {
@@ -613,13 +705,26 @@ export class ClientLocation {
     );
 
     this.setSettingWatcher(false);
+    console.info(`${LOG_SCOPE} watcher:ready`, {
+      locationId: this.id,
+      path: this.path,
+      snapshotFilePath,
+    });
     return true;
   }
 
   // close and save snapshots of the watcher worker
   @action async close(): Promise<void> {
+    this.flushWatchEventLogs();
     await this.worker?.cancel();
     await this.worker?.close();
+    if (this._worker) {
+      RendererLoggerController.unregisterWorker(this._worker);
+    }
+    console.info(`${LOG_SCOPE} watcher:closed`, {
+      locationId: this.id,
+      path: this.path,
+    });
   }
 }
 interface IDirectoryTreeItem {

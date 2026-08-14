@@ -3,8 +3,12 @@ import { statSync } from 'fs';
 import SysPath from 'path';
 import { FileStats, IMG_EXTENSIONS_TYPE } from 'src/api/file';
 import * as parcelWatcher from '@parcel/watcher';
+import { initializeWorkerLogger } from 'src/logger/logger-worker';
+
+initializeWorkerLogger();
 
 const ctx: Worker = self as any;
+const LOG_SCOPE = '[FolderWatcherWorker]';
 
 export class FolderWatcherWorker {
   private watcher?: parcelWatcher.AsyncSubscription;
@@ -21,6 +25,7 @@ export class FolderWatcherWorker {
     if (this.watcher) {
       this.watcher.unsubscribe();
       this.watcher = undefined;
+      console.info(`${LOG_SCOPE} close:watcher-unsubscribed`, { directory: this.directory });
     }
     // Save watcher snapshot on close
     if (this.snapshotFilePath && this.directory) {
@@ -44,6 +49,12 @@ export class FolderWatcherWorker {
   ): Promise<void> {
     this.isCancelled = false;
     this.backend = backend;
+    console.info(`${LOG_SCOPE} watch:start`, {
+      directory,
+      extensionsCount: extensions.length,
+      backend,
+      snapshotFilePath,
+    });
 
     // Replace backslash with forward slash, recommended by chokidar
     // See docs for the .watch method: https://github.com/paulmillr/chokidar#api
@@ -58,6 +69,9 @@ export class FolderWatcherWorker {
 
     const handleEvents = // Small indentation hack to avoid affecting git blame
       async (events: parcelWatcher.Event[], extensions: IMG_EXTENSIONS_TYPE[]) => {
+        let createCount = 0;
+        let updateCount = 0;
+        let deleteCount = 0;
         for (const event of events) {
           // Ignore Files that aren't our extension type
           const ext = SysPath.extname(event.path).toLowerCase().split('.')[1];
@@ -65,6 +79,7 @@ export class FolderWatcherWorker {
             continue;
           }
           if (event.type === 'create') {
+            createCount += 1;
             const stats = statSync(event.path);
             if (this.isCancelled) {
               console.log('Cancelling file watching');
@@ -91,6 +106,7 @@ export class FolderWatcherWorker {
 
             ctx.postMessage({ type: 'add', value: fileStats });
           } else if (event.type === 'update') {
+            updateCount += 1;
             const stats = statSync(event.path);
             if (this.isCancelled) {
               console.log('Cancelling file watching');
@@ -109,35 +125,57 @@ export class FolderWatcherWorker {
               ctx.postMessage({ type: 'update', value: fileStats });
             }
           } else if (event.type === 'delete') {
+            deleteCount += 1;
             ctx.postMessage({ type: 'remove', value: event.path });
           }
+        }
+        if (createCount + updateCount + deleteCount > 0) {
+          console.info(`${LOG_SCOPE} watch:event-batch`, {
+            directory: this.directory,
+            create: createCount,
+            update: updateCount,
+            delete: deleteCount,
+            total: createCount + updateCount + deleteCount,
+          });
         }
       };
 
     //Query for changes made while the watcher was down.
     try {
-      console.debug('Reading watcher snapshot...', directory);
+      console.debug(`${LOG_SCOPE} snapshot:read`, {
+        directory,
+        snapshotFilePath: this.snapshotFilePath,
+      });
       const historical = await parcelWatcher.getEventsSince(directory, this.snapshotFilePath, {
         backend: this.backend,
       });
+      console.info(`${LOG_SCOPE} snapshot:historical-events`, {
+        directory,
+        events: historical.length,
+      });
       handleEvents(historical, extensions);
     } catch (err) {
-      console.warn('No snapshot available, skipping historical events.', err);
+      console.warn(`${LOG_SCOPE} snapshot:missing-or-invalid`, { directory, error: err });
     }
 
     this.watcher = await parcelWatcher.subscribe(
       directory,
       (err, events) => {
         if (err) {
-          console.error('Error fired in watcher', directory, err);
+          console.error(`${LOG_SCOPE} watch:subscription-error`, { directory, error: err });
           ctx.postMessage({ type: 'error', value: err });
         }
-        handleEvents(events, extensions).catch(err => {
-            ctx.postMessage({ type: 'error', value: err.code });
+        handleEvents(events, extensions).catch((err) => {
+          console.error(`${LOG_SCOPE} watch:handle-events-error`, {
+            directory,
+            error: err,
+          });
+          ctx.postMessage({ type: 'error', value: err.code });
         });
       },
       { ignore: [], backend: backend },
     );
+    console.info(`${LOG_SCOPE} watch:subscribed`, { directory, backend });
   }
 }
 

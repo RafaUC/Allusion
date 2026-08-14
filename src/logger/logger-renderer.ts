@@ -1,6 +1,7 @@
 import { IS_DEV } from 'common/process';
 import { ipcRenderer } from 'electron';
-import { decycle, LoggerConfig, WorkerLoggerOptions } from './logger-utils';
+import { decycle, LoggerConfig, resolveLazyArgs, WorkerLoggerOptions } from './logger-utils';
+import { action } from 'mobx';
 
 // Local runtime flag determining whether logs are visible in the Chromium DevTools panel
 let rendererConsoleEnabled = IS_DEV;
@@ -73,10 +74,11 @@ export async function initializeRendererLogger(options = { maxDepth: 8 }) {
   }
 
   (Object.keys(levelsMapping) as AllowedRendererLevels[]).forEach((level) => {
-    console[level] = (...args: any[]) => {
+    console[level] = action((...rawArgs: any[]) => {
       if (!rendererConsoleEnabled) {
         return;
       }
+      const args = resolveLazyArgs(rawArgs);
       // Print locally to Chromium DevTools preserving caller context if enabled
       if (typeof originalRendererConsole[level] === 'function') {
         originalRendererConsole[level].apply(console, args);
@@ -92,7 +94,7 @@ export async function initializeRendererLogger(options = { maxDepth: 8 }) {
       } catch (e) {
         originalRendererConsole['error'](e);
       }
-    };
+    });
   });
 
   // Intercept window alerts and route them through our logger
@@ -201,6 +203,11 @@ export class RendererLoggerController {
       level: level,
       args: args,
     });
+  }
+
+  /** Lets call sites skip building expensive debug payloads when console logging is off. */
+  static isConsoleEnabled(): boolean {
+    return rendererConsoleEnabled;
   }
 
   static async getCurrentConfig(): Promise<Partial<LoggerConfig>> {

@@ -340,7 +340,7 @@ export default class Backend implements DataStorage {
     cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]> {
-    console.info('SQLite: Fetching all files...', cursor);
+    console.info('SQLite: Fetching all files...', { cursor });
     return this.queryFiles(undefined, {
       order,
       direction: fileOrder,
@@ -362,7 +362,7 @@ export default class Backend implements DataStorage {
     cursor?: Cursor,
     extraPropertyID?: ID,
   ): Promise<FileDTO[]> {
-    console.info('SQLite: Searching files...', cursor, criteria);
+    console.info('SQLite: Searching files...', { cursor, criteria });
     return this.queryFiles(criteria, {
       order,
       direction: fileOrder,
@@ -624,31 +624,31 @@ export default class Backend implements DataStorage {
     });
     this.#isQueryDirty = true;
     this.#notifyChange();
-    console.info('SQLite: Files created successfully');
+    console.info('SQLite: Files created successfully', { path, count: filesDTO.length });
   }
 
   async createLocation(location: LocationDTO): Promise<void> {
-    console.info('SQLite: Creating location...', location);
+    console.info('SQLite: Creating location...', { location });
     return this.upsertLocation(location);
   }
 
   async createSearch(search: FileSearchDTO): Promise<void> {
-    console.info('SQLite: Creating search...', search);
+    console.info('SQLite: Creating search...', { search });
     return this.upsertSearch(search);
   }
 
   async createExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
-    console.info('SQLite: Creating extra property...', extraProperty);
+    console.info('SQLite: Creating extra property...', { extraProperty });
     return this.upsertExtraProperty(extraProperty);
   }
 
   async createTagPalette(palette: TagPaletteDTO): Promise<void> {
-    console.info('SQLite: Creating tag palette...', palette);
+    console.info('SQLite: Creating tag palette...', { palette });
     return this.upsertTagPalette(palette);
   }
 
   async saveTag(tag: TagDTO): Promise<void> {
-    console.info('SQLite: Saving tag...', tag);
+    console.info('SQLite: Saving tag...', { tag });
     return this.upsertTag(tag);
   }
 
@@ -676,7 +676,7 @@ export default class Backend implements DataStorage {
   }
 
   async saveFiles(filesDTO: FileDTO[]): Promise<void> {
-    console.info('SQLite: Saving files...', filesDTO);
+    console.info('SQLite: Saving files...', { filesDTO });
     if (filesDTO.length === 0) {
       return;
     }
@@ -783,7 +783,7 @@ export default class Backend implements DataStorage {
   }
 
   async saveLocation(location: LocationDTO): Promise<void> {
-    console.info('SQLite: Saving location...', location);
+    console.info('SQLite: Saving location...', { location });
     return this.upsertLocation(location);
   }
 
@@ -812,7 +812,7 @@ export default class Backend implements DataStorage {
   }
 
   async saveSearch(search: FileSearchDTO): Promise<void> {
-    console.info('SQLite: Saving search...', search);
+    console.info('SQLite: Saving search...', { search });
     return this.upsertSearch(search);
   }
 
@@ -836,7 +836,7 @@ export default class Backend implements DataStorage {
   }
 
   async saveExtraProperty(extraProperty: ExtraPropertyDTO): Promise<void> {
-    console.info('SQLite: Saving extra property...', extraProperty);
+    console.info('SQLite: Saving extra property...', { extraProperty });
     return this.upsertExtraProperty(extraProperty);
   }
 
@@ -854,7 +854,7 @@ export default class Backend implements DataStorage {
   }
 
   async saveTagPalette(palette: TagPaletteDTO): Promise<void> {
-    console.info('SQLite: Saving tag palette...', palette);
+    console.info('SQLite: Saving tag palette...', { palette });
     return this.upsertTagPalette(palette);
   }
 
@@ -879,7 +879,7 @@ export default class Backend implements DataStorage {
   }
 
   async mergeTags(tagToBeRemoved: ID, tagToMergeWith: ID): Promise<void> {
-    console.info('SQLite: Merging tags...', tagToBeRemoved, tagToMergeWith);
+    console.info('SQLite: Merging tags...', { tagToBeRemoved, tagToMergeWith });
 
     await this.#db.transaction().execute(async (trx) => {
       // Merge in FileTags
@@ -918,21 +918,21 @@ export default class Backend implements DataStorage {
   }
 
   async removeTags(tags: ID[]): Promise<void> {
-    console.info('SQLite: Removing tags...', tags);
+    console.info('SQLite: Removing tags...', { tags });
     // Cascade delte in other tables deleting from tags table.
     await this.#db.deleteFrom('tags').where('id', 'in', tags).execute();
     this.#notifyChange();
   }
 
   async removeFiles(files: ID[]): Promise<void> {
-    console.info('SQLite: Removing files...', files);
+    console.info('SQLite: Removing files...', { files });
     // Cascade delte in other tables deleting from files table.
     await this.#db.deleteFrom('files').where('id', 'in', files).execute();
     this.#notifyChange();
   }
 
   async removeLocation(location: ID): Promise<void> {
-    console.info('SQLite: Removing location...', location);
+    console.info('SQLite: Removing location...', { location });
     // Cascade delte in other tables deleting from locationNodes table.
     await this.#db.deleteFrom('locationNodes').where('id', '=', location).execute();
     // Run VACUUM to free disk space after large deletions.
@@ -948,28 +948,28 @@ export default class Backend implements DataStorage {
   }
 
   async removeSearch(search: ID): Promise<void> {
-    console.info('SQLite: Removing search...', search);
+    console.info('SQLite: Removing search...', { search });
     // Cascade delte in other tables deleting from savedSearches table.
     await this.#db.deleteFrom('savedSearches').where('id', '=', search).execute();
     this.#notifyChange();
   }
 
   async removeExtraProperties(extraPropertyIDs: ID[]): Promise<void> {
-    console.info('SQLite: Removing extra properties...', extraPropertyIDs);
+    console.info('SQLite: Removing extra properties...', { extraPropertyIDs });
     // Cascade delte in other tables deleting from extraProperties table.
     await this.#db.deleteFrom('extraProperties').where('id', 'in', extraPropertyIDs).execute();
     this.#notifyChange();
   }
 
   async removeTagPalettes(paletteIds: ID[]): Promise<void> {
-    console.info('SQLite: Removing tag palettes...', paletteIds);
+    console.info('SQLite: Removing tag palettes...', { paletteIds });
     // Cascade delte in tagPaletteItems deleting from tagPalettes table.
     await this.#db.deleteFrom('tagPalettes').where('id', 'in', paletteIds).execute();
     this.#notifyChange();
   }
 
   async addTagsToFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
-    console.info('SQLite: Add tags to filtered files...', criteria, tagIds);
+    console.info('SQLite: Add tags to filtered files...', { criteria, tagIds });
     // Subquery tipado correctamente
     let fileSubquery = this.#db.selectFrom('files').select('files.id as fileId');
     fileSubquery = applyFileFilters(fileSubquery, criteria);
@@ -995,7 +995,7 @@ export default class Backend implements DataStorage {
   }
 
   async removeTagsFromFiles(tagIds: ID[], criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
-    console.info('SQLite: Remove tags from filtered files...', criteria, tagIds);
+    console.info('SQLite: Remove tags from filtered files...', { criteria, tagIds });
 
     let fileSubquery = this.#db.selectFrom('files').select('files.id');
     fileSubquery = applyFileFilters(fileSubquery, criteria);
@@ -1010,6 +1010,7 @@ export default class Backend implements DataStorage {
   }
 
   async clearTagsFromFiles(criteria?: ConditionGroupDTO<FileDTO>): Promise<void> {
+    console.info('SQLite: Clear tags from filtered files...', { criteria });
     let fileSubquery = this.#db.selectFrom('files').select('files.id');
     fileSubquery = applyFileFilters(fileSubquery, criteria);
 
@@ -1022,7 +1023,7 @@ export default class Backend implements DataStorage {
     options?: { files?: boolean; untagged?: boolean },
     criteria?: ConditionGroupDTO<FileDTO>,
   ): Promise<[fileCount: number | undefined, untaggedFileCount: number | undefined]> {
-    console.info('SQLite: Counting files...', options, criteria);
+    console.info('SQLite: Counting files...', { options, criteria });
     const result: [number | undefined, number | undefined] = [undefined, undefined];
     if (options?.files) {
       let totalQuery = this.#db
@@ -1051,6 +1052,10 @@ export default class Backend implements DataStorage {
     locationId: ID,
     diskFiles: FileStats[],
   ): Promise<{ createdStats: FileStats[]; missingFiles: FileDTO[] }> {
+    console.info('SQLite: Comparing files against disk state...', {
+      locationId,
+      diskFiles: diskFiles.length,
+    });
     const dbWithTemp = this.#db.withTables<{
       tempDiskFiles: Omit<FileStats, 'dateModified' | 'dateCreated'> & {
         dateModified: number;
@@ -1133,6 +1138,17 @@ export default class Backend implements DataStorage {
     // clean temp table
     await sql`DROP TABLE IF EXISTS ${sql.id(tempDiskFilesName)}`.execute(this.#db);
 
+    console.info('SQLite: Compare files result', {
+      locationId,
+      createdStats: createdStats.length,
+      missingFiles: missingFiles.length,
+    });
+    console.debug('SQLite: Compare files detail sample', () => ({
+      locationId,
+      createdSample: createdStats.slice(0, 20),
+      missingSample: missingFiles.slice(0, 20),
+    }));
+
     return { createdStats, missingFiles };
   }
 
@@ -1140,6 +1156,9 @@ export default class Backend implements DataStorage {
   async findMissingDBMatches(
     missingFiles: FileDTO[],
   ): Promise<Array<[missingFileId: ID, dbMatch: FileDTO]>> {
+    console.info('SQLite: Finding DB matches for missing files...', {
+      missingFiles: missingFiles.length,
+    });
     if (missingFiles.length === 0) {
       return [];
     }
@@ -1244,10 +1263,17 @@ export default class Backend implements DataStorage {
     }
 
     // return entries for compatibility with worker mode.
-    return Array.from(uniqueMatches.entries()).map(([missingId, matchedFile]) => [
-      missingId,
-      matchedFile,
-    ]);
+    const result: Array<[missingFileId: ID, dbMatch: FileDTO]> = Array.from(
+      uniqueMatches.entries(),
+    ).map(([missingId, matchedFile]) => [missingId, matchedFile]);
+
+    console.info('SQLite: Missing file DB matches resolved', {
+      missingFiles: missingFiles.length,
+      matches: result.length,
+    });
+    console.debug('SQLite: Missing file DB matches sample', () => result.slice(0, 50));
+
+    return result;
   }
 
   async clear(): Promise<void> {
