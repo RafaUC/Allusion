@@ -2,6 +2,9 @@
 // Default markdown styles for Allusion
 /////////////////////////////////////
 .markdown-container {
+  --md-zoom-factor: 1; // Default zoom factor for markdown content
+
+  font-size: calc(1rem * var(--md-zoom-factor));
   font-family: inherit;
   line-height: 1.6;
   color: var(--text-color);
@@ -14,8 +17,8 @@
   h1, h2, h3, h4, h5, h6 {
     color: var(--text-color-strong);
     font-weight: 600;
-    margin-top: 1.25rem;
-    margin-bottom: 0.5rem;
+    margin-top: calc(1.25rem * var(--md-zoom-factor));
+    margin-bottom: calc(0.5rem * var(--md-zoom-factor));
     line-height: 1.25;
 
     &:first-child {
@@ -23,14 +26,14 @@
     }
   }
 
-  h1 { font-size: 1.6rem; border-bottom: 1px solid var(--text-color-muted); padding-bottom: 0.4rem; }
-  h2 { font-size: 1.3rem; border-bottom: 1px solid var(--text-color-muted); padding-bottom: 0.3rem; }
-  h3 { font-size: 1.15rem; }
-  h4 { font-size: 1rem; }
+  h1 { font-size: calc(1.6rem * var(--md-zoom-factor)); border-bottom: 1px solid var(--text-color-muted); padding-bottom: calc(0.4rem * var(--md-zoom-factor)); }
+  h2 { font-size: calc(1.3rem * var(--md-zoom-factor)); border-bottom: 1px solid var(--text-color-muted); padding-bottom: calc(0.3rem * var(--md-zoom-factor)); }
+  h3 { font-size: calc(1.15rem * var(--md-zoom-factor)); }
+  h4 { font-size: calc(1rem * var(--md-zoom-factor)); }
 
   p {
     margin-top: 0;
-    margin-bottom: 0.75rem;
+    margin-bottom: calc(0.75rem * var(--md-zoom-factor));
 
     &:last-child {
       margin-bottom: 0;
@@ -73,8 +76,8 @@
 
   ul, ol {
     margin-top: 0;
-    margin-bottom: 0.75rem;
-    padding-left: 1.5rem;
+    margin-bottom: calc(0.75rem * var(--md-zoom-factor));
+    padding-left: calc(1.5rem * var(--md-zoom-factor));
 
     ul, ol {
       margin-top: 0;
@@ -84,12 +87,12 @@
 
   ul { list-style-type: disc; }
   ol { list-style-type: decimal; }
-  li { margin-bottom: 0.25rem; }
+  li { margin-bottom: calc(0.25rem * var(--md-zoom-factor)); }
 
   blockquote {
-    margin: 1rem 0;
-    padding: 0.25rem 0 0.25rem 1rem;
-    border-left: 0.25rem solid var(--text-color-muted);
+    margin: calc(1rem * var(--md-zoom-factor)) 0;
+    padding: calc(0.25rem * var(--md-zoom-factor)) 0 calc(0.25rem * var(--md-zoom-factor)) calc(1rem * var(--md-zoom-factor));
+    border-left: calc(0.25rem * var(--md-zoom-factor)) solid var(--text-color-muted);
     color: var(--text-color-muted);
     background-color: var(--background-color-alt);
 
@@ -98,17 +101,17 @@
 
   code {
     font-family: monospace;
-    font-size: 0.85em;
-    padding: 0.2rem 0.4rem;
+    font-size: calc(0.85em * var(--md-zoom-factor));
+    padding: calc(0.2rem * var(--md-zoom-factor)) calc(0.4rem * var(--md-zoom-factor));
     border-radius: var(--thumbnail-radius);
     background-color: var(--background-color-alt);
     color: var(--text-color-strong);
   }
 
   pre {
-    margin-top: 1rem;
-    margin-bottom: 1rem;
-    padding: 0.75rem;
+    margin-top: calc(1rem * var(--md-zoom-factor));
+    margin-bottom: calc(1rem * var(--md-zoom-factor));
+    padding: calc(0.75rem * var(--md-zoom-factor)) calc(1rem * var(--md-zoom-factor));
     overflow: auto;
     border-radius: var(--thumbnail-radius);
     background-color: var(--shade2);
@@ -118,7 +121,7 @@
       padding: 0;
       background-color: transparent;
       color: inherit;
-      font-size: 0.9em;
+      font-size: calc(0.9em * var(--md-zoom-factor));
       border-radius: 0;
     }
   }
@@ -127,12 +130,12 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 1rem;
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
+    margin-top: calc(1rem * var(--md-zoom-factor));
+    margin-bottom: calc(1rem * var(--md-zoom-factor));
+    font-size: calc(0.9rem * var(--md-zoom-factor));
 
     th, td {
-      padding: 0.4rem 0.7rem;
+      padding: calc(0.4rem * var(--md-zoom-factor)) calc(0.7rem * var(--md-zoom-factor));
       border: 1px solid var(--text-color-muted);
     }
 
@@ -165,12 +168,12 @@
   }
 
   input[type="checkbox"] {
-    margin: 0 0.4rem 0.2rem 0;
+    margin: 0 calc(0.4rem * var(--md-zoom-factor)) calc(0.2rem * var(--md-zoom-factor)) 0;
     vertical-align: middle;
     cursor: default;
     pointer-events: none;
-    width: 1rem;
-    height: 1rem;
+    width: calc(1rem * var(--md-zoom-factor));
+    height: calc(1rem * var(--md-zoom-factor));
     padding: 0;
     
     accent-color: var(--accent-color);
@@ -197,7 +200,11 @@
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0.5rem;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  margin-right: 2px;
   transition: border-color 0.2s ease, background-color 0.2s ease;
+  background-color: var(--shade1);
 
   .content-wrapper {
     flex: 1;
@@ -211,8 +218,8 @@
 
   .pencil-button {
     position: absolute;
-    right: 0.5rem;
-    top: 0.5rem;
+    right: 0.25rem;
+    top: 0.25rem;
     background: none;
     border: none;
     cursor: pointer;
@@ -233,7 +240,7 @@
 
   &:hover {
     border-color: var(--input-color-hover);
-    background-color: var(--hover-color);
+    background-color: var(--shade2);
 
     .pencil-button {
       opacity: 1;

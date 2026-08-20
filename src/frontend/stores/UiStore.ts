@@ -150,6 +150,7 @@ export const defaultHotkeyMap: IHotkeyMap = {
 /** These fields are stored and recovered when the application opens up */
 type PersistentPreferenceFields =
   | 'zoomFactor'
+  | 'markdownFieldZoomFactor'
   | 'theme'
   | 'scrollbarsStyle'
   | 'isOutlinerOpen'
@@ -212,6 +213,7 @@ class UiStore {
 
   // UI
   @observable zoomFactor: number = 1;
+  @observable markdownFieldZoomFactor: number = 1;
   @observable isOutlinerOpen: boolean = true;
   @observable isSlideInspectorOpen: boolean = true;
   @observable isOverviewInspectorOpen: boolean = false;
@@ -561,6 +563,10 @@ class UiStore {
   @action.bound setZoomFactor(val: number): void {
     this.zoomFactor = val;
     RendererMessenger.setZoomFactor(this.zoomFactor);
+  }
+
+  @action.bound setMarkdownFieldZoomFactor(val: number): void {
+    this.markdownFieldZoomFactor = val;
   }
 
   @action.bound setThumbnailTagOverlayMode(val: ThumbnailTagOverlayModeType): void {
@@ -1666,6 +1672,9 @@ class UiStore {
         if (prefs.zoomFactor) {
           this.setZoomFactor(prefs.zoomFactor);
         }
+        if (prefs.markdownFieldZoomFactor) {
+          this.setMarkdownFieldZoomFactor(prefs.markdownFieldZoomFactor);
+        }
         if (prefs.theme) {
           this.setTheme(prefs.theme);
         }
@@ -1803,6 +1812,7 @@ class UiStore {
   getPersistentPreferences(): Partial<Record<keyof UiStore, unknown>> {
     const preferences: Record<PersistentPreferenceFields, unknown> = {
       zoomFactor: this.zoomFactor,
+      markdownFieldZoomFactor: this.markdownFieldZoomFactor,
       theme: this.theme,
       scrollbarsStyle: this.scrollbarsStyle,
       isOutlinerOpen: this.isOutlinerOpen,

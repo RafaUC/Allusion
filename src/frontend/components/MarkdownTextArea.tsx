@@ -1,32 +1,43 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  ChangeEventHandler,
+  KeyboardEventHandler,
+} from 'react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { IconSet } from 'widgets/icons';
 
 interface MarkdownTextAreaProps {
-  id?: string;
+  sizeId?: string;
   value: string;
   onSave: (newValue: string) => void;
+  onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
+  onChange?: ChangeEventHandler<HTMLTextAreaElement>;
   placeholder?: string;
   rows?: number;
+  initialHeight?: number;
+  zoom?: number;
 }
 
-export const MarkdownTextArea: React.FC<MarkdownTextAreaProps> = ({
-  id,
+export const MarkdownTextArea = ({
+  sizeId,
   value,
   onSave,
+  onKeyDown,
+  onChange,
   placeholder = 'Double click to edit...',
   rows = 4,
-}) => {
+  initialHeight = 50,
+  zoom,
+}: MarkdownTextAreaProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentValue, setCurrentValue] = useState(value);
 
   const [width, setWidth] = useState<number | null>(null);
   const [height, setHeight] = useState<number | null>(() => {
-    if (!id) {
-      return null;
-    }
-    const savedHeight = localStorage.getItem(`md-area-height:${id}`);
-    return savedHeight ? parseFloat(savedHeight) : null;
+    const savedHeight = localStorage.getItem(`md-area-height:${sizeId}`);
+    return savedHeight ? parseFloat(savedHeight) : initialHeight;
   });
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -43,23 +54,30 @@ export const MarkdownTextArea: React.FC<MarkdownTextAreaProps> = ({
   }, [isEditing]);
 
   useEffect(() => {
-    if (!isEditing || !textareaRef.current || !id) {
-      return;
-    }
-
     const textarea = textareaRef.current;
+    const container = containerRef.current;
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const newHeight = entry.contentRect.height;
+        let newHeight = 0;
+        if (entry.borderBoxSize[0]) {
+          newHeight = entry.borderBoxSize[0].blockSize;
+        } else {
+          newHeight = entry.target.getBoundingClientRect().height;
+        }
         if (newHeight > 0) {
-          localStorage.setItem(`md-area-height:${id}`, newHeight.toString());
+          localStorage.setItem(`md-area-height:${sizeId}`, newHeight.toString());
         }
       }
     });
 
-    resizeObserver.observe(textarea);
+    if (textarea) {
+      resizeObserver.observe(textarea);
+    }
+    if (container) {
+      resizeObserver.observe(container);
+    }
     return () => resizeObserver.disconnect();
-  }, [isEditing, id]);
+  }, [isEditing, sizeId]);
 
   const handleStartEditing = () => {
     if (!height && containerRef.current) {
@@ -71,14 +89,21 @@ export const MarkdownTextArea: React.FC<MarkdownTextAreaProps> = ({
     setIsEditing(true);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.stopPropagation();
       handleBlur();
-    }
-    if (e.key === 'Escape') {
+    } else if (e.key === 'Escape') {
       setCurrentValue(value);
       setIsEditing(false);
+    } else {
+      onKeyDown?.(e);
     }
+  };
+
+  const handleChange: ChangeEventHandler<HTMLTextAreaElement> = (e) => {
+    onChange?.(e);
+    setCurrentValue(e.currentTarget.value);
   };
 
   const handleBlur = () => {
@@ -100,7 +125,7 @@ export const MarkdownTextArea: React.FC<MarkdownTextAreaProps> = ({
         className="input markdown-text-area"
         value={currentValue}
         onKeyDown={handleKeyDown}
-        onChange={(e) => setCurrentValue(e.target.value)}
+        onChange={handleChange}
         onBlur={handleBlur}
         style={dynamicStyle}
       />
@@ -117,7 +142,7 @@ export const MarkdownTextArea: React.FC<MarkdownTextAreaProps> = ({
       <div className="content-wrapper">
         {value.trim() ? (
           <div className="markdown-container">
-            <MarkdownRenderer content={value} />
+            <MarkdownRenderer content={value} zoom={zoom} />
           </div>
         ) : (
           <span className="placeholder">{placeholder}</span>

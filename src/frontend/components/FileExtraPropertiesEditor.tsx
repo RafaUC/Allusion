@@ -1,6 +1,6 @@
 import React, { useReducer } from 'react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { observer } from 'mobx-react-lite';
+import { Observer, observer } from 'mobx-react-lite';
 import { useStore } from '../contexts/StoreContext';
 
 import { Menu, MenuButton, useContextMenu } from 'widgets/menus';
@@ -24,6 +24,7 @@ import { ExtraPropertyType, ExtraPropertyValue } from 'src/api/extraProperty';
 import { createPortal } from 'react-dom';
 import { Placement } from '@floating-ui/core';
 import useMountState from '../hooks/useMountState';
+import { MarkdownTextArea } from './MarkdownTextArea';
 
 const PANEL_HEIGHT_ID = 'extra-properties-editor-height';
 
@@ -590,6 +591,8 @@ const ExtraPropertyInput = ({
   onUpdate,
   onKeyDown,
 }: ExtraPropertyInputProps) => {
+  const { uiStore } = useStore();
+
   const hasLineBreak = useRef(
     (val?: ExtraPropertyValue): boolean => typeof val === 'string' && val.includes('\n'),
   ).current;
@@ -656,9 +659,8 @@ const ExtraPropertyInput = ({
 
   const debounceOnUpdate = useMemo(() => debounce(onUpdate, 500), [onUpdate]);
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<any>) => {
-      const val = e.target.value;
+  const handleSave = useCallback(
+    (val: string) => {
       if (!handler.isValid(val)) {
         return;
       }
@@ -669,6 +671,14 @@ const ExtraPropertyInput = ({
       }
     },
     [debounceOnUpdate, extraProperty, handler],
+  );
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<any>) => {
+      const val = e.target.value;
+      handleSave(val);
+    },
+    [handleSave],
   );
 
   const handleKeyDown = useMemo(
@@ -687,8 +697,8 @@ const ExtraPropertyInput = ({
     [debounceOnUpdate, extraProperty, handler, isMultiline, onKeyDown],
   );
 
-  return isMultiline ? (
-    <textarea
+  return extraProperty.type === ExtraPropertyType.text ? (
+    /*<textarea
       ref={textareaRef}
       value={inputValue}
       onChange={(e) => handleChange({ ...e, target: { ...e.target, value: e.target.value } })}
@@ -696,7 +706,20 @@ const ExtraPropertyInput = ({
       className="input"
       rows={2}
       //data-tooltip={inputValue}
-    />
+    /> */
+    <Observer>
+      {() => (
+        <MarkdownTextArea
+          sizeId={extraProperty.id}
+          value={inputValue}
+          onSave={handleSave}
+          onKeyDown={handleKeyDown}
+          onChange={handleChange}
+          rows={2}
+          zoom={uiStore.markdownFieldZoomFactor}
+        />
+      )}
+    </Observer>
   ) : (
     <input
       ref={inputRef}

@@ -5,11 +5,15 @@ import remarkGfm from 'remark-gfm';
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  zoom?: number;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
+export const MarkdownRenderer = ({ content, className = '', zoom = 1 }: MarkdownRendererProps) => {
   return (
-    <div className={`markdown-container ${className}`}>
+    <div
+      className={`markdown-container ${className}`}
+      style={{ '--md-zoom-factor': zoom } as React.CSSProperties}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );

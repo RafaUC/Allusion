@@ -26,6 +26,33 @@ const fullResThresholdOptions = [
   { value: 8320 },
 ];
 
+const markdownZoomFactorOptions = [
+  { value: 0.2, label: '20%' },
+  { value: 0.25 },
+  { value: 0.3 },
+  { value: 0.4 },
+  { value: 0.5, label: '50% (Tiny)' },
+  { value: 0.6 },
+  { value: 0.7 },
+  { value: 0.8, label: '80% (Compact)' },
+  { value: 0.85 },
+  { value: 0.9 },
+  { value: 0.95 },
+  { value: 1.0, label: '100% (Default)' },
+  { value: 1.05 },
+  { value: 1.1 },
+  { value: 1.15 },
+  { value: 1.2, label: '120% (Large)' },
+  { value: 1.3 },
+  { value: 1.4 },
+  { value: 1.5, label: '150% (Huge)' },
+  { value: 1.6 },
+  { value: 1.7 },
+  { value: 1.8 },
+  { value: 1.9 },
+  { value: 2.0, label: '200%' },
+];
+
 export const Appearance = observer(() => {
   const { uiStore } = useStore();
 
@@ -210,6 +237,21 @@ export const Appearance = observer(() => {
           <Radio value="hover">Hover</Radio>
           <Radio value="disabled">Disabled</Radio>
         </RadioGroup>
+      </div>
+
+      <h3>Descriptions and Markdown</h3>
+
+      <div className="vstack">
+        <Slider
+          value={uiStore.markdownFieldZoomFactor}
+          label="Markdown Zoom Factor in Fields"
+          onChange={uiStore.setMarkdownFieldZoomFactor}
+          id="markdown-field-zoom-factor"
+          options={markdownZoomFactorOptions}
+          min={markdownZoomFactorOptions[0].value}
+          max={markdownZoomFactorOptions[markdownZoomFactorOptions.length - 1].value}
+          step={0.05}
+        />
       </div>
     </>
   );
