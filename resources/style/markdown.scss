@@ -1,0 +1,252 @@
+/////////////////////////////////////
+// Default markdown styles for Allusion
+/////////////////////////////////////
+.markdown-container {
+  font-family: inherit;
+  line-height: 1.6;
+  color: var(--text-color);
+
+  &, * {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--text-color-strong);
+    font-weight: 600;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.25;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  h1 { font-size: 1.6rem; border-bottom: 1px solid var(--text-color-muted); padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; border-bottom: 1px solid var(--text-color-muted); padding-bottom: 0.3rem; }
+  h3 { font-size: 1.15rem; }
+  h4 { font-size: 1rem; }
+
+  p {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  strong {
+    color: var(--text-color-strong);
+    font-weight: 600;
+  }
+
+
+  em, i {
+    font-style: italic;
+  }
+
+  strong em, em strong, b i, i b {
+    font-weight: 600;
+    font-style: italic;
+  }
+
+  ins {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  del {
+    color: var(--text-color-muted);
+    text-decoration: line-through;
+  }
+
+  a {
+    color: var(--accent-color);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+    padding-left: 1.5rem;
+
+    ul, ol {
+      margin-top: 0;
+      margin-bottom: 0;
+    }
+  }
+
+  ul { list-style-type: disc; }
+  ol { list-style-type: decimal; }
+  li { margin-bottom: 0.25rem; }
+
+  blockquote {
+    margin: 1rem 0;
+    padding: 0.25rem 0 0.25rem 1rem;
+    border-left: 0.25rem solid var(--text-color-muted);
+    color: var(--text-color-muted);
+    background-color: var(--background-color-alt);
+
+    p { margin-bottom: 0; }
+  }
+
+  code {
+    font-family: monospace;
+    font-size: 0.85em;
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--thumbnail-radius);
+    background-color: var(--background-color-alt);
+    color: var(--text-color-strong);
+  }
+
+  pre {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    overflow: auto;
+    border-radius: var(--thumbnail-radius);
+    background-color: var(--shade2);
+    border: 1px solid var(--border-color);
+
+    code {
+      padding: 0;
+      background-color: transparent;
+      color: inherit;
+      font-size: 0.9em;
+      border-radius: 0;
+    }
+  }
+
+  // Tables (GFM Extension)
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+
+    th, td {
+      padding: 0.4rem 0.7rem;
+      border: 1px solid var(--text-color-muted);
+    }
+
+    th {
+      font-weight: 600;
+      color: var(--text-color-strong);
+      background-color: var(--background-color-selected);
+    }
+
+    tr {
+      background-color: var(--background-color-alt);
+
+      &:nth-child(even) {
+        background-color: var(--background-color);
+      }
+    }
+  }
+
+  hr {
+    height: 1px;
+    padding: 0;
+    margin: 1.5rem 0;
+    background-color: var(--text-color-muted);
+    border: none;
+  }
+
+  .task-list-item {
+    list-style-type: none;
+    //margin-left: -1.25rem;
+  }
+
+  input[type="checkbox"] {
+    margin: 0 0.4rem 0.2rem 0;
+    vertical-align: middle;
+    cursor: default;
+    pointer-events: none;
+    width: 1rem;
+    height: 1rem;
+    padding: 0;
+    
+    accent-color: var(--accent-color);
+    background-color: var(--shade2);
+
+    &:checked {
+      background-color: var(--accent-color);
+      color: var(--text-color-alt); 
+    }
+  }
+}
+
+///////////////////////////////////////////
+// Interactive Markdown Containers
+///////////////////////////////////////////
+.interactive-markdown-container {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  resize: vertical;
+  overflow: auto;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.5rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+
+  .content-wrapper {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .placeholder {
+    color: var(--text-color-muted);
+    font-style: italic;
+  }
+
+  .pencil-button {
+    position: absolute;
+    right: 0.5rem;
+    top: 0.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    margin-left: 0.5rem;
+    color: var(--text-color-muted);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      color: var(--text-color-strong);
+    }
+  }
+
+  &:hover {
+    border-color: var(--input-color-hover);
+    background-color: var(--hover-color);
+
+    .pencil-button {
+      opacity: 1;
+      visibility: visible;
+    }
+  }
+}
+
+.markdown-input, .markdown-text-area {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.markdown-text-area {
+  resize: vertical;
+}
