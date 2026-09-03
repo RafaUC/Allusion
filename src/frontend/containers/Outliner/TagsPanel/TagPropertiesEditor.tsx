@@ -11,6 +11,7 @@ import { InfoButton } from 'widgets/notifications';
 import { ColorPickerMenu, TagVisibilityMenu } from './ContextMenu';
 import { Menu, MenuCheckboxItem } from 'widgets/menus';
 import { useStore } from 'src/frontend/contexts/StoreContext';
+import { MarkdownTextArea } from 'src/frontend/components/MarkdownTextArea';
 
 const handleBlur = (
   e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement, Element>,
@@ -137,16 +138,16 @@ export const TagPropertiesEditor = observer(() => {
                   <p>
                     Tag descriptions will appear if you hover over the magnifying glass icon in the
                     tags tree panel or hover over a tag option name in tag selectors.
+                    <br /> <br />
+                    You can use markdown formatting in the description.
                   </p>
                 </InfoButton>
               </div>
-              <textarea
-                ref={descriptionRef}
-                className="input"
-                defaultValue={tag.description}
-                onInput={textAreaAutoSize}
-                onKeyDown={(e) => handleKeyDown(e, tag.setDescription)}
-                onBlur={(e) => handleBlur(e, tag.setDescription)}
+              <MarkdownTextArea
+                sizeId="tag-description"
+                onSave={tag.setDescription}
+                value={tag.description}
+                zoom={uiStore.markdownDialogZoomFactor}
               />
             </fieldset>
 

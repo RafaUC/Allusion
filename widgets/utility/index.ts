@@ -7,3 +7,4 @@ export function generateWidgetId(prefix: string): string {
 }
 
 export type Intent = 'info' | 'success' | 'warning' | 'danger';
+export type TooltipType = 'text' | 'markdown' | 'markdown-minimal';

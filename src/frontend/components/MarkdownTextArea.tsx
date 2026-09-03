@@ -26,7 +26,7 @@ export const MarkdownTextArea = ({
   onSave,
   onKeyDown,
   onChange,
-  placeholder = 'Double click to edit...',
+  placeholder = 'Double click to edit text (markdown supported)...',
   rows = 4,
   initialHeight = 50,
   zoom,
@@ -138,6 +138,7 @@ export const MarkdownTextArea = ({
       className="interactive-markdown-container"
       onDoubleClick={handleStartEditing}
       style={dynamicStyle}
+      data-tooltip="Double click to edit text (markdown supported)"
     >
       <div className="content-wrapper">
         {value.trim() ? (

@@ -4,6 +4,7 @@ import { IconButton } from 'widgets/button';
 import { IconSet } from './icons';
 
 import { getColorFromBackground } from './utility/color';
+import { TooltipType } from './utility';
 
 interface TagProps {
   text: string;
@@ -14,11 +15,12 @@ interface TagProps {
   onClick?: () => void;
   onRemove?: () => void;
   tooltip?: string;
+  tooltipType?: TooltipType;
   onContextMenu?: React.MouseEventHandler<HTMLSpanElement>;
 }
 
 const Tag = (props: TagProps) => {
-  const { text, color, isHeader, className, onClick, onRemove, tooltip } = props;
+  const { text, color, isHeader, className, onClick, onRemove, tooltip, tooltipType } = props;
 
   const style = useMemo(
     () => (color ? { backgroundColor: color, color: getColorFromBackground(color) } : undefined),
@@ -29,6 +31,7 @@ const Tag = (props: TagProps) => {
     <span
       className={`tag ${className || ''} ${isHeader ? 'tag-header' : ''}`}
       data-tooltip={tooltip}
+      data-tooltip-type={tooltipType}
       onClick={onClick}
       style={style}
       onContextMenu={props.onContextMenu}

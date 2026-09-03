@@ -68,7 +68,29 @@
   color: var(--text-color-muted);
   font-size: smaller;
 
+  display: flex;
+  align-items: center;
+
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+
+  .tag-option-info {
+    position: absolute;
+    right: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    opacity: 0;
+
+  }
+}
+
+.tag-option {
+  &:hover {
+    .tag-option-info {
+      opacity: 1;
+    }
+  }
 }

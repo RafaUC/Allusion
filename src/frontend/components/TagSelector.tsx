@@ -29,6 +29,7 @@ import { useGalleryInputKeydownHandler } from '../hooks/useHandleInputKeydown';
 import { Placement, Strategy } from '@floating-ui/core';
 import { computed, runInAction } from 'mobx';
 import { normalizeBase } from 'common/core';
+import { TooltipType } from 'widgets/utility';
 
 export interface TagSelectorProps {
   selection: ClientTag[] | [ClientTag, boolean][];
@@ -583,7 +584,7 @@ export const TagOption = observer(
     onContextMenu,
     style,
   }: TagOptionProps) => {
-    const [path, hint] = useComputed(() => {
+    const [hint] = useComputed(() => {
       const path = tag.path
         .map((v) => (v.startsWith('#') ? '&nbsp;<b>' + v.slice(1) + '</b>&nbsp;' : v))
         .join(' › ');
@@ -591,7 +592,7 @@ export const TagOption = observer(
         0,
         Math.max(0, path.length - tag.name.length - (tag.isHeader ? 19 : 3)),
       );
-      return [path, hint];
+      return [hint];
     }).get();
 
     return (
@@ -603,21 +604,41 @@ export const TagOption = observer(
         highlightCheck={explicit}
         icon={<span style={{ color: tag.viewColor }}>{IconSet.TAG}</span>}
         onClick={() => toggleSelection((assigned && explicit) ?? false, tag)}
-        tooltip={path}
+        tooltip={tag.markdownPath}
+        tooltipType="markdown-minimal"
         onContextMenu={onContextMenu !== undefined ? (e) => onContextMenu(e, tag) : undefined}
         style={style}
         className="tag-option"
-        htmlTitle={tag.description}
+        //htmlTitle={tag.description}
       >
         {hint.length > 0 ? (
-          <GridCell className="tag-option-hint" __html={hint}></GridCell>
+          <GridCell className="tag-option-hint">
+            <span dangerouslySetInnerHTML={{ __html: hint }} />
+            <TagOptionInfo tooltip={tag.markdownPathWithDescription} tooltipType="markdown" />
+          </GridCell>
         ) : (
-          <GridCell />
+          <GridCell className="tag-option-hint">
+            <TagOptionInfo tooltip={tag.markdownPathWithDescription} tooltipType="markdown" />
+          </GridCell>
         )}
       </Row>
     );
   },
 );
+
+const TagOptionInfo = ({
+  tooltip,
+  tooltipType,
+}: {
+  tooltip?: string;
+  tooltipType?: TooltipType;
+}) => {
+  return (
+    <span className="tag-option-info" data-tooltip={tooltip} data-tooltip-type={tooltipType}>
+      {IconSet.INFO}
+    </span>
+  );
+};
 
 export type GetTabMatchTag = (index: number, query: string) => ClientTag | undefined;
 

@@ -151,6 +151,8 @@ export const defaultHotkeyMap: IHotkeyMap = {
 type PersistentPreferenceFields =
   | 'zoomFactor'
   | 'markdownFieldZoomFactor'
+  | 'markdownDialogZoomFactor'
+  | 'markdownTooltipZoomFactor'
   | 'theme'
   | 'scrollbarsStyle'
   | 'isOutlinerOpen'
@@ -214,6 +216,8 @@ class UiStore {
   // UI
   @observable zoomFactor: number = 1;
   @observable markdownFieldZoomFactor: number = 1;
+  @observable markdownDialogZoomFactor: number = 1;
+  @observable markdownTooltipZoomFactor: number = 1;
   @observable isOutlinerOpen: boolean = true;
   @observable isSlideInspectorOpen: boolean = true;
   @observable isOverviewInspectorOpen: boolean = false;
@@ -567,6 +571,14 @@ class UiStore {
 
   @action.bound setMarkdownFieldZoomFactor(val: number): void {
     this.markdownFieldZoomFactor = val;
+  }
+
+  @action.bound setMarkdownDialogZoomFactor(val: number): void {
+    this.markdownDialogZoomFactor = val;
+  }
+
+  @action.bound setMarkdownTooltipZoomFactor(val: number): void {
+    this.markdownTooltipZoomFactor = val;
   }
 
   @action.bound setThumbnailTagOverlayMode(val: ThumbnailTagOverlayModeType): void {
@@ -1675,6 +1687,12 @@ class UiStore {
         if (prefs.markdownFieldZoomFactor) {
           this.setMarkdownFieldZoomFactor(prefs.markdownFieldZoomFactor);
         }
+        if (prefs.markdownDialogZoomFactor) {
+          this.setMarkdownDialogZoomFactor(prefs.markdownDialogZoomFactor);
+        }
+        if (prefs.markdownTooltipZoomFactor) {
+          this.setMarkdownTooltipZoomFactor(prefs.markdownTooltipZoomFactor);
+        }
         if (prefs.theme) {
           this.setTheme(prefs.theme);
         }
@@ -1813,6 +1831,8 @@ class UiStore {
     const preferences: Record<PersistentPreferenceFields, unknown> = {
       zoomFactor: this.zoomFactor,
       markdownFieldZoomFactor: this.markdownFieldZoomFactor,
+      markdownDialogZoomFactor: this.markdownDialogZoomFactor,
+      markdownTooltipZoomFactor: this.markdownTooltipZoomFactor,
       theme: this.theme,
       scrollbarsStyle: this.scrollbarsStyle,
       isOutlinerOpen: this.isOutlinerOpen,

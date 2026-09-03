@@ -314,7 +314,7 @@ class LocationStore {
         continue;
       }
 
-      console.log('Finding created files...');
+      console.info('Finding created files...');
 
       // Find all files that have been created (those on disk but not in DB)
       // Find all files of this location that have been removed (those in DB but not on disk anymore)

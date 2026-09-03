@@ -252,6 +252,26 @@ export const Appearance = observer(() => {
           max={markdownZoomFactorOptions[markdownZoomFactorOptions.length - 1].value}
           step={0.05}
         />
+        <Slider
+          value={uiStore.markdownDialogZoomFactor}
+          label="Markdown Zoom Factor in Dialogs"
+          onChange={uiStore.setMarkdownDialogZoomFactor}
+          id="markdown-dialog-zoom-factor"
+          options={markdownZoomFactorOptions}
+          min={markdownZoomFactorOptions[0].value}
+          max={markdownZoomFactorOptions[markdownZoomFactorOptions.length - 1].value}
+          step={0.05}
+        />
+        <Slider
+          value={uiStore.markdownTooltipZoomFactor}
+          label="Markdown Zoom Factor in Tooltips"
+          onChange={uiStore.setMarkdownTooltipZoomFactor}
+          id="markdown-tooltip-zoom-factor"
+          options={markdownZoomFactorOptions}
+          min={markdownZoomFactorOptions[0].value}
+          max={markdownZoomFactorOptions[markdownZoomFactorOptions.length - 1].value}
+          step={0.05}
+        />
       </div>
     </>
   );

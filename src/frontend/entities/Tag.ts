@@ -262,13 +262,28 @@ export class ClientTag {
     return arr;
   }
 
+  get cleanPath(): string[] {
+    return Array.from(this.getAncestors(), (t) => t.name).reverse();
+  }
+
   /** Returns the tags up the hierarchy from this tag, excluding the root tag */
   @computed get path(): string[] {
     return Array.from(this.getAncestors(), (t) => `${t.isHeader ? '#' : ''}${t.name}`).reverse();
   }
 
-  get cleanPath(): string[] {
-    return Array.from(this.getAncestors(), (t) => t.name).reverse();
+  @computed get markdownPath(): string {
+    const formattedPath = Array.from(this.getAncestors(), (t) =>
+      t.isHeader ? `**${t.name}**` : t.name,
+    )
+      .reverse()
+      .join(' › ');
+    const countIndicator = this.fileCount === 0 && this.isFileCountDirty ? '?' : this.fileCount;
+    const dirtyPrefix = this.isFileCountDirty ? '~' : '';
+    return `${formattedPath} (${dirtyPrefix}${countIndicator})`;
+  }
+
+  @computed get markdownPathWithDescription(): string {
+    return `${this.markdownPath}${this.description ? '\n\n---\n' + this.description : ''}`;
   }
 
   @computed get pathCharLength(): number {

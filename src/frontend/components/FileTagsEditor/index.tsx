@@ -454,9 +454,8 @@ export const IncrementalTagItems = observer((props: IncrementalTagItemsProps) =>
           }`}
           color={tag.viewColor}
           isHeader={tag.isHeader}
-          tooltip={tag.path
-            .map((v) => (v.startsWith('#') ? '&nbsp;<b>' + v.slice(1) + '</b>&nbsp;' : v))
-            .join(' › ')}
+          tooltip={tag.markdownPathWithDescription}
+          tooltipType="markdown"
           onRemove={
             counter && removeTag && counter.get().get(tag)?.[1] ? () => removeTag(tag) : undefined
           }

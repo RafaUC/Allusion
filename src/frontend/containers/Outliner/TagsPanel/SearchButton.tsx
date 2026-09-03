@@ -1,14 +1,23 @@
 import React, { useCallback, useState } from 'react';
 
 import { IconSet } from 'widgets/icons';
+import { TooltipType } from 'widgets/utility';
 
 interface SearchButtonProps {
   onClick: (event: React.MouseEvent) => void;
   isSearched: boolean;
   htmlTitle?: string;
+  tooltip?: string;
+  tooltipType?: TooltipType;
 }
 
-const SearchButton: React.FC<SearchButtonProps> = ({ onClick, isSearched, htmlTitle }) => {
+const SearchButton: React.FC<SearchButtonProps> = ({
+  onClick,
+  isSearched,
+  htmlTitle,
+  tooltip,
+  tooltipType,
+}) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
@@ -22,6 +31,8 @@ const SearchButton: React.FC<SearchButtonProps> = ({ onClick, isSearched, htmlTi
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       title={htmlTitle}
+      data-tooltip={tooltip}
+      data-tooltip-type={tooltipType}
     >
       {isHovered
         ? isSearched

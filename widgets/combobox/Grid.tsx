@@ -11,6 +11,7 @@ import React, {
   useState,
 } from 'react';
 import { FixedSizeList } from 'react-window';
+import { TooltipType } from 'widgets/utility';
 
 export interface GridProps {
   id?: string;
@@ -413,6 +414,9 @@ export interface RowProps {
   onClick?: (event: React.MouseEvent<HTMLElement>) => void;
   children?: ReactElement<GridCellProps> | ReactElement<GridCellProps>[];
   tooltip?: string;
+  tooltipType?: TooltipType;
+  valueTooltip?: string;
+  valueTooltipType?: TooltipType;
   onContextMenu?: React.MouseEventHandler<HTMLSpanElement>;
   style?: React.CSSProperties;
   className?: string;
@@ -428,6 +432,9 @@ export const Row = ({
   onClick,
   icon,
   tooltip,
+  tooltipType,
+  valueTooltip,
+  valueTooltipType,
   children,
   onContextMenu,
   style,
@@ -442,13 +449,14 @@ export const Row = ({
     onClick={onClick}
     tabIndex={-1} // Important for focus handling!
     data-tooltip={tooltip}
+    data-tooltip-type={tooltipType}
     onContextMenu={onContextMenu}
     style={style}
     data-index={index}
     className={className}
     title={htmlTitle}
   >
-    <GridCell>
+    <GridCell tooltip={valueTooltip} tooltipType={valueTooltipType}>
       <span className="combobox-popup-option-icon" aria-hidden>
         {icon}
       </span>
@@ -476,14 +484,25 @@ interface GridCellProps {
   className?: string;
   children?: ReactNode;
   __html?: string;
+  tooltip?: string;
+  tooltipType?: TooltipType;
 }
 
-export const GridCell = ({ id, className, children, __html }: GridCellProps) => {
+export const GridCell = ({
+  id,
+  className,
+  children,
+  __html,
+  tooltip,
+  tooltipType,
+}: GridCellProps) => {
   return (
     <div
       id={id}
       role="gridcell"
       className={className}
+      data-tooltip={tooltip}
+      data-tooltip-type={tooltipType}
       dangerouslySetInnerHTML={__html ? { __html } : undefined}
     >
       {children}

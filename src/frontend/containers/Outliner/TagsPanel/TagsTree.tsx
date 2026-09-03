@@ -33,6 +33,7 @@ import SearchButton from './SearchButton';
 import { Action, Factory, Flag, State, reducer } from './state';
 import { ID } from 'src/api/id';
 import SearchTagBar from './SearchTagBar';
+import { TooltipType } from 'widgets/utility';
 
 export class TagsTreeItemRevealer extends TreeItemRevealer {
   public static readonly instance: TagsTreeItemRevealer = new TagsTreeItemRevealer();
@@ -59,6 +60,7 @@ interface ILabelProps {
   isEditing: boolean;
   onSubmit: React.MutableRefObject<(target: EventTarget & HTMLInputElement) => void>;
   tooltip?: string;
+  tooltipType?: TooltipType;
 }
 
 const Label = (props: ILabelProps) =>
@@ -95,6 +97,7 @@ const Label = (props: ILabelProps) =>
     <div
       className={`label-text ${props.isHeader ? 'label-header' : ''}`}
       data-tooltip={props.tooltip}
+      data-tooltip-type={props.tooltipType}
     >
       {props.text}
     </div>
@@ -331,17 +334,15 @@ const TagItem = observer((props: ITagItemProps) => {
         setText={nodeData.rename}
         isEditing={isEditing}
         onSubmit={submit}
-        tooltip={`${nodeData.path
-          .map((v) => (v.startsWith('#') ? '&nbsp;<b>' + v.slice(1) + '</b>&nbsp;' : v))
-          .join(' › ')}${` (${nodeData.isFileCountDirty ? '~' : ''}${
-          nodeData.fileCount === 0 && nodeData.isFileCountDirty ? '?' : nodeData.fileCount
-        })`}`}
+        tooltip={nodeData.markdownPath}
+        tooltipType="markdown-minimal"
       />
       {!isEditing && (
         <SearchButton
           onClick={handleQuickQuery}
           isSearched={nodeData.isSearched}
-          htmlTitle={nodeData.description}
+          tooltip={nodeData.markdownPathWithDescription}
+          tooltipType="markdown"
         />
       )}
     </div>
