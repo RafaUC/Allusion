@@ -83,11 +83,11 @@ export const TooltipLayer = ({ document }: { document: Document }) => {
       content.current = target.dataset['tooltip'];
       tooltipType.current = target.dataset['tooltipType'] as TooltipType;
       if (virtualElement.current.contextElement !== target) {
-        window.clearTimeout(graceID.current);
-        graceID.current = undefined;
         window.clearTimeout(timerID.current);
         timerID.current = window.setTimeout(() => {
           timerID.current = undefined;
+          window.clearTimeout(graceID.current);
+          graceID.current = undefined;
           setIsOpen(true);
           requestAnimationFrame(() => {
             update();
@@ -112,6 +112,13 @@ export const TooltipLayer = ({ document }: { document: Document }) => {
         graceID.current = undefined;
         return;
       }
+      if (graceID.current !== undefined) {
+        return;
+      }
+      let graceTime = 10;
+      if (tooltipType.current === 'markdown') {
+        graceTime = 500; // longer grace period for markdown tooltips
+      }
       window.clearTimeout(graceID.current);
       graceID.current = window.setTimeout(() => {
         graceID.current = undefined;
@@ -119,7 +126,7 @@ export const TooltipLayer = ({ document }: { document: Document }) => {
         virtualElement.current.contextElement = null;
         window.clearTimeout(timerID.current);
         timerID.current = undefined;
-      }, 200); // 200ms grace period
+      }, graceTime);
     };
 
     const handleEscape = (e: KeyboardEvent) => {
