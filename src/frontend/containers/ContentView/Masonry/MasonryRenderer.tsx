@@ -1,4 +1,4 @@
-import { action, runInAction } from 'mobx';
+import { action } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from 'src/frontend/contexts/StoreContext';
@@ -6,7 +6,7 @@ import FocusManager from 'src/frontend/FocusManager';
 import { ViewMethod } from 'src/frontend/stores/UiStore';
 import { debounce, throttle } from 'common/timeout';
 import { MasonryType } from 'wasm/packages/masonry';
-import { GalleryProps, getThumbnailSize } from '../utils';
+import { GalleryProps, getThumbnailSize, isTextFieldEvent } from '../utils';
 import { MasonryWorkerAdapter } from './MasonryWorkerAdapter';
 import VirtualizedRenderer from './VirtualizedRenderer';
 
@@ -45,6 +45,16 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
   // note: horizontal keyboard navigation is handled elsewhere: LayoutSwitcher
   useEffect(() => {
     const onKeyDown = action((e: KeyboardEvent) => {
+      // Home/End jump to the first/last file, also when nothing is selected
+      if ((e.key === 'Home' || e.key === 'End') && !isTextFieldEvent(e) && !uiStore.isSlideMode) {
+        e.preventDefault();
+        if (e.key === 'Home') {
+          fileStore.jumpToFirst();
+        } else {
+          fileStore.jumpToLast();
+        }
+        return;
+      }
       let index = lastSelectionIndex.current;
       if (index === undefined) {
         return;
@@ -71,24 +81,6 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
             break;
           }
         }
-      } else if (e.key === 'Home') {
-        (async () => {
-          await fileStore.jumpToFirst();
-          setTimeout(() => {
-            uiStore.setFirstItem(0);
-            setLayoutTimestamp(new Date());
-          }, 200);
-        })();
-        return;
-      } else if (e.key === 'End') {
-        (async () => {
-          await fileStore.jumpToLast();
-          setTimeout(() => {
-            uiStore.setFirstItem(runInAction(() => fileStore.fileDimensions.length - 1));
-            setLayoutTimestamp(new Date());
-          }, 200);
-        })();
-        return;
       } else if (e.key === 'PageUp') {
         uiStore.setFirstItem(0);
         setLayoutTimestamp(new Date()); // Force scroll with a new layout timestamp
@@ -114,6 +106,27 @@ const MasonryRenderer = observer(({ contentRect, select, lastSelectionIndex }: G
     return () => window.removeEventListener('keydown', throttledKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // After a jump to the first/last file (Home/End or the context menu), scroll to it once the new page has loaded
+  const lastJump = fileStore.lastJump;
+  const handledJump = useRef(lastJump);
+  useEffect(() => {
+    if (!lastJump || lastJump === handledJump.current) {
+      return;
+    }
+    handledJump.current = lastJump;
+    const timeout = setTimeout(
+      action(() => {
+        uiStore.setFirstItem(
+          lastJump.position === 'first' ? 0 : fileStore.fileDimensions.length - 1,
+        );
+        setLayoutTimestamp(new Date());
+      }),
+      200,
+    );
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastJump]);
 
   // Handle keyboard Control thumbnail size here since this componente renders masonry view
   useEffect(() => {
