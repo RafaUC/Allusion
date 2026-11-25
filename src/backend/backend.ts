@@ -105,6 +105,9 @@ export default class Backend implements DataStorage {
     // HACK Use a padded string to do natural sorting
     database.function('pad_string', { deterministic: true }, PadString);
     database.function('stable_hash', { deterministic: true }, stableHash);
+    // SQLite's built-in lower() only handles ASCII, so non-ASCII text (e.g. a capitalized "Привет")
+    // would never match a JS-lowercased search value. Use JS lowercasing on both sides instead.
+    database.function('lower_unicode', { deterministic: true }, lowerUnicode);
 
     const dialect = new SqliteDialect({ database });
     const db = new Kysely<AllusionDB_SQL>({
@@ -1363,6 +1366,11 @@ function isValidCursor(cursor: any): cursor is Cursor {
   return false;
 }
 
+/** Unicode-aware lowercase, used as `lower_unicode` in SQL to match JS `toLowerCase()` on search values. */
+function lowerUnicode(str: string | null): string | null {
+  return typeof str === 'string' ? str.toLowerCase() : str;
+}
+
 function PadString(str: string): string {
   return str.replace(/\d+/g, (num: string) => num.padStart(PAD_STRING_LENGTH, '0'));
 }
@@ -1646,17 +1654,17 @@ function applyStringCondition(
     case 'equals':
       return eb(`files.${key}`, '=', value);
     case 'equalsIgnoreCase':
-      return eb(sql`lower(${sql.ref(`files.${key}`)})`, '=', value.toLowerCase());
+      return eb(sql`lower_unicode(${sql.ref(`files.${key}`)})`, '=', value.toLowerCase());
     case 'notEqual':
       return eb(`files.${key}`, '!=', value);
     case 'contains':
-      return eb(sql`lower(${sql.ref(`files.${key}`)})`, 'like', `%${value.toLowerCase()}%`);
+      return eb(sql`lower_unicode(${sql.ref(`files.${key}`)})`, 'like', `%${value.toLowerCase()}%`);
     case 'notContains':
-      return eb(sql`lower(${sql.ref(`files.${key}`)})`, 'not like', `%${value.toLowerCase()}%`);
+      return eb(sql`lower_unicode(${sql.ref(`files.${key}`)})`, 'not like', `%${value.toLowerCase()}%`);
     case 'startsWith':
       return eb(`files.${key}`, 'like', `${value}%`);
     case 'startsWithIgnoreCase':
-      return eb(sql`lower(${sql.ref(`files.${key}`)})`, 'like', `${value.toLowerCase()}%`);
+      return eb(sql`lower_unicode(${sql.ref(`files.${key}`)})`, 'like', `${value.toLowerCase()}%`);
     case 'notStartsWith':
       return eb(`files.${key}`, 'not like', `${value}%`);
     default:
@@ -1848,7 +1856,7 @@ function applyExtraPropertyCondition(
           subquery = subquery.where('epValues.textValue', '=', innerValue);
           break;
         case 'equalsIgnoreCase':
-          subquery = subquery.where(sql`LOWER(${sql.ref('epValues.textValue')})`, '=', innerValue.toLowerCase());
+          subquery = subquery.where(sql`lower_unicode(${sql.ref('epValues.textValue')})`, '=', innerValue.toLowerCase());
           break;
         case 'notEqual':
           subquery = subquery.where('epValues.textValue', '=', innerValue);
@@ -1866,7 +1874,7 @@ function applyExtraPropertyCondition(
           subquery = subquery.where('epValues.textValue', 'not like', `${innerValue}%`);
           break;
         case 'startsWithIgnoreCase':
-          subquery = subquery.where(sql`LOWER(${sql.ref('epValues.textValue')})`, 'like', `${innerValue.toLowerCase()}%`);
+          subquery = subquery.where(sql`lower_unicode(${sql.ref('epValues.textValue')})`, 'like', `${innerValue.toLowerCase()}%`);
           break;
         default:
           const _exhaustiveCheck: never = operator;
