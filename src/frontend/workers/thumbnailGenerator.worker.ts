@@ -1,6 +1,8 @@
 import fse from 'fs-extra';
+import path from 'path';
 
 import { thumbnailFormat, thumbnailMaxSize } from 'common/config';
+import { decodeJxl } from '../image/JxlLoader';
 import { IThumbnailMessage, IThumbnailMessageResponse } from '../image/ThumbnailGeneration';
 
 // TODO: Merge this with the generateThumbnail func from frontend/image/utils.ts, it's duplicate code
@@ -19,6 +21,16 @@ const generateThumbnailData = async (
   try {
     if (imageBitmap !== undefined) {
       img = imageBitmap;
+    } else if (path.extname(filePath).toLowerCase() === '.jxl') {
+      // Not supported natively by Chromium: decode with the libjxl WebAssembly decoder
+      inputBuffer = await fse.readFile(filePath);
+      const data = await decodeJxl(
+        inputBuffer.buffer.slice(
+          inputBuffer.byteOffset,
+          inputBuffer.byteOffset + inputBuffer.byteLength,
+        ),
+      );
+      img = await createImageBitmap(data);
     } else {
       inputBuffer = await fse.readFile(filePath);
       inputBlob = new Blob([inputBuffer]);

@@ -7,6 +7,7 @@ import { thumbnailMaxSize } from 'common/config';
 import { FileDTO, IMG_EXTENSIONS_TYPE } from '../../api/file';
 import { ClientFile } from '../entities/File';
 import ExrLoader from './ExrLoader';
+import JxlLoader from './JxlLoader';
 import PsdLoader from './PSDLoader';
 import { generateThumbnailUsingWorker } from './ThumbnailGeneration';
 import TifLoader from './TifLoader';
@@ -17,6 +18,7 @@ type FormatHandlerType =
   | 'web'
   | 'tifLoader'
   | 'exrLoader'
+  | 'jxlLoader'
   | 'psdLoader'
   | 'extractEmbeddedThumbnailOnly'
   | 'none';
@@ -39,6 +41,7 @@ const FormatHandlers: Record<IMG_EXTENSIONS_TYPE, FormatHandlerType> = {
   kra: 'extractEmbeddedThumbnailOnly',
   // xcf: 'extractEmbeddedThumbnailOnly',
   exr: 'exrLoader',
+  jxl: 'jxlLoader',
   // avif: 'sharp',
   mp4: 'web',
   webm: 'web',
@@ -50,6 +53,7 @@ type ObjectURL = string;
 class ImageLoader {
   private tifLoader: TifLoader;
   private exrLoader: ExrLoader;
+  private jxlLoader: JxlLoader;
   private psdLoader: PsdLoader;
 
   private srcBufferCache: WeakMap<ClientFile, ObjectURL> = new WeakMap();
@@ -58,12 +62,18 @@ class ImageLoader {
   constructor(private exifIO: ExifIO) {
     this.tifLoader = new TifLoader();
     this.exrLoader = new ExrLoader();
+    this.jxlLoader = new JxlLoader();
     this.psdLoader = new PsdLoader();
     this.ensureThumbnail = action(this.ensureThumbnail.bind(this));
   }
 
   async init(): Promise<void> {
-    await Promise.all([this.tifLoader.init(), this.exrLoader.init(), this.psdLoader.init()]);
+    await Promise.all([
+      this.tifLoader.init(),
+      this.exrLoader.init(),
+      this.jxlLoader.init(),
+      this.psdLoader.init(),
+    ]);
   }
 
   needsThumbnail(file: FileDTO) {
@@ -105,6 +115,8 @@ class ImageLoader {
     const handlerType = FormatHandlers[extension];
     switch (handlerType) {
       case 'web':
+      // JPEG XL is decoded inside the thumbnail workers (WebAssembly), so it doesn't block the UI
+      case 'jxlLoader':
         // If the third argument of `generateThumbnailUsingWorker`, "timeoutReject", is set to true,
         // it will cause a reject/throw and return an error inside the imageSource promise when the timeout finishes.
         // If it is set to false, it will resolve the await, causing a "retry-like" behavior by triggering a rerender
@@ -166,6 +178,13 @@ class ImageLoader {
       case 'exrLoader': {
         const src =
           this.srcBufferCache.get(file) ?? (await getBlob(this.exrLoader, file.absolutePath));
+        // Store in cache for a while, so it loads quicker when going back and forth
+        this.updateCache(file, src);
+        return src;
+      }
+      case 'jxlLoader': {
+        const src =
+          this.srcBufferCache.get(file) ?? (await getBlob(this.jxlLoader, file.absolutePath));
         // Store in cache for a while, so it loads quicker when going back and forth
         this.updateCache(file, src);
         return src;
