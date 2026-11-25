@@ -4,7 +4,7 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from '../../contexts/StoreContext';
 
 import { IconSet } from 'widgets';
-import { MenuSubItem, Menu, useContextMenu } from 'widgets/menus';
+import { MenuItem, MenuSubItem, Menu, useContextMenu } from 'widgets/menus';
 
 import Placeholder from './Placeholder';
 import Layout from './LayoutSwitcher';
@@ -56,6 +56,16 @@ const Content = observer(() => {
           <MenuSubItem icon={IconSet.FILTER_NAME_DOWN} text="Sort by...">
             <SortMenuItems />
           </MenuSubItem>
+          <MenuItem
+            icon={IconSet.ARROW_UP}
+            text="Jump to top"
+            onClick={() => fileStore.jumpToFirst()}
+          />
+          <MenuItem
+            icon={IconSet.ARROW_DOWN}
+            text="Jump to bottom"
+            onClick={() => fileStore.jumpToLast()}
+          />
         </Menu>,
       );
     }

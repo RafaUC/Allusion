@@ -18,7 +18,7 @@ import { FileDTO } from '../../../api/file';
 import { useStore } from '../../contexts/StoreContext';
 import { ClientFile } from '../../entities/File';
 import { Row } from './ListItem';
-import { GalleryProps } from './utils';
+import { GalleryProps, isTextFieldEvent } from './utils';
 
 const SCROLL_PAGE_THRESHOLD = 50;
 
@@ -117,6 +117,16 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
 
   useEffect(() => {
     const onKeyDown = action((e: KeyboardEvent) => {
+      // Home/End jump to the first/last file, also when nothing is selected
+      if ((e.key === 'Home' || e.key === 'End') && !isTextFieldEvent(e) && !uiStore.isSlideMode) {
+        e.preventDefault();
+        if (e.key === 'Home') {
+          fileStore.jumpToFirst();
+        } else {
+          fileStore.jumpToLast();
+        }
+        return;
+      }
       let index = lastSelectionIndex.current;
       if (index === undefined) {
         return;
@@ -136,6 +146,21 @@ const ListGallery = observer(({ contentRect, select, lastSelectionIndex }: Galle
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileStore, select]);
+
+  // After a jump to the first/last file (Home/End or the context menu), scroll to it once the new page has loaded
+  const lastJump = fileStore.lastJump;
+  const handledJump = useRef(lastJump);
+  useEffect(() => {
+    if (!lastJump || lastJump === handledJump.current) {
+      return;
+    }
+    handledJump.current = lastJump;
+    const timeout = setTimeout(() => {
+      const lastIndex = runInAction(() => fileStore.fileList.length - 1);
+      ref.current?.scrollToItem(lastJump.position === 'first' ? 0 : lastIndex);
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [fileStore, lastJump]);
 
   // TODO: resizing columns is broken
 

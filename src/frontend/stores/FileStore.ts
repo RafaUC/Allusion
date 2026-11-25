@@ -96,6 +96,11 @@ class FileStore {
    * Useful for in react component dependencies that need to trigger logic when the fileList changes
    */
   @observable fileListLastRefetch = new Date();
+  /**
+   * Set (to a new object each time) once a jumpToFirst/jumpToLast has finished loading its page,
+   * so the active gallery layout can scroll to the start/end of the file list.
+   */
+  @observable lastJump: { position: 'first' | 'last' } | undefined = undefined;
   /** A map of file ID to its index in the file list, for quick lookups by ID */
   private readonly index = new Map<ID, number>();
 
@@ -1136,6 +1141,7 @@ class FileStore {
     this.rootStore.uiStore.clearFileSelection();
     this.rootStore.uiStore.clearFirstItem();
     await this.refetch();
+    runInAction(() => (this.lastJump = { position: 'first' }));
   }
 
   @action.bound async jumpToLast(): Promise<void> {
@@ -1154,6 +1160,7 @@ class FileStore {
     this.rootStore.uiStore.clearFileSelection();
     this.rootStore.uiStore.setFirstItem(lastClientFile);
     await this.refetch();
+    runInAction(() => (this.lastJump = { position: 'last' }));
   }
 
   @action.bound incrementNumUntaggedFiles(): void {

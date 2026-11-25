@@ -10,6 +10,15 @@ export interface GalleryProps {
   select: (file: ClientFile | undefined, selectAdditive: boolean, selectRange: boolean) => void;
 }
 
+/** Whether a keyboard event comes from a text field, where Home/End should move the caret instead */
+export function isTextFieldEvent(e: KeyboardEvent): boolean {
+  const target = e.target;
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  );
+}
+
 const PADDING = 8;
 const CELL_SIZE_SMALL = 160 + PADDING;
 const CELL_SIZE_MEDIUM = 240 + PADDING;
